@@ -33,7 +33,11 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # The quality gate runs once the package has a manifest; until then
-      # there is nothing to score.
+      # there is nothing to score. swamp needs a swamp-club account: a
+      # collective token and the signin token issued with it.
       - name: Extension quality
         if: hashFiles('manifest.yaml') != ''
+        env:
+          SWAMP_API_KEY: ${{ secrets.SWAMP_API_KEY }}
+          SWAMP_SIGNIN_TOKEN: ${{ secrets.SWAMP_SIGNIN_TOKEN }}
         run: swamp extension quality manifest.yaml
