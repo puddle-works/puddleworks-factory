@@ -100,6 +100,19 @@ git -C $HOME/dev/puddleworks-apps-draft-NAME commit -q --author="Claude Code <cl
 git -C $HOME/dev/puddleworks-apps-draft-NAME push -u origin draft/NAME
 ```
 
+Then write the build result (`puddleworks.dev/build-result/v1`, see
+`docs/contracts/build-result.md` in the puddleworks-factory repo), so whoever
+handed over the spec can see where the build went. `REPO` is the app repo's
+https URL, e.g. `https://github.com/puddle-works/puddleworks-apps`:
+
+```bash
+swamp workflow run @mesgme/puddleworks-factory-result --input name=NAME --input repository=REPO \
+  --input buildRef=draft/NAME --input out=<scratchpad>/NAME.build-result.json --json | jq -r .status
+```
+
+Expect `succeeded`. `No draft of "NAME" has been rendered` means the generate
+step above did not run on this swamp repo's `puddleworks-factory` model.
+
 ## Step 4: Write the plan
 
 Read `W/puddles/NAME/CLAUDE.md` (purpose, inputs, settings, output, out of
@@ -129,7 +142,9 @@ scope), the spec, and the skeleton under `W/extensions/models/` and
   fresh worktree).
 - **Commit and draft PR**: commit with
   `--author="Claude Code <claude-code@anthropic.com>"`, push `draft/NAME`, open
-  a draft PR to the app repo, never merge.
+  a draft PR to the app repo, never merge. Then run
+  `@mesgme/puddleworks-factory-result` again as in step 3, adding
+  `--input pullRequest=<PR URL>`, so the build result links the PR.
 - **Verification**, including a real end-to-end run of the workflow.
 
 Save it to the scratchpad as `plan.md` and copy it to `~/.claude/plans/NAME.md`
@@ -137,7 +152,8 @@ so a bare `/race` picks it up.
 
 ## Step 5: Stop and report
 
-Tell the user the branch (`draft/NAME`) and the plan file path
-(`~/.claude/plans/NAME.md`). Do not implement anything, open a PR, or start
-racers. If the spec came from Capture, recording the build on the request is
-Capture's job, not this skill's.
+Tell the user the branch (`draft/NAME`), the plan file path
+(`~/.claude/plans/NAME.md`) and the build result file. Do not implement
+anything, open a PR, or start racers. If the spec came from Capture, recording
+the build result on the request is Capture's job, not this skill's: hand it the
+build result file.

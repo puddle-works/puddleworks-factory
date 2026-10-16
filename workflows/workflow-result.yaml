@@ -1,0 +1,70 @@
+id: 3d1712da-b0e9-4aa6-973d-43eed007cfa6
+name: "@mesgme/puddleworks-factory-result"
+description: >-
+  Write a puddleworks.dev/build-result/v1 for the last draft of an app spec:
+  the extension, its entry point, the repository, the branch or commit, and
+  the pull request once there is one. Run it after the draft is pushed, and
+  again once the pull request is open. The result is recorded as a resource
+  on the puddleworks-factory model and, with out, written to a JSON file that
+  anyone (such as puddleworks-capture) can read.
+version: 1
+
+inputs:
+  type: object
+  properties:
+    name:
+      type: string
+      description: >-
+        The app spec's name, as drafted by @mesgme/puddleworks-factory-build
+        on this swamp repo's puddleworks-factory model.
+    repository:
+      type: string
+      description: >-
+        https URL of the repository the draft was pushed to, e.g.
+        https://github.com/puddle-works/puddleworks-apps.
+    buildRef:
+      type: string
+      description: >-
+        Branch or commit the build is on, e.g. draft/<name>.
+    pullRequest:
+      type: string
+      description: >-
+        https URL of the pull request that proposes the build. Leave blank
+        until it is open.
+      default: ""
+    out:
+      type: string
+      description: >-
+        File to write the build result to as JSON. Leave blank to record it
+        only as a resource.
+      default: ""
+  required:
+    - name
+    - repository
+    - buildRef
+
+jobs:
+  - name: result
+    description: >-
+      Check the build result against the contract, then record it. A result
+      that breaks the contract writes nothing.
+    dependsOn: []
+    weight: 0
+    steps:
+      - name: result
+        description: >-
+          Write the build result as a puddleworks-factory resource and, with
+          out, to a file.
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+        task:
+          type: model_method
+          modelIdOrName: puddleworks-factory
+          methodName: result
+          inputs:
+            name: ${{ inputs.name }}
+            repository: ${{ inputs.repository }}
+            buildRef: ${{ inputs.buildRef }}
+            pullRequest: ${{ inputs.pullRequest }}
+            out: ${{ inputs.out }}

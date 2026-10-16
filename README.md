@@ -12,17 +12,21 @@ and the epic puddle-works/puddleworks#207.
 | ------------------------------------------------------ | --------------------------------------------- |
 | `app-spec/v1` from a path, an https URL or inline JSON | the extension's files and a `build-result/v1` |
 
+The build result contract is in
+[docs/contracts/build-result.md](docs/contracts/build-result.md).
+
 The spec contract is in
 [docs/contracts/app-spec.md](docs/contracts/app-spec.md), with an
 [example](docs/contracts/app-spec.v1.example.json).
 
 ## What is in the package
 
-| Kind     | Name                                | What it does                                                                            |
-| -------- | ----------------------------------- | --------------------------------------------------------------------------------------- |
-| Model    | `@mesgme/puddleworks-factory/draft` | `render` reads a spec and writes the extension, its tests, a workflow and the app docs  |
-| Workflow | `@mesgme/puddleworks-factory-build` | Runs `render` on the `puddleworks-factory` instance                                     |
-| Skill    | `factory-build`                     | Drives a build end to end: branch in the app repo, generate, commit, write a build plan |
+| Kind     | Name                                 | What it does                                                                            |
+| -------- | ------------------------------------ | --------------------------------------------------------------------------------------- |
+| Model    | `@mesgme/puddleworks-factory/draft`  | `render` reads a spec and writes the extension, its tests, a workflow and the app docs  |
+| Workflow | `@mesgme/puddleworks-factory-build`  | Runs `render` on the `puddleworks-factory` instance                                     |
+| Workflow | `@mesgme/puddleworks-factory-result` | Runs `result`: writes a `build-result/v1` for the last draft of a spec                  |
+| Skill    | `factory-build`                      | Drives a build end to end: branch in the app repo, generate, commit, write a build plan |
 
 ## Use
 
@@ -53,6 +57,17 @@ swamp workflow run @mesgme/puddleworks-factory-build \
 A spec that breaks the contract writes nothing and lists every broken rule.
 Existing files are kept unless you pass `--input overwrite=true`.
 `--input visibility=private` keeps the drafted package off the public registry.
+
+Once the draft is pushed, write the build result. Add `pullRequest` once the
+pull request is open:
+
+```bash
+swamp workflow run @mesgme/puddleworks-factory-result \
+  --input name=obsidian-puddle-scanner \
+  --input repository=https://github.com/puddle-works/puddleworks-apps \
+  --input buildRef=draft/obsidian-puddle-scanner \
+  --input out=$HOME/obsidian-puddle-scanner.build-result.json
+```
 
 ## Development
 
