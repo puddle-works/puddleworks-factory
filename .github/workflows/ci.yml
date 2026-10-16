@@ -41,3 +41,12 @@ jobs:
           SWAMP_API_KEY: ${{ secrets.SWAMP_API_KEY }}
           SWAMP_SIGNIN_TOKEN: ${{ secrets.SWAMP_SIGNIN_TOKEN }}
         run: swamp extension quality manifest.yaml
+
+      # Checks the package would publish (it packs, bundles and asks the
+      # registry) without publishing anything.
+      - name: Push dry run
+        if: hashFiles('manifest.yaml') != ''
+        env:
+          SWAMP_API_KEY: ${{ secrets.SWAMP_API_KEY }}
+          SWAMP_SIGNIN_TOKEN: ${{ secrets.SWAMP_SIGNIN_TOKEN }}
+        run: swamp extension push manifest.yaml --dry-run
