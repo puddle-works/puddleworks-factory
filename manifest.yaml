@@ -1,0 +1,16 @@
+manifestVersion: 1
+name: "@mesgme/puddleworks-factory"
+version: "2026.10.16.1"
+description: "Puddleworks Factory: build the first draft of a swamp app from a puddleworks.dev/app-spec/v1 spec read from a file, an https URL or inline JSON"
+repository: "https://github.com/puddle-works/puddleworks-factory"
+visibility: private
+labels:
+  - puddleworks
+additionalFiles:
+  - README.md
+models:
+  - draft.ts
+workflows:
+  - workflow-build.yaml
+skills:
+  - factory-build

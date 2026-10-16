@@ -1,0 +1,52 @@
+{
+  "apiVersion": "puddleworks.dev/app-spec/v1",
+  "kind": "AppSpec",
+  "name": "obsidian-puddle-scanner",
+  "title": "Scan Obsidian vault for tasks that could become puddle requests",
+  "specification": {
+    "purpose": "Search an Obsidian vault for open task lines and list them with the file each came from, as candidates for puddle requests.",
+    "inputs": [
+      {
+        "name": "folder",
+        "type": "string",
+        "description": "Folder inside the vault to search. Leave empty to search the whole vault.",
+        "required": false,
+        "default": ""
+      },
+      {
+        "name": "query",
+        "type": "string",
+        "description": "Text that marks a candidate line. The default finds open task checkboxes.",
+        "required": false,
+        "default": "- [ ]"
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "description": "Most matches to return.",
+        "required": false,
+        "default": 50
+      }
+    ],
+    "output": "A list of matching lines, each with the path of the note it came from.",
+    "outOfScope": [
+      "Creating puddle requests automatically",
+      "AI classification of the matches",
+      "Editing the vault"
+    ],
+    "settings": [
+      {
+        "name": "vaultPath",
+        "description": "Absolute path of the Obsidian vault on the machine that runs the app.",
+        "sensitive": false
+      }
+    ],
+    "recordedBy": "builder@example.com",
+    "recordedAt": "2026-10-06T10:00:00.000Z"
+  },
+  "delivery": {
+    "method": "workflow_form",
+    "entryPointRef": "obsidian-scan"
+  },
+  "reusabilityNote": "Works on any Obsidian vault; the folder and query are inputs, the vault path is a setting."
+}
