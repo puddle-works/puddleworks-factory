@@ -1,0 +1,64 @@
+id: d23122ca-0133-4c01-984c-c0b258797790
+name: "@mesgme/puddleworks-factory-build"
+description: >-
+  Write a first draft of a swamp app from a puddleworks.dev/app-spec/v1 spec:
+  an extension whose run method takes the spec's inputs, tests for it, a
+  workflow with the same inputs, and the app docs. The spec can be a file
+  path, an https URL or inline JSON, from Capture or from anywhere else. Files
+  go into an app repo checkout; nothing is committed or pushed. The
+  factory-build skill drives this end to end.
+version: 1
+
+inputs:
+  type: object
+  properties:
+    spec:
+      type: string
+      description: >-
+        The app spec: a file path, an https URL, or the spec itself as inline
+        JSON. JSON or YAML. See docs/contracts/app-spec.md.
+    targetDir:
+      type: string
+      description: >-
+        Absolute path of the app repo checkout to write into (normally a
+        puddleworks-apps worktree). Must contain extensions/models/.
+    overwrite:
+      type: boolean
+      description: >-
+        Replace draft files that already exist. Default false: the run fails
+        and writes nothing if any draft file is already there.
+      default: false
+    visibility:
+      type: string
+      enum: [public, private]
+      description: >-
+        Registry visibility of the drafted package. Default public.
+      default: public
+  required:
+    - spec
+    - targetDir
+
+jobs:
+  - name: build
+    description: >-
+      Read and check the spec, then write the draft. A spec that breaks the
+      contract, or a delivery method with no workflow, writes nothing.
+    dependsOn: []
+    weight: 0
+    steps:
+      - name: render
+        description: >-
+          Write the draft files into targetDir and record them in the
+          puddleworks-factory model's draft data.
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+        task:
+          type: model_method
+          modelIdOrName: puddleworks-factory
+          methodName: render
+          inputs:
+            spec: ${{ inputs.spec }}
+            targetDir: ${{ inputs.targetDir }}
+            overwrite: ${{ inputs.overwrite }}
+            visibility: ${{ inputs.visibility }}
