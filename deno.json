@@ -1,0 +1,5 @@
+{
+  "fmt": {
+    "exclude": ["CLAUDE.md", "AGENTS.md", ".claude/", ".swamp/", "vaults/"]
+  }
+}
