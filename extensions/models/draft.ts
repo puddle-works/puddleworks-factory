@@ -32,6 +32,12 @@ import {
   type SpecInput,
 } from "../contracts/app_spec_v1.ts";
 import { loadAppSpec, type SpecIo } from "../lib/spec_source.ts";
+import {
+  BUILD_RESULT_V1,
+  type BuildResult,
+  BuildResultSchema,
+  parseBuildResult,
+} from "../contracts/build_result_v1.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -679,6 +685,28 @@ const RenderArgsSchema = z.object({
 
 type RenderArgs = z.infer<typeof RenderArgsSchema>;
 
+/** Workflows pass "" for an input left blank; treat it as not given. */
+const optional = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
+
+const ResultArgsSchema = z.object({
+  /** The app spec's name, as drafted by `render` on this instance. */
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+  /** https URL of the repository the draft was pushed to. */
+  repository: z.string().min(1),
+  /** Branch or commit the build is on, e.g. `draft/<name>`. */
+  buildRef: z.string().min(1),
+  /** https URL of the pull request, once there is one. */
+  pullRequest: optional(z.string()),
+  /** File to write the build result to as JSON, as well as the resource. */
+  out: optional(z.string()),
+});
+
+type ResultArgs = z.infer<typeof ResultArgsSchema>;
+
+/** Name of the build result resource for an app spec. */
+const resultName = (name: string) => `build-result-${name}`;
+
 /** Where specs are read from. Tests swap these to avoid the network. */
 export const io: SpecIo = {
   readTextFile: (path) => Deno.readTextFile(path),
@@ -693,6 +721,10 @@ interface MethodContext {
     name: string,
     data: Record<string, unknown>,
   ) => Promise<{ name: string }>;
+  readResource?: (
+    instanceName: string,
+    version?: number,
+  ) => Promise<Record<string, unknown> | null>;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -705,16 +737,35 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-/** The `@mesgme/puddleworks-factory/draft` model: `render` writes a first draft from an app spec. */
+/**
+ * The `@mesgme/puddleworks-factory/draft` model: `render` writes a first draft
+ * from an app spec, and `result` says where that build went.
+ */
 export const model = {
   type: "@mesgme/puddleworks-factory/draft",
-  version: "2026.10.16.1",
+  version: "2026.10.16.2",
+  upgrades: [
+    {
+      toVersion: "2026.10.16.2",
+      description:
+        "Adds the result method and the buildResult resource (build-result/v1). " +
+        "No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+  ],
   globalArguments: GlobalArgsSchema,
   resources: {
     draft: {
       description:
         "The last first draft rendered for an app spec: which files were written where.",
       schema: DraftSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
+    buildResult: {
+      description:
+        `A ${BUILD_RESULT_V1}: what a build produced and where it is, for anyone to read.`,
+      schema: BuildResultSchema,
       lifetime: "infinite" as const,
       garbageCollection: 20,
     },
@@ -783,6 +834,69 @@ export const model = {
           overwrote: present,
           renderedAt: new Date().toISOString(),
         });
+        return { dataHandles: [handle] };
+      },
+    },
+    result: {
+      description:
+        `Write a ${BUILD_RESULT_V1} for the last draft of an app spec: the extension, ` +
+        "its entry point, the repository, the branch or commit, and the pull request. " +
+        "Records it as a resource and, with out, as a JSON file.",
+      arguments: ResultArgsSchema,
+      execute: async (args: ResultArgs, context: MethodContext) => {
+        const raw = context.readResource
+          ? await context.readResource(args.name)
+          : null;
+        const draft = raw ? DraftSchema.safeParse(raw) : null;
+        if (!draft?.success) {
+          throw new Error(
+            `No draft of "${args.name}" has been rendered by this model instance. ` +
+              "Run @mesgme/puddleworks-factory-build for the spec first.",
+          );
+        }
+        const manifest = draft.data.files.find((f) =>
+          f.endsWith("/manifest.yaml")
+        );
+        const candidate: BuildResult = {
+          apiVersion: BUILD_RESULT_V1,
+          kind: "BuildResult",
+          name: args.name,
+          extension: draft.data.modelType,
+          entryPointRef: draft.data.entryPointRef,
+          repository: args.repository,
+          ...(manifest
+            ? { path: manifest.slice(0, manifest.lastIndexOf("/")) }
+            : {}),
+          buildRef: args.buildRef,
+          ...(args.pullRequest ? { pullRequest: args.pullRequest } : {}),
+          builtAt: new Date().toISOString(),
+        };
+        const parsed = parseBuildResult(candidate);
+        if (!parsed.ok) {
+          throw new Error(
+            `The build result is not a valid ${BUILD_RESULT_V1}:\n- ${
+              parsed.problems.join("\n- ")
+            }`,
+          );
+        }
+
+        if (args.out) {
+          const dir = args.out.slice(0, args.out.lastIndexOf("/"));
+          if (dir) await Deno.mkdir(dir, { recursive: true });
+          await Deno.writeTextFile(
+            args.out,
+            JSON.stringify(parsed.result, null, 2) + "\n",
+          );
+        }
+        context.logger.info("Build result for {name}: {buildRef}", {
+          name: args.name,
+          buildRef: args.buildRef,
+        });
+        const handle = await context.writeResource(
+          "buildResult",
+          resultName(args.name),
+          parsed.result,
+        );
         return { dataHandles: [handle] };
       },
     },

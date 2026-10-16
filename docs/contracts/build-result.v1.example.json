@@ -1,0 +1,12 @@
+{
+  "apiVersion": "puddleworks.dev/build-result/v1",
+  "kind": "BuildResult",
+  "name": "obsidian-puddle-scanner",
+  "extension": "@puddleworks/obsidian-puddle-scanner",
+  "entryPointRef": "@puddleworks/obsidian-scan",
+  "repository": "https://github.com/puddle-works/puddleworks-apps",
+  "path": "puddles/obsidian-puddle-scanner",
+  "buildRef": "draft/obsidian-puddle-scanner",
+  "pullRequest": "https://github.com/puddle-works/puddleworks-apps/pull/42",
+  "builtAt": "2026-10-16T10:00:00.000Z"
+}

@@ -1,0 +1,57 @@
+# The build result contract: `puddleworks.dev/build-result/v1`
+
+A build result says what a build produced and where it is. Factory writes one
+after a build. Anything can read it: puddleworks-capture records it against the
+request the spec came from, and a person or another tool can read it as it is.
+Any factory may write one, not only this one
+([ADR-001](../adr/ADR-001-three-separate-apps.md)).
+
+- Schema and parser:
+  [`extensions/contracts/build_result_v1.ts`](../../extensions/contracts/build_result_v1.ts)
+- Example: [`build-result.v1.example.json`](build-result.v1.example.json)
+
+This is Factory's copy. Every Puddleworks app that reads or writes the build
+result keeps its own copy and tests against the same example file.
+
+## How Factory writes one
+
+The `@mesgme/puddleworks-factory-result` workflow builds the result from its
+inputs and the last draft that `@mesgme/puddleworks-factory-build` rendered for
+the same `name`. It records the result as a `buildResult` resource
+(`build-result-<name>`) and, with `out`, writes it to a JSON file. Run it after
+the draft branch is pushed, and again once the pull request is open; the latest
+one wins.
+
+```bash
+swamp workflow run @mesgme/puddleworks-factory-result \
+  --input name=obsidian-puddle-scanner \
+  --input repository=https://github.com/puddle-works/puddleworks-apps \
+  --input buildRef=draft/obsidian-puddle-scanner \
+  --input pullRequest=https://github.com/puddle-works/puddleworks-apps/pull/42 \
+  --input out=$HOME/obsidian-puddle-scanner.build-result.json
+```
+
+## Shape
+
+| Field           | Required | Meaning                                                                       |
+| --------------- | -------- | ----------------------------------------------------------------------------- |
+| `apiVersion`    | yes      | Always `puddleworks.dev/build-result/v1`                                      |
+| `kind`          | yes      | Always `BuildResult`                                                          |
+| `name`          | yes      | The app spec's `name`: which spec was built. A slug                           |
+| `extension`     | yes      | Package name of the built extension, `@<scope>/<name>`                        |
+| `entryPointRef` | yes      | The workflow to run the app with, `@<scope>/<slug>`                           |
+| `repository`    | yes      | `https://` URL of the repository the build was written to                     |
+| `path`          | no       | Where in the repository the app's manifest and docs are. Relative, no `..`    |
+| `buildRef`      | yes      | Branch or commit the build is on                                              |
+| `pullRequest`   | no       | `https://` URL of the pull request that proposes the build, once there is one |
+| `builtAt`       | yes      | ISO 8601 timestamp of when the result was written                             |
+
+`parseBuildResult` checks the shape and returns each broken rule as a sentence.
+
+## Changing the contract
+
+- Adding an **optional** field is a v1 change. Readers must ignore fields they
+  do not know.
+- Renaming, removing or tightening a field, or adding a required one, is a new
+  version (`build-result/v2`). Writers then emit v2 and readers accept both
+  until every reader has moved. Each app's copy changes in its own PR.
