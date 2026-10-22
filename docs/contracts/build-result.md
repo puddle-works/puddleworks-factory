@@ -44,6 +44,7 @@ swamp workflow run @mesgme/puddleworks-factory-result \
 | `path`          | no       | Where in the repository the app's manifest and docs are. Relative, no `..`    |
 | `buildRef`      | yes      | Branch or commit the build is on                                              |
 | `pullRequest`   | no       | `https://` URL of the pull request that proposes the build, once there is one |
+| `source`        | no       | The app spec's `source`, when it had one: where the spec was agreed           |
 | `builtAt`       | yes      | ISO 8601 timestamp of when the result was written                             |
 
 `parseBuildResult` checks the shape and returns each broken rule as a sentence.

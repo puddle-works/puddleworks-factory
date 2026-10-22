@@ -1,7 +1,7 @@
 /**
- * Read an app spec from wherever it is, so Factory can build from a spec that
- * puddleworks-capture exported, one a person wrote by hand, or one another
- * tool published.
+ * Read a spec from wherever it is, so Factory can build from an outcome spec
+ * that puddleworks-capture exported, an app spec a person wrote by hand, or
+ * one another tool published.
  *
  * | `source` starts with | Read as                          |
  * | -------------------- | -------------------------------- |
@@ -18,6 +18,11 @@ import {
   type AppSpec,
   parseAppSpec,
 } from "../contracts/app_spec_v1.ts";
+import {
+  OUTCOME_SPEC_V1,
+  type OutcomeSpec,
+  parseOutcomeSpec,
+} from "../contracts/outcome_spec_v1.ts";
 
 /** The file system and network, passed in so tests need neither. */
 export interface SpecIo {
@@ -63,26 +68,50 @@ async function readText(
   }
 }
 
-/** Read and check an app spec. Throws a plain-language error naming the source. */
-export async function loadAppSpec(
+/** Read text as JSON or YAML, saying where it came from when it is neither. */
+async function readValue(
   source: string,
   io: SpecIo,
-): Promise<LoadedSpec> {
+): Promise<{ value: unknown; from: string; where: string }> {
   const { text, from } = await readText(source, io);
   const where = from === "inline" ? "The inline spec" : from;
-  let value: unknown;
   try {
     // YAML is a superset of JSON, so one parser reads both.
-    value = parseYaml(text);
+    return { value: parseYaml(text), from, where };
   } catch (e) {
     throw new Error(
       `${where} is not JSON or YAML: ${(e as Error).message.split("\n")[0]}`,
     );
   }
+}
+
+/** Read and check an app spec. Throws a plain-language error naming the source. */
+export async function loadAppSpec(
+  source: string,
+  io: SpecIo,
+): Promise<LoadedSpec> {
+  const { value, from, where } = await readValue(source, io);
   const parsed = parseAppSpec(value);
   if (!parsed.ok) {
     throw new Error(
       `${where} is not a valid ${APP_SPEC_V1} spec:\n- ${
+        parsed.problems.join("\n- ")
+      }`,
+    );
+  }
+  return { spec: parsed.spec, source: from };
+}
+
+/** Read and check an outcome spec, from the same places as an app spec. */
+export async function loadOutcomeSpec(
+  source: string,
+  io: SpecIo,
+): Promise<{ spec: OutcomeSpec; source: string }> {
+  const { value, from, where } = await readValue(source, io);
+  const parsed = parseOutcomeSpec(value);
+  if (!parsed.ok) {
+    throw new Error(
+      `${where} is not a valid ${OUTCOME_SPEC_V1} spec:\n- ${
         parsed.problems.join("\n- ")
       }`,
     );

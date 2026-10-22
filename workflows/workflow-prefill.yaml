@@ -1,0 +1,57 @@
+id: 597030c2-af50-4ee9-882f-0a449893bd89
+name: "@mesgme/puddleworks-factory-prefill"
+description: >-
+  Write a starter puddleworks.dev/app-spec/v1 from an agreed
+  puddleworks.dev/outcome-spec/v1, as exported by puddleworks-capture. It
+  copies what the outcome spec says (title, purpose, out of scope, who agreed
+  it and when) and links back to where it was agreed. The app name is only a
+  suggestion, and inputs, output, settings and delivery method are left blank
+  for the builder; the prefill resource lists them. The starter does not pass
+  @mesgme/puddleworks-factory-build until they are filled in.
+version: 1
+
+inputs:
+  type: object
+  properties:
+    outcomeSpec:
+      type: string
+      description: >-
+        The outcome spec: a file path, an https URL, or the spec itself as
+        inline JSON. See docs/contracts/outcome-spec.md.
+    out:
+      type: string
+      description: >-
+        File to write the starter app spec to, as JSON.
+    overwrite:
+      type: boolean
+      description: >-
+        Replace out if it is already there. Default false: the run fails and
+        writes nothing, because the file may hold the builder's edits.
+      default: false
+  required:
+    - outcomeSpec
+    - out
+
+jobs:
+  - name: prefill
+    description: >-
+      Read and check the outcome spec, then write the starter app spec. An
+      outcome spec that breaks the contract writes nothing.
+    dependsOn: []
+    weight: 0
+    steps:
+      - name: prefill
+        description: >-
+          Write the starter to out and record what is left to decide in the
+          puddleworks-factory model's prefill data.
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+        task:
+          type: model_method
+          modelIdOrName: puddleworks-factory
+          methodName: prefill
+          inputs:
+            outcomeSpec: ${{ inputs.outcomeSpec }}
+            out: ${{ inputs.out }}
+            overwrite: ${{ inputs.overwrite }}

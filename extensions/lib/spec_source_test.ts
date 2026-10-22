@@ -13,12 +13,16 @@ import {
   assertStringIncludes,
 } from "jsr:@std/assert@1";
 import { stringify as toYaml } from "jsr:@std/yaml@1";
-import { loadAppSpec, type SpecIo } from "./spec_source.ts";
+import { loadAppSpec, loadOutcomeSpec, type SpecIo } from "./spec_source.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
 );
 const EXAMPLE = JSON.parse(EXAMPLE_TEXT);
+
+const OUTCOME_TEXT = await Deno.readTextFile(
+  new URL("../../docs/contracts/outcome-spec.v1.example.json", import.meta.url),
+);
 
 /** No file system and no network unless a test gives them. */
 function io(overrides: Partial<SpecIo> = {}): SpecIo {
@@ -153,4 +157,27 @@ Deno.test("spec source: a spec that breaks the contract lists every problem", as
   );
   assertStringIncludes(err.message, "not a valid puddleworks.dev/app-spec/v1");
   assertStringIncludes(err.message, "name");
+});
+
+Deno.test("spec source: an outcome spec is read from the same places", async () => {
+  const inline = await loadOutcomeSpec(OUTCOME_TEXT, io());
+  assertEquals(inline.source, "inline");
+  assertEquals(inline.spec.format, "puddleworks.dev/outcome-spec/v1");
+  const file = await loadOutcomeSpec(
+    "/exports/stock.json",
+    io({ readTextFile: () => Promise.resolve(OUTCOME_TEXT) }),
+  );
+  assertEquals(file.source, "/exports/stock.json");
+  assertEquals(file.spec, inline.spec);
+});
+
+Deno.test("spec source: an app spec given as an outcome spec says which format it needs", async () => {
+  const err = await assertRejects(
+    () => loadOutcomeSpec(EXAMPLE_TEXT, io()),
+    Error,
+  );
+  assertStringIncludes(
+    err.message,
+    "not a valid puddleworks.dev/outcome-spec/v1",
+  );
 });

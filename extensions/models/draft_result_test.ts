@@ -48,6 +48,7 @@ function makeContext() {
 
 async function withDraft(
   fn: (dir: string, ctx: ReturnType<typeof makeContext>) => Promise<void>,
+  spec = EXAMPLE_TEXT,
 ) {
   const dir = await Deno.makeTempDir({ prefix: "puddle-apps-" });
   try {
@@ -55,7 +56,7 @@ async function withDraft(
     const ctx = makeContext();
     await model.methods.render.execute(
       {
-        spec: EXAMPLE_TEXT,
+        spec,
         targetDir: dir,
         overwrite: false,
         visibility: "public",
@@ -154,5 +155,30 @@ Deno.test("result: a link that is not https writes nothing", async () => {
     );
     assertStringIncludes(err.message, "repository");
     assertEquals(ctx.writes.length, before);
+  });
+});
+
+Deno.test("result: carries where the spec was agreed into the build result", async () => {
+  const source = {
+    url: "http://localhost:3001/requests/8f0c6a52",
+    version: 2,
+    specHash: "3736f9d3",
+  };
+  const spec = JSON.stringify({ ...JSON.parse(EXAMPLE_TEXT), source });
+  await withDraft(async (_dir, ctx) => {
+    await model.methods.result.execute(resultArgs(), ctx);
+    const parsed = parseBuildResult(
+      ctx.store.get("build-result-obsidian-puddle-scanner"),
+    );
+    assertEquals(parsed.ok, true, JSON.stringify(parsed));
+    if (parsed.ok) assertEquals(parsed.result.source, source);
+  }, spec);
+});
+
+Deno.test("result: a spec with no source gives a build result with none", async () => {
+  await withDraft(async (_dir, ctx) => {
+    await model.methods.result.execute(resultArgs(), ctx);
+    const data = ctx.store.get("build-result-obsidian-puddle-scanner")!;
+    assertEquals("source" in data, false);
   });
 });

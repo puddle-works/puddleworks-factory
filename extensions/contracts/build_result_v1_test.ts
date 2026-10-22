@@ -88,3 +88,14 @@ Deno.test("build-result: a v1 reader ignores fields it does not know", () => {
   assertEquals(result.ok, true);
   if (result.ok) assertEquals("racer" in result.result, false);
 });
+
+Deno.test("build-result: the spec's source is optional, and kept when given", () => {
+  const source = {
+    url: "https://capture.example.com/requests/8f0c6a52",
+    version: 1,
+    specHash: "3736f9d3",
+  };
+  const result = parseBuildResult({ ...EXAMPLE, source });
+  assertEquals(result.ok, true);
+  if (result.ok) assertEquals(result.result.source, source);
+});

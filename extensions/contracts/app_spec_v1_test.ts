@@ -58,3 +58,38 @@ Deno.test("app-spec: a v1 reader ignores fields it does not know", () => {
   assertEquals(result.ok, true);
   if (result.ok) assertEquals("factory" in result.spec, false);
 });
+
+const SOURCE = {
+  url: "http://localhost:3001/requests/8f0c6a52-3d1e-4b8a-9f62-0b7d4e6c2a11",
+  version: 2,
+  specHash: "3736f9d309d3d1abf003b31f19e8244738da099f2c75731c769aa46ced758cc1",
+};
+
+Deno.test("app-spec: source is optional, and kept when given", () => {
+  const result = parseAppSpec({ ...EXAMPLE, source: SOURCE });
+  assertEquals(result.ok, true);
+  if (result.ok) assertEquals(result.spec.source, SOURCE);
+});
+
+Deno.test("app-spec: source needs only a link; version and hash are optional", () => {
+  const result = parseAppSpec({ ...EXAMPLE, source: { url: SOURCE.url } });
+  assertEquals(result.ok, true);
+});
+
+Deno.test("app-spec: the source link must be a web address", () => {
+  const problems = problemsOf({
+    ...EXAMPLE,
+    source: { ...SOURCE, url: "file:///etc/passwd" },
+  });
+  assertEquals(problems.length, 1);
+  assertStringIncludes(problems[0], "source.url");
+});
+
+Deno.test("app-spec: the source version is a positive whole number", () => {
+  const problems = problemsOf({
+    ...EXAMPLE,
+    source: { ...SOURCE, version: 0 },
+  });
+  assertEquals(problems.length, 1);
+  assertStringIncludes(problems[0], "source.version");
+});

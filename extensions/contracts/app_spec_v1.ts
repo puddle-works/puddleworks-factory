@@ -132,6 +132,21 @@ export function specificationProblems(
   return problems;
 }
 
+/**
+ * Where the spec was agreed, for a link back to the discussion behind it: a
+ * Capture request page, an issue, or any other web page. Optional.
+ */
+export const SpecSourceSchema = z.object({
+  /** Web page where the spec was agreed. http is allowed: Capture can run locally. */
+  url: z.url({ protocol: /^https?$/ }),
+  /** Version of the agreed spec there, so a later revision is visibly different. */
+  version: z.number().int().positive().optional(),
+  /** Hash of the agreed spec there, as that system worked it out. */
+  specHash: z.string().min(1).optional(),
+});
+
+export type SpecSource = z.infer<typeof SpecSourceSchema>;
+
 /** The portable spec: what to build, and how it will be delivered. */
 export const AppSpecSchema = z.object({
   apiVersion: z.literal(APP_SPEC_V1),
@@ -147,6 +162,8 @@ export const AppSpecSchema = z.object({
   }),
   /** Why the result is reusable beyond the one case that asked for it. */
   reusabilityNote: z.string().optional(),
+  /** Where the spec was agreed. */
+  source: SpecSourceSchema.optional(),
 });
 
 export type AppSpec = z.infer<typeof AppSpecSchema>;
