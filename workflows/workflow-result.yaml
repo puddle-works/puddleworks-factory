@@ -1,5 +1,5 @@
 id: 3d1712da-b0e9-4aa6-973d-43eed007cfa6
-name: "@mesgme/puddleworks-factory-result"
+name: "@puddleworks/puddleworks-factory-result"
 description: >-
   Write a puddleworks.dev/build-result/v1 for the last draft of an app spec:
   the extension, its entry point, the repository, the branch or commit, and
@@ -15,7 +15,7 @@ inputs:
     name:
       type: string
       description: >-
-        The app spec's name, as drafted by @mesgme/puddleworks-factory-build
+        The app spec's name, as drafted by @puddleworks/puddleworks-factory-build
         on this swamp repo's puddleworks-factory model.
     repository:
       type: string

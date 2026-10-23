@@ -17,13 +17,13 @@ less than Capture's does.
 
 ## How Factory uses one
 
-The `@mesgme/puddleworks-factory-prefill` workflow reads an outcome spec (a file
-path, an `https://` URL or inline JSON, as for `spec` in
+The `@puddleworks/puddleworks-factory-prefill` workflow reads an outcome spec (a
+file path, an `https://` URL or inline JSON, as for `spec` in
 [app-spec.md](app-spec.md#where-a-spec-can-come-from)) and writes a starter app
 spec to `out`:
 
 ```bash
-swamp workflow run @mesgme/puddleworks-factory-prefill \
+swamp workflow run @puddleworks/puddleworks-factory-prefill \
   --input outcomeSpec=$HOME/Downloads/weekly-stock-count.outcome-spec.json \
   --input out=$HOME/weekly-stock-count.app-spec.json
 ```

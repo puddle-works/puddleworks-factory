@@ -6,7 +6,7 @@
  *
  * @module
  */
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { prefillAppSpec, slugFrom, type StarterSpec } from "./prefill.ts";
 import { parseAppSpec } from "../contracts/app_spec_v1.ts";
 import {

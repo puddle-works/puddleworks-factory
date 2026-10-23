@@ -15,15 +15,15 @@ result keeps its own copy and tests against the same example file.
 
 ## How Factory writes one
 
-The `@mesgme/puddleworks-factory-result` workflow builds the result from its
-inputs and the last draft that `@mesgme/puddleworks-factory-build` rendered for
-the same `name`. It records the result as a `buildResult` resource
+The `@puddleworks/puddleworks-factory-result` workflow builds the result from
+its inputs and the last draft that `@puddleworks/puddleworks-factory-build`
+rendered for the same `name`. It records the result as a `buildResult` resource
 (`build-result-<name>`) and, with `out`, writes it to a JSON file. Run it after
 the draft branch is pushed, and again once the pull request is open; the latest
 one wins.
 
 ```bash
-swamp workflow run @mesgme/puddleworks-factory-result \
+swamp workflow run @puddleworks/puddleworks-factory-result \
   --input name=obsidian-puddle-scanner \
   --input repository=https://github.com/puddle-works/puddleworks-apps \
   --input buildRef=draft/obsidian-puddle-scanner \

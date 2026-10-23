@@ -11,7 +11,7 @@ import {
   assertEquals,
   assertRejects,
   assertStringIncludes,
-} from "jsr:@std/assert@1";
+} from "jsr:@std/assert@1.0.19";
 import { model } from "./draft.ts";
 import { parseBuildResult } from "../contracts/build_result_v1.ts";
 
@@ -115,6 +115,26 @@ Deno.test("result: out writes the same build result to a file", async () => {
   });
 });
 
+Deno.test("result: an out with no directory writes only that file", async () => {
+  await withDraft(async (_dir, ctx) => {
+    const cwd = await Deno.makeTempDir({ prefix: "factory-result-" });
+    const before = Deno.cwd();
+    Deno.chdir(cwd);
+    try {
+      await model.methods.result.execute(
+        resultArgs({ out: "build-result.json" }),
+        ctx,
+      );
+      const names = [];
+      for await (const e of Deno.readDir(cwd)) names.push(e.name);
+      assertEquals(names, ["build-result.json"]);
+    } finally {
+      Deno.chdir(before);
+      await Deno.remove(cwd, { recursive: true });
+    }
+  });
+});
+
 Deno.test("result: a blank pull request or out is left out", async () => {
   await withDraft(async (dir, ctx) => {
     await model.methods.result.execute(
@@ -138,7 +158,7 @@ Deno.test("result: with no draft for the name it says what to run", async () => 
     Error,
   );
   assertStringIncludes(err.message, "obsidian-puddle-scanner");
-  assertStringIncludes(err.message, "@mesgme/puddleworks-factory-build");
+  assertStringIncludes(err.message, "@puddleworks/puddleworks-factory-build");
   assertEquals(ctx.writes.length, 0);
 });
 

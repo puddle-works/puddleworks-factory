@@ -18,7 +18,7 @@ Turn an app spec into a skeleton on a branch in an app repo (normally
 build plan for filling it in. **This skill writes the plan and stops.** It does
 not write behaviour code, open a PR or start racers.
 
-1. **Generated skeleton**: the `@mesgme/puddleworks-factory-build` workflow
+1. **Generated skeleton**: the `@puddleworks/puddleworks-factory-build` workflow
    checks the spec against the contract and writes the files. The skeleton
    always compiles and passes its own tests. It is committed and pushed on
    `draft/NAME`.
@@ -49,18 +49,18 @@ in the puddleworks-factory repo.
 
 ## Step 1: Make sure the factory model exists
 
-Run swamp from the swamp repo where `@mesgme/puddleworks-factory` is installed.
+Run swamp from the swamp repo where `@puddleworks/puddleworks-factory` is installed.
 Check for the model instance:
 
 ```bash
 swamp model get puddleworks-factory --json 2>&1 | jq -r '.type // .error'
 ```
 
-`@mesgme/puddleworks-factory/draft` means it exists.
+`@puddleworks/puddleworks-factory/draft` means it exists.
 `Model not found: puddleworks-factory` means create it once:
 
 ```bash
-swamp model create @mesgme/puddleworks-factory/draft puddleworks-factory --json | jq -r .type
+swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory --json | jq -r .type
 ```
 
 ## Step 1a: Prefill an app spec from an outcome spec
@@ -71,7 +71,7 @@ JSON, save it first (`curl -fsSL URL -o SP/outcome-spec.json`, or write the
 JSON there) and use that path. Prefill a starter app spec:
 
 ```bash
-swamp workflow run @mesgme/puddleworks-factory-prefill --input outcomeSpec=OUTCOME --input out=SP/app-spec.json --json \
+swamp workflow run @puddleworks/puddleworks-factory-prefill --input outcomeSpec=OUTCOME --input out=SP/app-spec.json --json \
   | jq -r '.status + " " + ([.jobs[].steps[] | select(.status=="failed") | .error] | join(" | "))'
 ```
 
@@ -144,7 +144,7 @@ it to any other worktree.
 ## Step 3: Generate the skeleton
 
 ```bash
-swamp workflow run @mesgme/puddleworks-factory-build --input spec=SPEC --input targetDir=$HOME/dev/puddleworks-apps-draft-NAME --json \
+swamp workflow run @puddleworks/puddleworks-factory-build --input spec=SPEC --input targetDir=$HOME/dev/puddleworks-apps-draft-NAME --json \
   | jq -r '.status + " " + ([.jobs[].steps[] | select(.status=="failed") | .error] | join(" | "))'
 ```
 
@@ -180,7 +180,7 @@ handed over the spec can see where the build went. `REPO` is the app repo's
 https URL, e.g. `https://github.com/puddle-works/puddleworks-apps`:
 
 ```bash
-swamp workflow run @mesgme/puddleworks-factory-result --input name=NAME --input repository=REPO \
+swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME --input repository=REPO \
   --input buildRef=draft/NAME --input out=<scratchpad>/NAME.build-result.json --json | jq -r .status
 ```
 
@@ -220,7 +220,7 @@ constraints and assumptions are scope lines. Then write a plan in the shape of
 - **Commit and draft PR**: commit with
   `--author="Claude Code <claude-code@anthropic.com>"`, push `draft/NAME`, open
   a draft PR to the app repo, never merge. Then run
-  `@mesgme/puddleworks-factory-result` again as in step 3, adding
+  `@puddleworks/puddleworks-factory-result` again as in step 3, adding
   `--input pullRequest=<PR URL>`, so the build result links the PR.
 - **Verification**, including a real end-to-end run of the workflow.
 
@@ -231,6 +231,7 @@ so a bare `/race` picks it up.
 
 Tell the user the branch (`draft/NAME`), the plan file path
 (`~/.claude/plans/NAME.md`) and the build result file. Do not implement
-anything, open a PR, or start racers. If the spec came from Capture, recording
-the build result on the request is Capture's job, not this skill's: hand it the
-build result file. Its `source` names the request, version and hash.
+anything, open a PR, or start racers. If the spec came from Capture, say that
+Capture cannot take the build result back yet (it stops at export), so the
+build result file is the record. Its `source` names the request, version and
+hash, so it can be matched to the request later.

@@ -1,5 +1,5 @@
 id: 597030c2-af50-4ee9-882f-0a449893bd89
-name: "@mesgme/puddleworks-factory-prefill"
+name: "@puddleworks/puddleworks-factory-prefill"
 description: >-
   Write a starter puddleworks.dev/app-spec/v1 from an agreed
   puddleworks.dev/outcome-spec/v1, as exported by puddleworks-capture. It
@@ -7,7 +7,7 @@ description: >-
   it and when) and links back to where it was agreed. The app name is only a
   suggestion, and inputs, output, settings and delivery method are left blank
   for the builder; the prefill resource lists them. The starter does not pass
-  @mesgme/puddleworks-factory-build until they are filled in.
+  @puddleworks/puddleworks-factory-build until they are filled in.
 version: 1
 
 inputs:
