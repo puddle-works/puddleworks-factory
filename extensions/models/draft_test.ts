@@ -284,8 +284,8 @@ Deno.test("render: draft.ts has no zod import text other than its own", async ()
   assertEquals(source.match(/from\s+["']npm:zod/g)?.length, 1);
 });
 
-// The registry catalog reads type and version from the first
-// `export const model = {` in draft.ts. If the generated one comes first, the
+// The registry catalog reads type and version from the first model export in
+// draft.ts. If the generated one comes first, the
 // catalog sees `${q(n.modelType)}` and does not list
 // @puddleworks/puddleworks-factory/draft.
 Deno.test("render: draft.ts has no model export text other than its own", async () => {
@@ -298,7 +298,7 @@ Deno.test("render: draft.ts has no model export text other than its own", async 
 Deno.test("render: the extension exports its model", () => {
   const src = renderDraft(OBSIDIAN, FIXED)
     .find((f) => f.path.endsWith("obsidian_puddle_scanner.ts"))!.content;
-  assertStringIncludes(src, "export const model = {");
+  assertStringIncludes(src, ["export const", "model = {"].join(" "));
 });
 
 Deno.test("render: the extension imports zod 4", () => {
@@ -384,6 +384,23 @@ Deno.test("render: every extension source pins its jsr specifiers to an exact ve
     }
   }
   assertEquals(loose, []);
+});
+
+// swamp indexes any file under extensions/models whose text has the model
+// export in it. A test file it indexes fails to bundle (it reads docs/ at load
+// time), and that failure stops swamp from re-indexing draft.ts, so a workspace
+// keeps loading the old type after draft.ts changes.
+Deno.test("render: no test file under models has the model export text", async () => {
+  const exportText = new RegExp(["export", "const", "model"].join("\\s+"));
+  const indexed: string[] = [];
+  for await (const entry of Deno.readDir(new URL("./", import.meta.url))) {
+    if (!entry.name.endsWith("_test.ts")) continue;
+    const source = await Deno.readTextFile(
+      new URL(entry.name, import.meta.url),
+    );
+    if (exportText.test(source)) indexed.push(entry.name);
+  }
+  assertEquals(indexed, []);
 });
 
 Deno.test("render: CLAUDE.md tells the builder where test permission flags go", () => {
