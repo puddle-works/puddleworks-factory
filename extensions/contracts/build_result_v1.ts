@@ -24,6 +24,13 @@ const repoPath = z.string().min(1).refine(
   "must be relative to the repository root and stay inside it",
 );
 
+/** Where the built spec was agreed: the app spec's `source`, copied as it is. */
+const SourceSchema = z.object({
+  url: z.url({ protocol: /^https?$/ }),
+  version: z.number().int().positive().optional(),
+  specHash: z.string().min(1).optional(),
+});
+
 /** One build of one app spec. */
 export const BuildResultSchema = z.object({
   apiVersion: z.literal(BUILD_RESULT_V1),
@@ -42,6 +49,8 @@ export const BuildResultSchema = z.object({
   buildRef: z.string().min(1),
   /** The pull request that proposes the build, once there is one. */
   pullRequest: httpsUrl.optional(),
+  /** Where the built spec was agreed, when the spec said. */
+  source: SourceSchema.optional(),
   builtAt: z.iso.datetime(),
 });
 

@@ -11,22 +11,25 @@ and the epic puddle-works/puddleworks#207.
 | Takes in                                               | Puts out                                      |
 | ------------------------------------------------------ | --------------------------------------------- |
 | `app-spec/v1` from a path, an https URL or inline JSON | the extension's files and a `build-result/v1` |
+| `outcome-spec/v1` from Capture, the same ways          | a starter `app-spec/v1` for the builder       |
 
-The build result contract is in
-[docs/contracts/build-result.md](docs/contracts/build-result.md).
+The contracts, each with an example, are in `docs/contracts/`:
 
-The spec contract is in
-[docs/contracts/app-spec.md](docs/contracts/app-spec.md), with an
-[example](docs/contracts/app-spec.v1.example.json).
+- [outcome-spec.md](docs/contracts/outcome-spec.md): what Capture exports once a
+  request is agreed
+- [app-spec.md](docs/contracts/app-spec.md): what Factory builds from
+- [build-result.md](docs/contracts/build-result.md): what a build produced and
+  where it is
 
 ## What is in the package
 
-| Kind     | Name                                 | What it does                                                                            |
-| -------- | ------------------------------------ | --------------------------------------------------------------------------------------- |
-| Model    | `@mesgme/puddleworks-factory/draft`  | `render` reads a spec and writes the extension, its tests, a workflow and the app docs  |
-| Workflow | `@mesgme/puddleworks-factory-build`  | Runs `render` on the `puddleworks-factory` instance                                     |
-| Workflow | `@mesgme/puddleworks-factory-result` | Runs `result`: writes a `build-result/v1` for the last draft of a spec                  |
-| Skill    | `factory-build`                      | Drives a build end to end: branch in the app repo, generate, commit, write a build plan |
+| Kind     | Name                                  | What it does                                                                                                        |
+| -------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Model    | `@mesgme/puddleworks-factory/draft`   | `render` reads a spec and writes the extension, its tests, a workflow and the app docs                              |
+| Workflow | `@mesgme/puddleworks-factory-prefill` | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                             |
+| Workflow | `@mesgme/puddleworks-factory-build`   | Runs `render` on the `puddleworks-factory` instance                                                                 |
+| Workflow | `@mesgme/puddleworks-factory-result`  | Runs `result`: writes a `build-result/v1` for the last draft of a spec                                              |
+| Skill    | `factory-build`                       | Drives a build end to end: prefill and agree the spec, branch in the app repo, generate, commit, write a build plan |
 
 ## Use
 
@@ -36,6 +39,25 @@ Install the package and create the model instance once:
 swamp extension pull @mesgme/puddleworks-factory
 swamp model create @mesgme/puddleworks-factory/draft puddleworks-factory
 ```
+
+### From Capture
+
+Export the agreed request from Capture as JSON, then in this repo run
+`/factory-build <path to the export>` in Claude Code. The skill prefills an app
+spec, asks you to confirm the name, inputs, output, settings and delivery,
+writes both specs to `puddles/<name>/spec/` in the app repo, and generates the
+draft there. To prefill by hand instead:
+
+```bash
+swamp workflow run @mesgme/puddleworks-factory-prefill \
+  --input outcomeSpec=docs/contracts/outcome-spec.v1.example.json \
+  --input out=$HOME/weekly-stock-count.app-spec.json
+```
+
+Fill in the blanks the run lists (see
+[outcome-spec.md](docs/contracts/outcome-spec.md)), then build from that file.
+
+### From an app spec
 
 Build from a spec on disk, at an https URL, or inline:
 

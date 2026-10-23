@@ -661,3 +661,57 @@ Deno.test("method: a spec that breaks the contract writes nothing", async () => 
     await Deno.remove(dir, { recursive: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// A spec that says where it was agreed
+// ---------------------------------------------------------------------------
+
+const SOURCE = {
+  url: "http://localhost:3001/requests/8f0c6a52-3d1e-4b8a-9f62-0b7d4e6c2a11",
+  version: 2,
+  specHash: "3736f9d309d3d1abf003b31f19e8244738da099f2c75731c769aa46ced758cc1",
+};
+const SOURCED: AppSpec = { ...OBSIDIAN, source: SOURCE };
+
+Deno.test("render: with a source, CLAUDE.md and the README link to where the spec was agreed", () => {
+  const files = fileMap(SOURCED);
+  for (const path of ["CLAUDE.md", "README.md"]) {
+    const doc = files.get(`puddles/obsidian-puddle-scanner/${path}`)!;
+    assertStringIncludes(doc, `[where it was agreed](${SOURCE.url})`);
+    assertStringIncludes(doc, "version 2");
+    assertStringIncludes(doc, SOURCE.specHash);
+  }
+});
+
+Deno.test("render: a source with only a link gives only the link", () => {
+  const doc = fileMap({ ...OBSIDIAN, source: { url: SOURCE.url } }).get(
+    "puddles/obsidian-puddle-scanner/CLAUDE.md",
+  )!;
+  assertStringIncludes(doc, `[where it was agreed](${SOURCE.url})`);
+  assertEquals(doc.includes("version"), false);
+  assertEquals(doc.includes("hash"), false);
+});
+
+Deno.test("render: without a source, the docs link to nothing", () => {
+  for (const [path, content] of fileMap(OBSIDIAN)) {
+    assertEquals(content.includes("where it was agreed"), false, path);
+  }
+});
+
+Deno.test("method: the draft resource records where the spec was agreed", async () => {
+  const dir = await appRepo();
+  try {
+    const ctx = makeContext();
+    await model.methods.render.execute(
+      renderArgs(dir, false, "public", JSON.stringify(SOURCED)),
+      ctx,
+    );
+    assertEquals(ctx.writes[0].data.source, SOURCE);
+    assertEquals(
+      model.resources.draft.schema.safeParse(ctx.writes[0].data).success,
+      true,
+    );
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});

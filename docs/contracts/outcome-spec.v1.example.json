@@ -1,0 +1,69 @@
+{
+  "format": "puddleworks.dev/outcome-spec/v1",
+  "request": {
+    "id": "8f0c6a52-3d1e-4b8a-9f62-0b7d4e6c2a11",
+    "title": "Weekly stock count and reorder list",
+    "initialDescription": "We count stock every Friday and work out what to reorder.",
+    "currentProcess": "Paper count sheet, typed into a spreadsheet, reorder list worked out by hand.",
+    "url": "https://capture.example.com/requests/8f0c6a52-3d1e-4b8a-9f62-0b7d4e6c2a11"
+  },
+  "specification": {
+    "version": 1,
+    "problemStatement": "Each Friday the shop manager copies stock counts from a paper sheet into a spreadsheet, then works out what to reorder. It takes about two hours and mistakes reach the order.",
+    "desiredOutcome": "Counts are entered once, in the stockroom, and the reorder list is ready when the last count is in.",
+    "scope": {
+      "in": [
+        "Entering counts on a phone",
+        "A reorder list from counts and minimum levels"
+      ],
+      "out": [
+        "Sending orders to suppliers",
+        "Prices and invoices"
+      ]
+    },
+    "constraints": [
+      "Works on the shop's existing phones",
+      "Staff can use it without training"
+    ],
+    "assumptions": [
+      "One stockroom",
+      "Minimum levels are already in the spreadsheet"
+    ],
+    "acceptanceCriteria": [
+      {
+        "id": "AC1",
+        "text": "A count for one item can be entered in under 30 seconds"
+      },
+      {
+        "id": "AC2",
+        "text": "For last week's counts, the reorder list matches the one worked out by hand"
+      },
+      {
+        "id": "AC3",
+        "text": "A count can be corrected until the list is produced"
+      }
+    ]
+  },
+  "agreement": {
+    "agreedBy": {
+      "name": "Priya Shah",
+      "email": "priya@example.com"
+    },
+    "agreedAt": "2026-10-07T08:45:00.000Z",
+    "specHash": "3736f9d309d3d1abf003b31f19e8244738da099f2c75731c769aa46ced758cc1"
+  },
+  "participants": [
+    {
+      "role": "outcome_owner",
+      "name": "Priya Shah",
+      "email": "priya@example.com"
+    },
+    {
+      "role": "builder",
+      "name": "Tom Reyes",
+      "email": "tom@example.com"
+    }
+  ],
+  "openQuestions": [],
+  "exportedAt": "2026-10-07T09:00:00.000Z"
+}

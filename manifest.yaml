@@ -1,7 +1,7 @@
 manifestVersion: 1
 name: "@mesgme/puddleworks-factory"
-version: "2026.10.16.2"
-description: "Puddleworks Factory: build the first draft of a swamp app from a puddleworks.dev/app-spec/v1 spec read from a file, an https URL or inline JSON, and report where it went as a puddleworks.dev/build-result/v1"
+version: "2026.10.22.1"
+description: "Puddleworks Factory: prefill an app spec from an agreed puddleworks.dev/outcome-spec/v1, build the first draft of a swamp app from a puddleworks.dev/app-spec/v1 spec read from a file, an https URL or inline JSON, and report where it went as a puddleworks.dev/build-result/v1"
 repository: "https://github.com/puddle-works/puddleworks-factory"
 visibility: private
 labels:
@@ -13,5 +13,6 @@ models:
 workflows:
   - workflow-build.yaml
   - workflow-result.yaml
+  - workflow-prefill.yaml
 skills:
   - factory-build

@@ -1,8 +1,10 @@
 # The app spec contract: `puddleworks.dev/app-spec/v1`
 
-The app spec is what Factory builds from. Anything can write one:
-puddleworks-capture exports it, and a person or another tool can write it by
-hand. Factory reads no other app's data, only this shape
+The app spec is what Factory builds from. Anything can write one: a person or
+another tool can write it by hand, and Factory prefills one from an agreed
+[outcome spec](outcome-spec.md) exported by puddleworks-capture. (Capture used
+to export app specs; since its ADR-002 it exports only outcome specs.) Factory
+reads no other app's data, only these shapes
 ([ADR-001](../adr/ADR-001-three-separate-apps.md)).
 
 - Schema and parser:
@@ -35,11 +37,18 @@ The `@mesgme/puddleworks-factory-build` workflow takes one `spec` input:
 | `delivery.method`        | yes      | One of `workflow_form`, `packaged_script`, `scheduled_workflow`, `external_app`, `manual_process`. Only the first three have a workflow to build |
 | `delivery.entryPointRef` | no       | Workflow name, or `<scope>/<slug>`. Defaults to `name`                                                                                           |
 | `reusabilityNote`        | no       | Why the result is reusable beyond the one case that asked for it                                                                                 |
+| `source`                 | no       | Where the spec was agreed: `url` (http or https), and optionally the agreed `version` and `specHash`                                             |
 
 Each input is either `required: true` with no default, or `required: false` with
 a default of its own type. Input and setting names are unique. `parseAppSpec`
 checks these rules as well as the shape and returns each broken rule as a
 sentence.
+
+When a spec has a `source`, the build links back to it: the drafted app's
+`CLAUDE.md` and `README.md` say "Spec: [where it was agreed](url), version N,
+hash `…`", the draft resource records it, and the build result carries it.
+`http://` is allowed in `source.url` because Capture runs locally; it is only a
+link and is never fetched.
 
 ## Changing the contract
 
