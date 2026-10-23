@@ -4,7 +4,7 @@ description: >-
   Write a first draft of a swamp app from a puddleworks.dev/app-spec/v1 spec:
   an extension whose run method takes the spec's inputs, tests for it, a
   workflow with the same inputs, and the app docs. The spec can be a file
-  path, an https URL or inline JSON, from Capture or from anywhere else. Files
+  path, an https URL or inline JSON, written by a person or another tool. Files
   go into an app repo checkout; nothing is committed or pushed. The
   factory-build skill drives this end to end.
 version: 1
@@ -20,8 +20,8 @@ inputs:
     targetDir:
       type: string
       description: >-
-        Absolute path of the app repo checkout to write into (normally a
-        puddleworks-apps worktree). Must contain extensions/models/.
+        Absolute path of the app repo checkout to write into. Must contain
+        extensions/models/.
     overwrite:
       type: boolean
       description: >-

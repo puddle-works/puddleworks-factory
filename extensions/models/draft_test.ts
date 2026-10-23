@@ -192,7 +192,7 @@ Deno.test("render: the workflow passes every input to the model's run method", (
   const steps = wf.jobs[0].steps;
   assertEquals(steps.length, 1);
   assertEquals(steps[0].task.type, "model_method");
-  // The instance is <name>-model; Distribution reads it from the workflow.
+  // The workflow runs the <name>-model instance.
   assertEquals(steps[0].task.modelIdOrName, "ticket-filer-model");
   assertEquals(steps[0].task.methodName, "run");
   assertEquals(steps[0].task.inputs, {
@@ -341,7 +341,7 @@ Deno.test("render: the user section of the README does not send the user to pudd
   }
 });
 
-// The draft never sets a schedule (puddleworks#139), so a scheduled app's
+// The draft never sets a schedule, so a scheduled app's
 // README must say how to set one.
 Deno.test("render: a scheduled app's README tells the builder how to set the schedule", () => {
   const readme = fileMap({

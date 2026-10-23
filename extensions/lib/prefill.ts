@@ -1,12 +1,11 @@
 /**
  * Prefill an app spec from an agreed outcome spec.
  *
- * An outcome spec (puddleworks.dev/outcome-spec/v1, from puddleworks-capture)
- * says what success looks like. An app spec says what to build. This copies
+ * An outcome spec (puddleworks.dev/outcome-spec/v1) says what success looks like. An app spec says what to build. This copies
  * across what the first says about the second, links back to where it was
  * agreed, and leaves the rest blank for the builder: the app name is only a
  * suggestion, and the inputs, output, settings and delivery method are the
- * builder's decisions (ADR-002 in puddleworks-capture). The starter does not
+ * builder's decisions. The starter does not
  * pass parseAppSpec until they are made.
  *
  * Scope in, constraints, assumptions and acceptance criteria have no place in

@@ -1,12 +1,12 @@
 /**
  * puddleworks.dev/build-result/v1 — what a build produced, and where it is.
  *
- * Factory writes one after a build. Anything can read it: puddleworks-capture
- * records it against the request the spec came from, and a person or another
- * tool can read it as it is. Any factory may write one, not only this one.
+ * Factory writes one after a build. Anything can read it as it is: a person,
+ * or the tool the spec came from, to record it against the request. Any
+ * factory may write one, not only this one.
  *
- * This is Factory's own copy of the contract (ADR-001: no shared code). The
- * other apps keep theirs and test against the same example file.
+ * This is Factory's own copy of the contract. Other readers and writers can
+ * test against the same example file.
  * docs/contracts/build-result.md describes the shape and how it may change.
  *
  * @module
