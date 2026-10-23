@@ -789,6 +789,13 @@ interface MethodContext {
   ) => Promise<Record<string, unknown> | null>;
 }
 
+/** Write text to path, creating its directory first when it names one. */
+async function writeFileIn(path: string, text: string): Promise<void> {
+  const slash = path.lastIndexOf("/");
+  if (slash > 0) await Deno.mkdir(path.slice(0, slash), { recursive: true });
+  await Deno.writeTextFile(path, text);
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await Deno.stat(path);
@@ -875,12 +882,7 @@ export const model = {
           );
         }
         const { spec, toDecide, warnings } = prefillAppSpec(outcome);
-        const dir = args.out.slice(0, args.out.lastIndexOf("/"));
-        if (dir) await Deno.mkdir(dir, { recursive: true });
-        await Deno.writeTextFile(
-          args.out,
-          JSON.stringify(spec, null, 2) + "\n",
-        );
+        await writeFileIn(args.out, JSON.stringify(spec, null, 2) + "\n");
         context.logger.info("Prefilled {name} from {source} into {out}", {
           name: spec.name,
           source,
@@ -1014,9 +1016,7 @@ export const model = {
         }
 
         if (args.out) {
-          const dir = args.out.slice(0, args.out.lastIndexOf("/"));
-          if (dir) await Deno.mkdir(dir, { recursive: true });
-          await Deno.writeTextFile(
+          await writeFileIn(
             args.out,
             JSON.stringify(parsed.result, null, 2) + "\n",
           );

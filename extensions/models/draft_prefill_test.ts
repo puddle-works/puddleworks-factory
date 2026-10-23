@@ -68,6 +68,21 @@ Deno.test("prefill: writes a starter app spec to out", async () => {
   });
 });
 
+Deno.test("prefill: an out with no directory writes only that file", async () => {
+  await inTempDir(async (dir) => {
+    const cwd = Deno.cwd();
+    Deno.chdir(dir);
+    try {
+      await model.methods.prefill.execute(args("app-spec.json"), makeContext());
+    } finally {
+      Deno.chdir(cwd);
+    }
+    const names = [];
+    for await (const e of Deno.readDir(dir)) names.push(e.name);
+    assertEquals(names, ["app-spec.json"]);
+  });
+});
+
 Deno.test("prefill: records what is left to decide in a prefill resource", async () => {
   await inTempDir(async (dir) => {
     const ctx = makeContext();
