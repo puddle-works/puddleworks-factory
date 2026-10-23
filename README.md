@@ -1,22 +1,17 @@
 # puddleworks-factory
 
-Builds, tests and validates a swamp extension from a spec that can come from
-anywhere, not only from Capture.
+Builds, tests and validates a swamp extension from a spec. The spec can be a
+file, an https URL or inline JSON, and anyone can write one.
 
-One of three separate Puddleworks swamp applications: Capture, Factory and
-Distribution. Each runs alone and can be swapped out. They share no code, only
-versioned file contracts. See [ADR-001](docs/adr/ADR-001-three-separate-apps.md)
-and the epic puddle-works/puddleworks#207.
-
-| Takes in                                               | Puts out                                      |
-| ------------------------------------------------------ | --------------------------------------------- |
-| `app-spec/v1` from a path, an https URL or inline JSON | the extension's files and a `build-result/v1` |
-| `outcome-spec/v1` from Capture, the same ways          | a starter `app-spec/v1` for the builder       |
+| Takes in                                           | Puts out                                      |
+| -------------------------------------------------- | --------------------------------------------- |
+| an `app-spec/v1`: what to build                    | the extension's files and a `build-result/v1` |
+| an `outcome-spec/v1`: what success looks like only | a starter `app-spec/v1` for you to finish     |
 
 The contracts, each with an example, are in `docs/contracts/`:
 
-- [outcome-spec.md](docs/contracts/outcome-spec.md): what Capture exports once a
-  request is agreed
+- [outcome-spec.md](docs/contracts/outcome-spec.md): an agreed request that says
+  what success looks like and who agreed it, but not how to build it
 - [app-spec.md](docs/contracts/app-spec.md): what Factory builds from
 - [build-result.md](docs/contracts/build-result.md): what a build produced and
   where it is
@@ -40,13 +35,12 @@ swamp extension pull @puddleworks/puddleworks-factory
 swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory
 ```
 
-### From Capture
+### From an outcome spec
 
-Export the agreed request from Capture as JSON, then in this repo run
-`/factory-build <path to the export>` in Claude Code. The skill prefills an app
-spec, asks you to confirm the name, inputs, output, settings and delivery,
-writes both specs to `puddles/<name>/spec/` in the app repo, and generates the
-draft there. To prefill by hand instead:
+Run `/factory-build <path to the outcome spec>` in Claude Code. The skill
+prefills an app spec, asks you to confirm the name, inputs, output, settings and
+delivery, writes both specs to `puddles/<name>/spec/` in the app repo, and
+generates the draft there. To prefill by hand instead:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-prefill \
@@ -64,15 +58,15 @@ Build from a spec on disk, at an https URL, or inline:
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-build \
   --input spec=docs/contracts/app-spec.v1.example.json \
-  --input targetDir=$HOME/dev/puddleworks-apps-draft-obsidian-puddle-scanner
+  --input targetDir=$HOME/dev/my-apps
 
 swamp workflow run @puddleworks/puddleworks-factory-build \
   --input spec=https://example.com/specs/scanner.json \
-  --input targetDir=$HOME/dev/puddleworks-apps-draft-obsidian-puddle-scanner
+  --input targetDir=$HOME/dev/my-apps
 
 swamp workflow run @puddleworks/puddleworks-factory-build \
   --input "spec=$(cat spec.json)" \
-  --input targetDir=$HOME/dev/puddleworks-apps-draft-obsidian-puddle-scanner
+  --input targetDir=$HOME/dev/my-apps
 ```
 
 `targetDir` must be an app repo checkout with an `extensions/models/` directory.
@@ -86,7 +80,7 @@ pull request is open:
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result \
   --input name=obsidian-puddle-scanner \
-  --input repository=https://github.com/puddle-works/puddleworks-apps \
+  --input repository=https://github.com/example/my-apps \
   --input buildRef=draft/obsidian-puddle-scanner \
   --input out=$HOME/obsidian-puddle-scanner.build-result.json
 ```
