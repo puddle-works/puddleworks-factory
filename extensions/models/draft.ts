@@ -413,6 +413,8 @@ description: ${q(spec.purpose)}
 version: 1
 tags:
   puddle: "true"
+  maxReruns: "5"
+  maxWallClock: "30m"
 
 inputs:
   type: object
