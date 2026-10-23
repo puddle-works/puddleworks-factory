@@ -16,6 +16,28 @@ The contracts, each with an example, are in `docs/contracts/`:
 - [build-result.md](docs/contracts/build-result.md): what a build produced and
   where it is
 
+## How it works
+
+```mermaid
+---
+config:
+  flowchart:
+    rankSpacing: 80
+    padding: 24
+---
+flowchart LR
+    describe["Describe"]
+    build["Build"]
+    record["Record"]
+
+    describe --> build
+    build --> record
+```
+
+1. **Describe** what the app should do.
+2. **Build** a starter app in the app repo.
+3. **Record** a receipt of where it went.
+
 ## What is in the package
 
 | Kind     | Name                                       | What it does                                                                                                        |
