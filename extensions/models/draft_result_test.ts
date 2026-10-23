@@ -19,8 +19,8 @@ const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
 );
 
-const REPO = "https://github.com/puddle-works/puddleworks-apps";
-const PR = "https://github.com/puddle-works/puddleworks-apps/pull/42";
+const REPO = "https://github.com/example/my-apps";
+const PR = "https://github.com/example/my-apps/pull/42";
 
 /** A context that keeps what is written, so a later method can read it. */
 function makeContext() {

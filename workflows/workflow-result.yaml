@@ -6,7 +6,7 @@ description: >-
   the pull request once there is one. Run it after the draft is pushed, and
   again once the pull request is open. The result is recorded as a resource
   on the puddleworks-factory model and, with out, written to a JSON file that
-  anyone (such as puddleworks-capture) can read.
+  anyone can read.
 version: 1
 
 inputs:
@@ -21,7 +21,7 @@ inputs:
       type: string
       description: >-
         https URL of the repository the draft was pushed to, e.g.
-        https://github.com/puddle-works/puddleworks-apps.
+        https://github.com/example/my-apps.
     buildRef:
       type: string
       description: >-

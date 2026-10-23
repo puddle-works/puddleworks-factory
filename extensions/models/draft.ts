@@ -1,14 +1,13 @@
 /**
  * @puddleworks/puddleworks-factory/draft — turn an app spec into a first draft of
- * the app (puddleworks#111).
+ * the app.
  *
- * `prefill` reads an agreed `puddleworks.dev/outcome-spec/v1` (from
- * puddleworks-capture) and writes a starter app spec for the builder to finish
- * (extensions/lib/prefill.ts).
+ * `prefill` reads an agreed `puddleworks.dev/outcome-spec/v1` and writes a
+ * starter app spec for the builder to finish (extensions/lib/prefill.ts).
  *
  * `render` reads a `puddleworks.dev/app-spec/v1` spec from a file, an https URL
  * or inline JSON (extensions/lib/spec_source.ts) and writes, into an app repo
- * checkout (normally puddle-works/puddleworks-apps):
+ * checkout:
  *
  * - `extensions/models/<name>.ts` — an extension whose `run` method takes one
  *   argument per specification input and one global argument per setting.
@@ -16,8 +15,8 @@
  * - `extensions/models/<name>_test.ts` — tests that pin the argument contract
  *   and the result resource.
  * - `workflows/workflow-<slug>.yaml` — a workflow named `<typeScope>/<slug>`
- *   whose inputs are exactly the specification inputs, so Puddleworks UI can render
- *   its form. The manifest lists it, so `extension pull` brings it along;
+ *   whose inputs are exactly the specification inputs, so a form can be
+ *   rendered from them. The manifest lists it, so `extension pull` brings it along;
  *   it runs the `<name>-model` instance.
  * - `puddles/<name>/` — publish manifest, README and a CLAUDE.md that states
  *   the bounded purpose and what is out of scope.
@@ -720,8 +719,8 @@ const PrefillSchema = z.object({
 
 const PrefillArgsSchema = z.object({
   /**
-   * A puddleworks.dev/outcome-spec/v1, as exported by puddleworks-capture: a
-   * file path, an https URL, or the spec itself as inline JSON.
+   * A puddleworks.dev/outcome-spec/v1: a file path, an https URL, or the
+   * spec itself as inline JSON.
    */
   outcomeSpec: z.string().min(1),
   /** File to write the starter app spec to, as JSON. */
@@ -738,7 +737,7 @@ const RenderArgsSchema = z.object({
    * spec itself as inline JSON.
    */
   spec: z.string().min(1),
-  /** Absolute path of an app repo checkout (normally a puddleworks-apps worktree). */
+  /** Absolute path of an app repo checkout. */
   targetDir: z.string().min(1),
   overwrite: z.boolean().default(false),
   /** "public" is the default; "private" keeps the package off the public registry. */
@@ -915,7 +914,7 @@ export const model = {
         if (!(await exists(`${root}/extensions/models`))) {
           throw new Error(
             `${root} does not look like an app repo checkout: it has no extensions/models/ directory. ` +
-              "Pass targetDir as the path of an app repo checkout, e.g. a puddleworks-apps worktree.",
+              "Pass targetDir as the path of an app repo checkout, e.g. a git worktree of it.",
           );
         }
 

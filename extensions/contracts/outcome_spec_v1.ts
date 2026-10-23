@@ -1,15 +1,13 @@
 /**
  * puddleworks.dev/outcome-spec/v1 — what was agreed, by whom.
  *
- * puddleworks-capture exports one when a request's specification is agreed
- * (ADR-002 in puddleworks-capture). It says what success looks like, not how
- * to build it: it has no app name, typed inputs, settings or delivery method.
+ * An outcome spec records a request once its specification is agreed. It
+ * says what success looks like, not how to build it: it has no app name, typed inputs, settings or delivery method.
  * Factory reads it to prefill an app-spec/v1, and the builder adds the rest.
  *
- * This is Factory's own copy of the contract (ADR-001: no shared code).
- * Capture's copy is packages/domain/src/outcome_spec_v1.ts there; both test
- * against the same example file. docs/contracts/outcome-spec.md describes the
- * shape. Factory only reads it, so this copy checks less than the writer does.
+ * This is Factory's own copy of the contract. docs/contracts/outcome-spec.md
+ * describes the shape. Factory only reads it, so this copy checks less than a
+ * writer should.
  *
  * @module
  */

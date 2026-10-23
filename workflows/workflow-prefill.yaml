@@ -2,7 +2,7 @@ id: 597030c2-af50-4ee9-882f-0a449893bd89
 name: "@puddleworks/puddleworks-factory-prefill"
 description: >-
   Write a starter puddleworks.dev/app-spec/v1 from an agreed
-  puddleworks.dev/outcome-spec/v1, as exported by puddleworks-capture. It
+  puddleworks.dev/outcome-spec/v1. It
   copies what the outcome spec says (title, purpose, out of scope, who agreed
   it and when) and links back to where it was agreed. The app name is only a
   suggestion, and inputs, output, settings and delivery method are left blank

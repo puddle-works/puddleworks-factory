@@ -5,7 +5,7 @@
     "title": "Weekly stock count and reorder list",
     "initialDescription": "We count stock every Friday and work out what to reorder.",
     "currentProcess": "Paper count sheet, typed into a spreadsheet, reorder list worked out by hand.",
-    "url": "https://capture.example.com/requests/8f0c6a52-3d1e-4b8a-9f62-0b7d4e6c2a11"
+    "url": "https://requests.example.com/8f0c6a52-3d1e-4b8a-9f62-0b7d4e6c2a11"
   },
   "specification": {
     "version": 1,

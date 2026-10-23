@@ -55,8 +55,8 @@ Deno.test("build-result: the name must be a slug", () => {
 Deno.test("build-result: links must be https", () => {
   const problems = problemsOf({
     ...EXAMPLE,
-    repository: "http://github.com/puddle-works/puddleworks-apps",
-    pullRequest: "git@github.com:puddle-works/puddleworks-apps.git",
+    repository: "http://github.com/example/my-apps",
+    pullRequest: "git@github.com:example/my-apps.git",
   });
   assertEquals(problems.length, 2);
   assertStringIncludes(problems.join(" "), "repository");
@@ -84,14 +84,14 @@ Deno.test("build-result: builtAt is a timestamp", () => {
 });
 
 Deno.test("build-result: a v1 reader ignores fields it does not know", () => {
-  const result = parseBuildResult({ ...EXAMPLE, racer: "opencode" });
+  const result = parseBuildResult({ ...EXAMPLE, unknownField: "ignored" });
   assertEquals(result.ok, true);
-  if (result.ok) assertEquals("racer" in result.result, false);
+  if (result.ok) assertEquals("unknownField" in result.result, false);
 });
 
 Deno.test("build-result: the spec's source is optional, and kept when given", () => {
   const source = {
-    url: "https://capture.example.com/requests/8f0c6a52",
+    url: "https://requests.example.com/8f0c6a52",
     version: 1,
     specHash: "3736f9d3",
   };

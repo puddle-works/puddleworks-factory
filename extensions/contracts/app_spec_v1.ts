@@ -1,12 +1,12 @@
 /**
  * puddleworks.dev/app-spec/v1 — the portable app spec.
  *
- * What Factory builds from. Anything can write one: puddleworks-capture
- * exports it, and a person or another tool can write it by hand. Factory reads
- * no other app's data, only this shape.
+ * What Factory builds from. Anything can write one: a person or another
+ * tool can write it by hand, and Factory prefills one from an outcome spec.
+ * Factory reads no other data, only this shape.
  *
- * This is Factory's own copy of the contract (ADR-001: no shared code). The
- * other apps keep theirs and test against the same example file.
+ * This is Factory's own copy of the contract. Other readers and writers can
+ * test against the same example file.
  * docs/contracts/app-spec.md describes the shape and how it may change.
  *
  * @module
@@ -15,7 +15,7 @@ import { z } from "npm:zod@4";
 
 export const APP_SPEC_V1 = "puddleworks.dev/app-spec/v1";
 
-/** Delivery method chosen during the delivery_assessment stage (puddleworks#51). */
+/** How the app reaches the person who asked for it. */
 export const DeliveryMethodSchema = z.enum([
   "workflow_form",
   "packaged_script",
@@ -26,7 +26,7 @@ export const DeliveryMethodSchema = z.enum([
 
 export type DeliveryMethod = z.infer<typeof DeliveryMethodSchema>;
 
-/** Value types a specification input can take (puddleworks#111). */
+/** Value types a specification input can take. */
 const SpecInputTypeSchema = z.enum(["string", "number", "integer", "boolean"]);
 
 /**
@@ -58,7 +58,7 @@ const SpecSettingSchema = z.object({
 
 /**
  * The agreed bounded behaviour of the app. The draft generator builds from
- * it (puddleworks#111).
+ * it.
  */
 export const SpecificationSchema = z.object({
   /** One bounded purpose, in a sentence. */
@@ -134,10 +134,10 @@ export function specificationProblems(
 
 /**
  * Where the spec was agreed, for a link back to the discussion behind it: a
- * Capture request page, an issue, or any other web page. Optional.
+ * request page, an issue, or any other web page. Optional.
  */
 export const SpecSourceSchema = z.object({
-  /** Web page where the spec was agreed. http is allowed: Capture can run locally. */
+  /** Web page where the spec was agreed. http is allowed: it may be a local server. */
   url: z.url({ protocol: /^https?$/ }),
   /** Version of the agreed spec there, so a later revision is visibly different. */
   version: z.number().int().positive().optional(),

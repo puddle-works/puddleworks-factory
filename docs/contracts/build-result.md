@@ -1,17 +1,16 @@
 # The build result contract: `puddleworks.dev/build-result/v1`
 
 A build result says what a build produced and where it is. Factory writes one
-after a build. Anything can read it: puddleworks-capture records it against the
-request the spec came from, and a person or another tool can read it as it is.
-Any factory may write one, not only this one
-([ADR-001](../adr/ADR-001-three-separate-apps.md)).
+after a build. Anything can read it as it is: a person, or the tool the spec
+came from, to record it against the request. Any factory may write one, not only
+this one.
 
 - Schema and parser:
   [`extensions/contracts/build_result_v1.ts`](../../extensions/contracts/build_result_v1.ts)
 - Example: [`build-result.v1.example.json`](build-result.v1.example.json)
 
-This is Factory's copy. Every Puddleworks app that reads or writes the build
-result keeps its own copy and tests against the same example file.
+This is Factory's copy. Any tool that reads or writes the build result can test
+against the same example file.
 
 ## How Factory writes one
 
@@ -25,9 +24,9 @@ one wins.
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result \
   --input name=obsidian-puddle-scanner \
-  --input repository=https://github.com/puddle-works/puddleworks-apps \
+  --input repository=https://github.com/example/my-apps \
   --input buildRef=draft/obsidian-puddle-scanner \
-  --input pullRequest=https://github.com/puddle-works/puddleworks-apps/pull/42 \
+  --input pullRequest=https://github.com/example/my-apps/pull/42 \
   --input out=$HOME/obsidian-puddle-scanner.build-result.json
 ```
 

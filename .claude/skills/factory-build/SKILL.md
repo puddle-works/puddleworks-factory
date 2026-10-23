@@ -1,7 +1,7 @@
 ---
 name: factory-build
 description: >
-  Build the first draft of a swamp app from an agreed Capture export
+  Build the first draft of a swamp app from an agreed outcome spec
   (puddleworks.dev/outcome-spec/v1) or a puddleworks.dev/app-spec/v1 spec (a
   file path, an https URL or inline JSON): for an outcome spec, prefill an app
   spec and agree the builder's decisions with the user; generate the skeleton
@@ -13,38 +13,43 @@ description: >
 
 # Factory Build
 
-Turn an app spec into a skeleton on a branch in an app repo (normally
-`puddle-works/puddleworks-apps`, checked out at `~/dev/puddleworks-apps`) and a
-build plan for filling it in. **This skill writes the plan and stops.** It does
-not write behaviour code, open a PR or start racers.
+Turn an app spec into a skeleton on a branch in an app repo and a build plan
+for filling it in. **This skill writes the plan and stops.** It does not write
+behaviour code or open a PR.
 
 1. **Generated skeleton**: the `@puddleworks/puddleworks-factory-build` workflow
    checks the spec against the contract and writes the files. The skeleton
    always compiles and passes its own tests. It is committed and pushed on
    `draft/NAME`.
 2. **Build plan**: you write a plan against the skeleton and save it, to paste
-   into an agent or hand to `/race`.
+   into an agent.
 
-Factory reads only the spec. Whoever wrote the spec (Capture, a person, another
-tool) has already agreed it; Factory does not check approvals.
+Factory reads only the spec. Whoever wrote the spec (a person, another tool)
+has already agreed it; Factory does not check approvals.
 
 ## Input
 
 The spec: a file path, an `https://` URL, or the JSON itself. Ask for it if the
-user did not give one. Check which kind it is:
+user did not give one.
+
+The app repo: `APP`, the absolute path of a git checkout of the repo the app
+goes in, with an `extensions/models/` directory. Ask for it if the user did not
+give one.
+
+Check which kind of spec it is:
 
 ```bash
 jq -r '.format // .apiVersion' SPEC_FILE   # or: curl -fsSL SPEC_URL | jq -r '.format // .apiVersion'
 ```
 
-- `puddleworks.dev/outcome-spec/v1`: an agreed request exported from Capture
+- `puddleworks.dev/outcome-spec/v1`: an agreed request
   (`docs/contracts/outcome-spec.md`). It says what success looks like, not how
   to build it. Do step 1, then **step 1a** to turn it into an app spec.
 - `puddleworks.dev/app-spec/v1`: already an app spec
   (`docs/contracts/app-spec.md`). Its `name` is the app name. Skip step 1a.
 
 Below, `NAME` is the app name, `SPEC` is the app spec to build from, and `W` is
-`$HOME/dev/puddleworks-apps-draft-NAME`. The contracts are in `docs/contracts/`
+`APP-draft-NAME`, a worktree beside `APP`. The contracts are in `docs/contracts/`
 in the puddleworks-factory repo.
 
 ## Step 1: Make sure the factory model exists
@@ -81,7 +86,7 @@ version and hash. It is **not** buildable yet. `Refusing to replace` means a
 starter from an earlier run is there: show it to the user and add
 `--input overwrite=true` only if they want to start again.
 `is not a valid puddleworks.dev/outcome-spec/v1 spec` lists what is wrong with
-the export; fix it in Capture and export again.
+the export; fix it where it was written and export again.
 
 Read what is left to decide and anything to sort out first:
 
@@ -91,9 +96,9 @@ swamp data query "behavior(\"puddleworks-factory\") && name == \"prefill-$(jq -r
 ```
 
 If `warnings` lists open questions, show them and ask whether to go on; they are
-better answered in Capture first. Then read the whole outcome spec (problem,
-desired outcome, scope, constraints, assumptions, acceptance criteria) and
-**propose** a value for each `toDecide` field, in one message:
+better answered by whoever agreed the spec first. Then read the whole outcome
+spec (problem, desired outcome, scope, constraints, assumptions, acceptance
+criteria) and **propose** a value for each `toDecide` field, in one message:
 
 - `name`: short, lowercase, hyphens. The suggestion is the title as a slug and
   is often too long.
@@ -120,20 +125,20 @@ jq -e '.name and .specification.output != "" and .delivery.method != ""' SP/app-
 skeleton, so the build can always be traced back to what was agreed:
 
 ```bash
-mkdir -p $HOME/dev/puddleworks-apps-draft-NAME/puddles/NAME/spec
-cp OUTCOME $HOME/dev/puddleworks-apps-draft-NAME/puddles/NAME/spec/outcome-spec.v$(jq -r .specification.version OUTCOME).json
-cp SP/app-spec.json $HOME/dev/puddleworks-apps-draft-NAME/puddles/NAME/spec/app-spec.json
+mkdir -p W/puddles/NAME/spec
+cp OUTCOME W/puddles/NAME/spec/outcome-spec.v$(jq -r .specification.version OUTCOME).json
+cp SP/app-spec.json W/puddles/NAME/spec/app-spec.json
 ```
 
-In step 3, `SPEC` is `$HOME/dev/puddleworks-apps-draft-NAME/puddles/NAME/spec/app-spec.json`.
+In step 3, `SPEC` is `W/puddles/NAME/spec/app-spec.json`.
 The build checks it fully: a field left blank fails there with
 `is not a valid puddleworks.dev/app-spec/v1 spec`.
 
 ## Step 2: Make a branch in the app repo
 
 ```bash
-git -C ~/dev/puddleworks-apps fetch origin --quiet
-git -C ~/dev/puddleworks-apps worktree add ../puddleworks-apps-draft-NAME -b draft/NAME origin/main
+git -C APP fetch origin --quiet
+git -C APP worktree add W -b draft/NAME origin/main
 ```
 
 Expect `HEAD is now at …`. If the branch already exists, this is a re-draft:
@@ -144,7 +149,7 @@ it to any other worktree.
 ## Step 3: Generate the skeleton
 
 ```bash
-swamp workflow run @puddleworks/puddleworks-factory-build --input spec=SPEC --input targetDir=$HOME/dev/puddleworks-apps-draft-NAME --json \
+swamp workflow run @puddleworks/puddleworks-factory-build --input spec=SPEC --input targetDir=W --json \
   | jq -r '.status + " " + ([.jobs[].steps[] | select(.status=="failed") | .error] | join(" | "))'
 ```
 
@@ -168,16 +173,17 @@ Then commit the skeleton untouched (with `puddles/NAME/spec/` when it came from
 an outcome spec), so review can tell generated code from written code:
 
 ```bash
-git -C $HOME/dev/puddleworks-apps-draft-NAME add -A
-git -C $HOME/dev/puddleworks-apps-draft-NAME commit -q --author="Claude Code <claude-code@anthropic.com>" \
+git -C W add -A
+git -C W commit -q --author="Claude Code <claude-code@anthropic.com>" \
   -m "draft: generated skeleton for NAME" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
-git -C $HOME/dev/puddleworks-apps-draft-NAME push -u origin draft/NAME
+git -C W push -u origin draft/NAME
 ```
 
 Then write the build result (`puddleworks.dev/build-result/v1`, see
 `docs/contracts/build-result.md` in the puddleworks-factory repo), so whoever
 handed over the spec can see where the build went. `REPO` is the app repo's
-https URL, e.g. `https://github.com/puddle-works/puddleworks-apps`:
+https URL (from `git -C APP remote get-url origin`), e.g.
+`https://github.com/example/my-apps`:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME --input repository=REPO \
@@ -194,8 +200,8 @@ scope), the spec, and the skeleton under `W/extensions/models/` and
 `W/puddles/NAME/`. If it came from an outcome spec, also read
 `W/puddles/NAME/spec/outcome-spec.v*.json`: its acceptance criteria are what
 "done" means, so turn each one into a test or a verification step, and its
-constraints and assumptions are scope lines. Then write a plan in the shape of
-`~/.claude/plans/opencode-race.md`, as markdown, with these sections:
+constraints and assumptions are scope lines. Then write a plan, as markdown,
+with these sections:
 
 - **Context**, and the branch to start from (`draft/NAME`).
 - **What to build**, within the spec: the behaviour that replaces the `run`
@@ -224,14 +230,13 @@ constraints and assumptions are scope lines. Then write a plan in the shape of
   `--input pullRequest=<PR URL>`, so the build result links the PR.
 - **Verification**, including a real end-to-end run of the workflow.
 
-Save it to the scratchpad as `plan.md` and copy it to `~/.claude/plans/NAME.md`
-so a bare `/race` picks it up.
+Save it to the scratchpad as `plan.md` and copy it to
+`~/.claude/plans/NAME.md`.
 
 ## Step 5: Stop and report
 
 Tell the user the branch (`draft/NAME`), the plan file path
 (`~/.claude/plans/NAME.md`) and the build result file. Do not implement
-anything, open a PR, or start racers. If the spec came from Capture, say that
-Capture cannot take the build result back yet (it stops at export), so the
-build result file is the record. Its `source` names the request, version and
-hash, so it can be matched to the request later.
+anything or open a PR. The build result file is the record of the build. If
+the spec had a `source`, the build result names the request, version and hash,
+so it can be matched to the request later.
