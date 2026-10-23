@@ -11,8 +11,8 @@ import {
   assertEquals,
   assertRejects,
   assertStringIncludes,
-} from "jsr:@std/assert@1";
-import { stringify as toYaml } from "jsr:@std/yaml@1";
+} from "jsr:@std/assert@1.0.19";
+import { stringify as toYaml } from "jsr:@std/yaml@1.0.12";
 import { loadAppSpec, loadOutcomeSpec, type SpecIo } from "./spec_source.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(

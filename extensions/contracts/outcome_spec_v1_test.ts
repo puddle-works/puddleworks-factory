@@ -7,7 +7,7 @@
  *
  * @module
  */
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { OUTCOME_SPEC_V1, parseOutcomeSpec } from "./outcome_spec_v1.ts";
 
 /** Capture's example, copied as it is. */

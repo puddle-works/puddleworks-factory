@@ -1,5 +1,5 @@
 id: d23122ca-0133-4c01-984c-c0b258797790
-name: "@mesgme/puddleworks-factory-build"
+name: "@puddleworks/puddleworks-factory-build"
 description: >-
   Write a first draft of a swamp app from a puddleworks.dev/app-spec/v1 spec:
   an extension whose run method takes the spec's inputs, tests for it, a

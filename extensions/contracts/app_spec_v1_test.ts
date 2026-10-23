@@ -6,7 +6,7 @@
  *
  * @module
  */
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { APP_SPEC_V1, parseAppSpec } from "./app_spec_v1.ts";
 
 const EXAMPLE = JSON.parse(

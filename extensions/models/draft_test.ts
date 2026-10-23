@@ -1,5 +1,5 @@
 /**
- * Tests for the @mesgme/puddleworks-factory/draft model type.
+ * Tests for the @puddleworks/puddleworks-factory/draft model type.
  *
  * Run with:
  *   ~/.swamp/deno/deno test -A extensions/models/draft_test.ts
@@ -14,9 +14,9 @@ import {
   assertRejects,
   assertStringIncludes,
   assertThrows,
-} from "jsr:@std/assert@1";
-import { stub } from "jsr:@std/testing@1/mock";
-import { parse as parseYaml } from "jsr:@std/yaml@1";
+} from "jsr:@std/assert@1.0.19";
+import { stub } from "jsr:@std/testing@1.0.21/mock";
+import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
 import { io, model, renderDraft } from "./draft.ts";
 import type { AppSpec } from "../contracts/app_spec_v1.ts";
 
@@ -82,6 +82,12 @@ const AWKWARD: AppSpec = {
   },
   delivery: { method: "packaged_script" },
 };
+
+const DRAFTABLE_METHODS = [
+  "workflow_form",
+  "scheduled_workflow",
+  "packaged_script",
+] as const;
 
 const FIXED = {
   now: new Date("2026-10-06T12:00:00Z"),
@@ -281,7 +287,7 @@ Deno.test("render: draft.ts has no zod import text other than its own", async ()
 // The registry catalog reads type and version from the first
 // `export const model = {` in draft.ts. If the generated one comes first, the
 // catalog sees `${q(n.modelType)}` and does not list
-// @mesgme/puddleworks-factory/draft.
+// @puddleworks/puddleworks-factory/draft.
 Deno.test("render: draft.ts has no model export text other than its own", async () => {
   const source = await Deno.readTextFile(
     new URL("./draft.ts", import.meta.url),
@@ -320,6 +326,64 @@ Deno.test("render: the user section of the README does not mention swamp", () =>
   )!;
   const userPart = readme.split("## For the builder")[0];
   assertEquals(/swamp/i.test(userPart), false, userPart);
+});
+
+// puddle-ui is gone, so the README must not send the user to an app called
+// puddle.
+Deno.test("render: the user section of the README does not send the user to puddle", () => {
+  for (const method of DRAFTABLE_METHODS) {
+    const readme = fileMap({ ...OBSIDIAN, delivery: { method } }).get(
+      "puddles/obsidian-puddle-scanner/README.md",
+    )!;
+    const userPart = readme.split("## For the user")[1]
+      .split("## For the builder")[0];
+    assertEquals(/\b(in|from) puddle\b/i.test(userPart), false, userPart);
+  }
+});
+
+// The draft never sets a schedule (puddleworks#139), so a scheduled app's
+// README must say how to set one.
+Deno.test("render: a scheduled app's README tells the builder how to set the schedule", () => {
+  const readme = fileMap({
+    ...OBSIDIAN,
+    delivery: { method: "scheduled_workflow", entryPointRef: "obsidian-scan" },
+  }).get("puddles/obsidian-puddle-scanner/README.md")!;
+  const builderPart = readme.split("## For the builder")[1];
+  assertStringIncludes(
+    builderPart,
+    "swamp workflow trigger set @puddleworks/obsidian-scan --schedule",
+  );
+  assertStringIncludes(builderPart, "swamp serve");
+});
+
+Deno.test("render: an app that is not scheduled has no schedule step", () => {
+  for (const method of ["workflow_form", "packaged_script"] as const) {
+    const readme = fileMap({ ...OBSIDIAN, delivery: { method } }).get(
+      "puddles/obsidian-puddle-scanner/README.md",
+    )!;
+    assertEquals(readme.includes("trigger set"), false, method);
+  }
+});
+
+// CLAUDE.md rule 7: jsr specifiers are pinned to an exact version, in every
+// extension source file and in the test files draft.ts generates.
+Deno.test("render: every extension source pins its jsr specifiers to an exact version", async () => {
+  const root = new URL("../", import.meta.url);
+  const loose: string[] = [];
+  for (const dir of ["contracts", "lib", "models"]) {
+    for await (const entry of Deno.readDir(new URL(`${dir}/`, root))) {
+      if (!entry.name.endsWith(".ts")) continue;
+      const source = await Deno.readTextFile(
+        new URL(`${dir}/${entry.name}`, root),
+      );
+      for (
+        const m of source.matchAll(
+          /jsr:@[\w-]+\/[\w-]+@(?!\d+\.\d+\.\d+)[^"'/\s]*/g,
+        )
+      ) loose.push(`${dir}/${entry.name}: ${m[0]}`);
+    }
+  }
+  assertEquals(loose, []);
 });
 
 Deno.test("render: CLAUDE.md tells the builder where test permission flags go", () => {

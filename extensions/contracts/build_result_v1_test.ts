@@ -6,7 +6,7 @@
  *
  * @module
  */
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { BUILD_RESULT_V1, parseBuildResult } from "./build_result_v1.ts";
 
 const EXAMPLE = JSON.parse(

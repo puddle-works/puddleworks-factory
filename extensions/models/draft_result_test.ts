@@ -11,7 +11,7 @@ import {
   assertEquals,
   assertRejects,
   assertStringIncludes,
-} from "jsr:@std/assert@1";
+} from "jsr:@std/assert@1.0.19";
 import { model } from "./draft.ts";
 import { parseBuildResult } from "../contracts/build_result_v1.ts";
 
@@ -138,7 +138,7 @@ Deno.test("result: with no draft for the name it says what to run", async () => 
     Error,
   );
   assertStringIncludes(err.message, "obsidian-puddle-scanner");
-  assertStringIncludes(err.message, "@mesgme/puddleworks-factory-build");
+  assertStringIncludes(err.message, "@puddleworks/puddleworks-factory-build");
   assertEquals(ctx.writes.length, 0);
 });
 

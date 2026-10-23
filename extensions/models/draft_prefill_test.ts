@@ -11,7 +11,7 @@ import {
   assertEquals,
   assertRejects,
   assertStringIncludes,
-} from "jsr:@std/assert@1";
+} from "jsr:@std/assert@1.0.19";
 import { model } from "./draft.ts";
 
 const OUTCOME_TEXT = await Deno.readTextFile(

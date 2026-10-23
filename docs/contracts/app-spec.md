@@ -16,7 +16,7 @@ keeps its own copy and tests against the same example file.
 
 ## Where a spec can come from
 
-The `@mesgme/puddleworks-factory-build` workflow takes one `spec` input:
+The `@puddleworks/puddleworks-factory-build` workflow takes one `spec` input:
 
 | `spec` starts with | Read as                                    |
 | ------------------ | ------------------------------------------ |

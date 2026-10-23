@@ -12,7 +12,7 @@
  *
  * @module
  */
-import { parse as parseYaml } from "jsr:@std/yaml@1";
+import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
 import {
   APP_SPEC_V1,
   type AppSpec,

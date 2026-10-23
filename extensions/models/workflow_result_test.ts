@@ -7,8 +7,8 @@
  *
  * @module
  */
-import { assertEquals } from "jsr:@std/assert@1";
-import { parse as parseYaml } from "jsr:@std/yaml@1";
+import { assertEquals } from "jsr:@std/assert@1.0.19";
+import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
 import { model } from "./draft.ts";
 
 interface Step {
@@ -35,7 +35,7 @@ const workflow = parseYaml(TEXT) as {
 const steps = workflow.jobs.flatMap((j) => j.steps);
 
 Deno.test("result workflow: is named for the package", () => {
-  assertEquals(workflow.name, "@mesgme/puddleworks-factory-result");
+  assertEquals(workflow.name, "@puddleworks/puddleworks-factory-result");
 });
 
 Deno.test("result workflow: the pull request and out file may be left blank", () => {

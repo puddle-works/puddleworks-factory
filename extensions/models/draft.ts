@@ -1,5 +1,5 @@
 /**
- * @mesgme/puddleworks-factory/draft — turn an app spec into a first draft of
+ * @puddleworks/puddleworks-factory/draft — turn an app spec into a first draft of
  * the app (puddleworks#111).
  *
  * `prefill` reads an agreed `puddleworks.dev/outcome-spec/v1` (from
@@ -368,8 +368,8 @@ ${rows.join("\n")}
       "@module",
     ])
   }
-import { assertEquals } from "jsr:@std/assert@1";
-import { assertSpyCallArgs, stub } from "jsr:@std/testing@1/mock";
+import { assertEquals } from "jsr:@std/assert@1.0.19";
+import { assertSpyCallArgs, stub } from "jsr:@std/testing@1.0.21/mock";
 import {
   behaviour,
   type GlobalArgs,
@@ -459,9 +459,9 @@ workflows:
 function userHowTo(method: DeliveryMethod): string {
   switch (method) {
     case "workflow_form":
-      return "Open the app in puddle, fill in the form, and press Run.";
+      return "Your builder will show you where to run it. Each run asks for the values below.";
     case "scheduled_workflow":
-      return "The app runs on a schedule. You can also run it now from puddle with the form below.";
+      return "The app runs on a schedule your builder sets. Each run uses the values below.";
     default:
       return "Your builder will give you a one-line command to run it. It asks for the values below.";
   }
@@ -485,6 +485,17 @@ function renderReadme(input: AppSpec, n: Names): string {
   const runInputs = spec.inputs.filter((i) => i.required).map((i) =>
     ` --input ${i.name}=<${i.name}>`
   ).join("");
+  // The draft sets no schedule, so the builder sets one in serve.yaml.
+  const scheduleIt = input.delivery.method === "scheduled_workflow"
+    ? `
+Schedule it. The draft sets no schedule: pick a cron expression (this one runs
+daily at 09:00), then restart \`swamp serve\` so it picks up the trigger:
+
+\`\`\`bash
+swamp workflow trigger set ${n.entryPointRef} --schedule "0 9 * * *"${runInputs}
+\`\`\`
+`
+    : "";
 
   return `# ${input.title}
 
@@ -528,7 +539,7 @@ Run it:
 \`\`\`bash
 swamp workflow run ${n.entryPointRef}${runInputs}
 \`\`\`
-
+${scheduleIt}
 Test it:
 
 \`\`\`bash
@@ -789,13 +800,13 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /**
- * The `@mesgme/puddleworks-factory/draft` model: `prefill` starts an app spec
+ * The `@puddleworks/puddleworks-factory/draft` model: `prefill` starts an app spec
  * from an outcome spec, `render` writes a first draft from an app spec, and
  * `result` says where that build went.
  */
 export const model = {
-  type: "@mesgme/puddleworks-factory/draft",
-  version: "2026.10.22.1",
+  type: "@puddleworks/puddleworks-factory/draft",
+  version: "2026.10.23.1",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -809,6 +820,14 @@ export const model = {
       description:
         "Adds the prefill method and resource (outcome-spec/v1 in), and an optional " +
         "source on the draft resource. No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.10.23.1",
+      description:
+        "Moves to the @puddleworks collective. Drafted READMEs no longer point at " +
+        "puddle, scheduled drafts say how to set the schedule, and generated tests " +
+        "pin @std versions. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -964,7 +983,7 @@ export const model = {
         if (!draft?.success) {
           throw new Error(
             `No draft of "${args.name}" has been rendered by this model instance. ` +
-              "Run @mesgme/puddleworks-factory-build for the spec first.",
+              "Run @puddleworks/puddleworks-factory-build for the spec first.",
           );
         }
         const manifest = draft.data.files.find((f) =>
