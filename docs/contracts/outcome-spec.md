@@ -1,19 +1,16 @@
 # The outcome spec contract: `puddleworks.dev/outcome-spec/v1`
 
-An outcome spec is what puddleworks-capture exports once a request's
-specification is agreed (ADR-002 in puddleworks-capture). It says what success
-looks like and who agreed it. It does not say how to build it: it has no app
-name, typed inputs, settings or delivery method. Factory reads it to prefill an
-[app spec](app-spec.md), and the builder decides the rest.
+An outcome spec records a request once its specification is agreed. It says what
+success looks like and who agreed it. It does not say how to build it: it has no
+app name, typed inputs, settings or delivery method. Factory reads it to prefill
+an [app spec](app-spec.md), and the builder decides the rest.
 
 - Schema and parser:
   [`extensions/contracts/outcome_spec_v1.ts`](../../extensions/contracts/outcome_spec_v1.ts)
-- Example, copied from Capture as it is:
-  [`outcome-spec.v1.example.json`](outcome-spec.v1.example.json)
+- Example: [`outcome-spec.v1.example.json`](outcome-spec.v1.example.json)
 
-This is Factory's copy. Capture writes the spec and keeps its own copy; both
-test against the same example file. Factory only reads it, so its copy checks
-less than Capture's does.
+This is Factory's copy. Factory only reads outcome specs, so its copy checks
+less than a tool that writes them should.
 
 ## How Factory uses one
 
@@ -50,8 +47,8 @@ out first (`warnings`: open questions, no acceptance criteria).
 The starter is not a valid app spec until the builder fills in the blanks, so it
 cannot be built by mistake. Scope in, constraints, assumptions and acceptance
 criteria have no place in an app spec. The `factory-build` skill keeps the
-outcome spec beside the app spec, in `puddles/<name>/spec/` in the app repo, and
-the build plan reads them there.
+outcome spec beside the app spec, in `spec/` in the app's repo, and the build
+plan reads them there.
 
 ## Shape
 
@@ -59,7 +56,7 @@ the build plan reads them there.
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `format`                | Always `puddleworks.dev/outcome-spec/v1`                                                                                         |
 | `request`               | `id`, `title`, `initialDescription`, `currentProcess`, and `url`                                                                 |
-| `request.url`           | The request's page in Capture, where it was discussed and agreed                                                                 |
+| `request.url`           | The page where the request was discussed and agreed                                                                              |
 | `specification.version` | Which agreed version this is; a positive whole number                                                                            |
 | `specification`         | `problemStatement`, `desiredOutcome`, `scope.in`, `scope.out`, `constraints`, `assumptions`, `acceptanceCriteria` (`id`, `text`) |
 | `agreement`             | `agreedBy` (`name`, `email`), `agreedAt`, and `specHash`                                                                         |
@@ -72,6 +69,6 @@ refused by name.
 
 ## Changing the contract
 
-Capture owns this contract. Adding an **optional** field is a v1 change, and
-Factory ignores fields it does not know. Anything else is `outcome-spec/v2`, and
-Factory's copy changes in its own PR.
+Factory reads this contract but does not write it. Adding an **optional** field
+is a v1 change, and Factory ignores fields it does not know. Anything else is
+`outcome-spec/v2`, and Factory's copy changes in its own PR.

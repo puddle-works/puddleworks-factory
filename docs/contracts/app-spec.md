@@ -2,17 +2,14 @@
 
 The app spec is what Factory builds from. Anything can write one: a person or
 another tool can write it by hand, and Factory prefills one from an agreed
-[outcome spec](outcome-spec.md) exported by puddleworks-capture. (Capture used
-to export app specs; since its ADR-002 it exports only outcome specs.) Factory
-reads no other app's data, only these shapes
-([ADR-001](../adr/ADR-001-three-separate-apps.md)).
+[outcome spec](outcome-spec.md). Factory reads no other data, only these shapes.
 
 - Schema and parser:
   [`extensions/contracts/app_spec_v1.ts`](../../extensions/contracts/app_spec_v1.ts)
 - Example: [`app-spec.v1.example.json`](app-spec.v1.example.json)
 
-This is Factory's copy. Every Puddleworks app that reads or writes the spec
-keeps its own copy and tests against the same example file.
+This is Factory's copy. Any tool that reads or writes the spec can test against
+the same example file.
 
 ## Where a spec can come from
 
@@ -47,8 +44,8 @@ sentence.
 When a spec has a `source`, the build links back to it: the drafted app's
 `CLAUDE.md` and `README.md` say "Spec: [where it was agreed](url), version N,
 hash `…`", the draft resource records it, and the build result carries it.
-`http://` is allowed in `source.url` because Capture runs locally; it is only a
-link and is never fetched.
+`http://` is allowed in `source.url` because the page where a spec was agreed
+may be on a local server; it is only a link and is never fetched.
 
 ## Changing the contract
 

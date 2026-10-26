@@ -1,14 +1,13 @@
 /**
  * @puddleworks/puddleworks-factory/draft — turn an app spec into a first draft of
- * the app (puddleworks#111).
+ * the app.
  *
- * `prefill` reads an agreed `puddleworks.dev/outcome-spec/v1` (from
- * puddleworks-capture) and writes a starter app spec for the builder to finish
- * (extensions/lib/prefill.ts).
+ * `prefill` reads an agreed `puddleworks.dev/outcome-spec/v1` and writes a
+ * starter app spec for the builder to finish (extensions/lib/prefill.ts).
  *
  * `render` reads a `puddleworks.dev/app-spec/v1` spec from a file, an https URL
- * or inline JSON (extensions/lib/spec_source.ts) and writes, into an app repo
- * checkout (normally puddle-works/puddleworks-apps):
+ * or inline JSON (extensions/lib/spec_source.ts) and writes, into the root of
+ * the app's own repo checkout:
  *
  * - `extensions/models/<name>.ts` — an extension whose `run` method takes one
  *   argument per specification input and one global argument per setting.
@@ -16,11 +15,14 @@
  * - `extensions/models/<name>_test.ts` — tests that pin the argument contract
  *   and the result resource.
  * - `workflows/workflow-<slug>.yaml` — a workflow named `<typeScope>/<slug>`
- *   whose inputs are exactly the specification inputs, so Puddleworks UI can render
- *   its form. The manifest lists it, so `extension pull` brings it along;
+ *   whose inputs are exactly the specification inputs, so a form can be
+ *   rendered from them. The manifest lists it, so `extension pull` brings it along;
  *   it runs the `<name>-model` instance.
- * - `puddles/<name>/` — publish manifest, README and a CLAUDE.md that states
- *   the bounded purpose and what is out of scope.
+ * - `manifest.yaml`, `README.md` and `LICENSE` — the publish manifest, with
+ *   its licence and repository link, and what it ships. A LICENSE the repo
+ *   already has is kept.
+ * - `CLAUDE.md` — a marked section that states the bounded purpose and what is
+ *   out of scope, added to the repo's own CLAUDE.md if it has one.
  *
  * The draft passes `deno check` and its own tests as generated. Factory reads
  * no other app's data: whoever approved the spec did so before handing it
@@ -68,12 +70,11 @@ export interface RenderOptions {
   now: Date;
   /** Id of the generated workflow. */
   uuid: string;
+  /** `https://` URL of the app's repository, for the manifest and LICENSE. */
+  repository: string;
   /** Scope for the generated extension type. Defaults to `@puddleworks`. */
   typeScope?: string;
-  /**
-   * Registry visibility. Omitted or `"public"` writes no `visibility:` line
-   * (public is the registry default); `"private"` writes `visibility: private`.
-   */
+  /** Registry visibility. Defaults to `"private"`. */
   visibility?: "public" | "private";
 }
 
@@ -82,6 +83,39 @@ export interface DraftFile {
   /** Path relative to the app repo root. */
   path: string;
   content: string;
+  /**
+   * How the file meets one already there. `replace` (the default) needs
+   * overwrite=true; `keep` leaves it as it is; `section` places the content
+   * as a marked section (see placeSection).
+   */
+  existing?: "replace" | "keep" | "section";
+}
+
+/** Markers around the app's section of CLAUDE.md. */
+export const CLAUDE_BEGIN = "<!-- BEGIN puddleworks-factory app section -->";
+export const CLAUDE_END = "<!-- END puddleworks-factory app section -->";
+
+/**
+ * Put a marked section into a file's text: replace the section if the text
+ * has one, add it at the end if not, or use it alone when there is no file.
+ * `replaced` says whether an earlier section was replaced.
+ */
+export function placeSection(
+  existing: string | null,
+  section: string,
+): { text: string; replaced: boolean } {
+  if (existing === null) return { text: section, replaced: false };
+  const start = existing.indexOf(CLAUDE_BEGIN);
+  const end = existing.indexOf(CLAUDE_END, start);
+  if (start >= 0 && end >= 0) {
+    const after = existing.slice(end + CLAUDE_END.length).replace(/^\n/, "");
+    return {
+      text: existing.slice(0, start) + section + after,
+      replaced: true,
+    };
+  }
+  const sep = existing.endsWith("\n") ? "\n" : "\n\n";
+  return { text: existing + sep + section, replaced: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -212,12 +246,14 @@ import { z } from ${q(ZOD_SPECIFIER)};
 export const GlobalArgsSchema = z.object({
 ${settingLines.join("\n")}
 });
+/** The settings, as the run method receives them. */
 export type GlobalArgs = z.infer<typeof GlobalArgsSchema>;
 
 /** Arguments for \`run\` — one per specification input. */
 export const RunArgsSchema = z.object({
 ${inputLines.join("\n")}
 });
+/** The inputs of one run. */
 export type RunArgs = z.infer<typeof RunArgsSchema>;
 
 ${jsdoc([`One run's result. ${spec.output}`])}
@@ -226,6 +262,7 @@ export const ResultSchema = z.object({
   items: z.array(z.unknown()),
   ranAt: z.iso.datetime(),
 });
+/** One run's result, as written to the result resource. */
 export type Result = z.infer<typeof ResultSchema>;
 
 ${
@@ -251,6 +288,7 @@ interface MethodContext {
   ) => Promise<{ name: string }>;
 }
 
+/** The \`${n.modelType}\` model: one \`run\` method that writes one result. */
 ${MODEL_EXPORT}
   type: ${q(n.modelType)},
   version: ${q(n.version)},
@@ -363,7 +401,7 @@ ${rows.join("\n")}
     jsdoc([
       `Tests for ${n.modelType}.`,
       "",
-      `Run with the "Test it" command in puddles/${n.app}/README.md.`,
+      `Run with the "Test it" command in README.md.`,
       "",
       "@module",
     ])
@@ -443,18 +481,50 @@ jobs:
 function renderManifest(
   input: AppSpec,
   n: Names,
-  visibility: RenderOptions["visibility"],
+  opts: RenderOptions,
 ): string {
   return `manifestVersion: 1
 name: ${q(n.modelType)}
 version: ${q(n.version)}
 description: ${q(input.specification.purpose)}
-${visibility === "private" ? "visibility: private\n" : ""}additionalFiles:
+repository: ${q(opts.repository)}
+license: MIT
+visibility: ${opts.visibility ?? "private"}
+additionalFiles:
   - README.md
+  - LICENSE
 models:
   - ${n.fileBase}.ts
 workflows:
   - workflow-${n.slug}.yaml
+`;
+}
+
+/** The MIT licence, held by the repository's owner (its first path part). */
+function renderLicense(repository: string, now: Date): string {
+  const owner = new URL(repository).pathname.split("/").filter(Boolean)[0] ??
+    new URL(repository).host;
+  return `MIT License
+
+Copyright (c) ${now.getUTCFullYear()} ${owner}
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 `;
 }
 
@@ -564,7 +634,8 @@ function renderClaude(input: AppSpec, n: Names): string {
     } — ${s.description}`
   );
 
-  return `# ${n.app}
+  return `${CLAUDE_BEGIN}
+# ${n.app}
 
 ${input.title}. Built by puddleworks-factory from the app spec \`${n.app}\`;
 the specification below was agreed before it was handed over.
@@ -603,9 +674,11 @@ settings above do not name.
    generated tests as they are: they stub \`run\`, so they keep passing. Tests
    of the behaviour call \`run\` directly with working settings.
 3. If the tests need permissions (\`--allow-read\`, \`--allow-net\`, …), add the
-   same flags to the "Test it" command in \`README.md\` and to this app's line
-   in the repo \`Makefile\`.
+   same flags to the "Test it" command in \`README.md\`, to the \`test\` target
+   in the \`Makefile\`, and to the test commands in
+   \`.github/workflows/ci.yml\` if the repo has one.
 4. \`deno check\` and \`deno test\` must pass before review.
+${CLAUDE_END}
 `;
 }
 
@@ -636,6 +709,12 @@ export function renderDraft(
     throw new Error(
       `entryPointRef "${ref}" must be a slug or ${scope}/<slug>, so it can ` +
         `name the workflow file and carry the package's collective.`,
+    );
+  }
+  if (!/^https:\/\/[^/]+\/./.test(opts.repository)) {
+    throw new Error(
+      `repository "${opts.repository}" must be the https URL of the app's repo, ` +
+        "e.g. https://github.com/<owner>/<name>.",
     );
   }
   const problems = specificationProblems(input.specification);
@@ -669,12 +748,18 @@ export function renderDraft(
       path: `workflows/workflow-${n.slug}.yaml`,
       content: renderWorkflow(input, n, opts.uuid),
     },
+    { path: "manifest.yaml", content: renderManifest(input, n, opts) },
+    { path: "README.md", content: renderReadme(input, n) },
     {
-      path: `puddles/${n.app}/manifest.yaml`,
-      content: renderManifest(input, n, opts.visibility),
+      path: "LICENSE",
+      content: renderLicense(opts.repository, opts.now),
+      existing: "keep",
     },
-    { path: `puddles/${n.app}/README.md`, content: renderReadme(input, n) },
-    { path: `puddles/${n.app}/CLAUDE.md`, content: renderClaude(input, n) },
+    {
+      path: "CLAUDE.md",
+      content: renderClaude(input, n),
+      existing: "section",
+    },
   ];
 }
 
@@ -695,6 +780,10 @@ const DraftSchema = z.object({
   /** Where the spec was agreed, when it said. */
   source: SpecSourceSchema.optional(),
   targetDir: z.string(),
+  /** The app's repository, when the draft was given one. */
+  repository: z.string().optional(),
+  /** The manifest's visibility, when the draft recorded it. */
+  visibility: z.enum(["public", "private"]).optional(),
   modelType: z.string(),
   entryPointRef: z.string(),
   /** Paths written, relative to targetDir. */
@@ -722,8 +811,8 @@ const PrefillSchema = z.object({
 
 const PrefillArgsSchema = z.object({
   /**
-   * A puddleworks.dev/outcome-spec/v1, as exported by puddleworks-capture: a
-   * file path, an https URL, or the spec itself as inline JSON.
+   * A puddleworks.dev/outcome-spec/v1: a file path, an https URL, or the
+   * spec itself as inline JSON.
    */
   outcomeSpec: z.string().min(1),
   /** File to write the starter app spec to, as JSON. */
@@ -740,11 +829,13 @@ const RenderArgsSchema = z.object({
    * spec itself as inline JSON.
    */
   spec: z.string().min(1),
-  /** Absolute path of an app repo checkout (normally a puddleworks-apps worktree). */
+  /** Absolute path of a checkout of the app's own repo. */
   targetDir: z.string().min(1),
+  /** `https://` URL of the app's repo, written into the manifest. */
+  repository: z.string().min(1),
   overwrite: z.boolean().default(false),
-  /** "public" is the default; "private" keeps the package off the public registry. */
-  visibility: z.enum(["public", "private"]).default("public"),
+  /** "private" (the default) keeps the package off the public registry until it is decided otherwise. */
+  visibility: z.enum(["public", "private"]).default("private"),
 });
 
 type RenderArgs = z.infer<typeof RenderArgsSchema>;
@@ -756,8 +847,8 @@ const optional = <T extends z.ZodType>(schema: T) =>
 const ResultArgsSchema = z.object({
   /** The app spec's name, as drafted by `render` on this instance. */
   name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
-  /** https URL of the repository the draft was pushed to. */
-  repository: z.string().min(1),
+  /** https URL of the repository the draft was pushed to. Defaults to the draft's. */
+  repository: optional(z.string().min(1)),
   /** Branch or commit the build is on, e.g. `draft/<name>`. */
   buildRef: z.string().min(1),
   /** https URL of the pull request, once there is one. */
@@ -815,7 +906,7 @@ async function exists(path: string): Promise<boolean> {
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.10.23.1",
+  version: "2026.10.26.1",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -837,6 +928,16 @@ export const model = {
         "Moves to the @puddleworks collective. Drafted READMEs no longer point at " +
         "puddle, scheduled drafts say how to set the schedule, and generated tests " +
         "pin @std versions. No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.10.26.1",
+      description:
+        "render drafts into the root of the app's own repo (manifest, README, LICENSE " +
+        "and a CLAUDE.md section, no puddles/<name>/ folder), takes a required " +
+        "repository, writes license and repository into the manifest, and drafts " +
+        "private by default. The draft resource records repository and visibility, " +
+        "and result defaults its repository to the draft's. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -908,16 +1009,17 @@ export const model = {
     },
     render: {
       description:
-        "Write a first draft (extension, tests, workflow, puddle docs) for an app spec, " +
-        "read from a file, an https URL or inline JSON, into an app repo checkout. " +
+        "Write a first draft (extension, tests, workflow, manifest, README, LICENSE and " +
+        "CLAUDE.md section) for an app spec, read from a file, an https URL or inline " +
+        "JSON, into the root of the app's own repo checkout. Private unless visibility=public. " +
         "Refuses to overwrite files unless overwrite=true.",
       arguments: RenderArgsSchema,
       execute: async (args: RenderArgs, context: MethodContext) => {
         const root = args.targetDir.replace(/\/+$/, "");
-        if (!(await exists(`${root}/extensions/models`))) {
+        if (!(await exists(`${root}/.swamp.yaml`))) {
           throw new Error(
-            `${root} does not look like an app repo checkout: it has no extensions/models/ directory. ` +
-              "Pass targetDir as the path of an app repo checkout, e.g. a puddleworks-apps worktree.",
+            `${root} does not look like an app repo checkout: it has no .swamp.yaml. ` +
+              "Pass targetDir as the path of a checkout of the app's own swamp repo, e.g. a git worktree of it.",
           );
         }
 
@@ -925,13 +1027,30 @@ export const model = {
         const files = renderDraft(spec, {
           now: new Date(),
           uuid: crypto.randomUUID(),
+          repository: args.repository,
           typeScope: context.globalArgs.typeScope,
           visibility: args.visibility,
         });
 
+        // What each file's text becomes, or null to leave it as it is.
+        const writes: Array<{ path: string; text: string | null }> = [];
         const present: string[] = [];
         for (const f of files) {
-          if (await exists(`${root}/${f.path}`)) present.push(f.path);
+          const path = `${root}/${f.path}`;
+          const old = (await exists(path))
+            ? await Deno.readTextFile(path)
+            : null;
+          const mode = f.existing ?? "replace";
+          if (mode === "section") {
+            const placed = placeSection(old, f.content);
+            if (placed.replaced) present.push(f.path);
+            writes.push({ path, text: placed.text });
+          } else if (old !== null && mode === "keep") {
+            writes.push({ path, text: null });
+          } else {
+            if (old !== null) present.push(f.path);
+            writes.push({ path, text: f.content });
+          }
         }
         if (present.length > 0 && !args.overwrite) {
           throw new Error(
@@ -942,12 +1061,8 @@ export const model = {
           );
         }
 
-        for (const f of files) {
-          const path = `${root}/${f.path}`;
-          await Deno.mkdir(path.slice(0, path.lastIndexOf("/")), {
-            recursive: true,
-          });
-          await Deno.writeTextFile(path, f.content);
+        for (const { path, text } of writes) {
+          if (text !== null) await writeFileIn(path, text);
         }
 
         const workflow = files[2].path;
@@ -962,6 +1077,8 @@ export const model = {
           specSource: source,
           ...(spec.source ? { source: spec.source } : {}),
           targetDir: root,
+          repository: args.repository,
+          visibility: args.visibility,
           modelType: `${context.globalArgs.typeScope}/${spec.name}`,
           entryPointRef: `${context.globalArgs.typeScope}/${
             workflow.slice("workflows/workflow-".length, -".yaml".length)
@@ -990,6 +1107,12 @@ export const model = {
               "Run @puddleworks/puddleworks-factory-build for the spec first.",
           );
         }
+        const repository = args.repository ?? draft.data.repository;
+        if (!repository) {
+          throw new Error(
+            `The draft of "${args.name}" records no repository. Pass repository.`,
+          );
+        }
         const manifest = draft.data.files.find((f) =>
           f.endsWith("/manifest.yaml")
         );
@@ -999,7 +1122,7 @@ export const model = {
           name: args.name,
           extension: draft.data.modelType,
           entryPointRef: draft.data.entryPointRef,
-          repository: args.repository,
+          repository,
           ...(manifest
             ? { path: manifest.slice(0, manifest.lastIndexOf("/")) }
             : {}),

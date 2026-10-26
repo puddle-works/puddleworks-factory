@@ -1,7 +1,7 @@
 /**
- * Read a spec from wherever it is, so Factory can build from an outcome spec
- * that puddleworks-capture exported, an app spec a person wrote by hand, or
- * one another tool published.
+ * Read a spec from wherever it is, so Factory can build from an exported
+ * outcome spec, an app spec a person wrote by hand, or one another tool
+ * published.
  *
  * | `source` starts with | Read as                          |
  * | -------------------- | -------------------------------- |

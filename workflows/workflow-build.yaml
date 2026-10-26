@@ -3,10 +3,11 @@ name: "@puddleworks/puddleworks-factory-build"
 description: >-
   Write a first draft of a swamp app from a puddleworks.dev/app-spec/v1 spec:
   an extension whose run method takes the spec's inputs, tests for it, a
-  workflow with the same inputs, and the app docs. The spec can be a file
-  path, an https URL or inline JSON, from Capture or from anywhere else. Files
-  go into an app repo checkout; nothing is committed or pushed. The
-  factory-build skill drives this end to end.
+  workflow with the same inputs, the publish manifest, README, LICENSE and a
+  CLAUDE.md section. The spec can be a file path, an https URL or inline JSON,
+  written by a person or another tool. Files go into the root of a checkout of
+  the app's own repo; nothing is committed or pushed. The factory-build skill
+  drives this end to end.
 version: 1
 
 inputs:
@@ -20,8 +21,13 @@ inputs:
     targetDir:
       type: string
       description: >-
-        Absolute path of the app repo checkout to write into (normally a
-        puddleworks-apps worktree). Must contain extensions/models/.
+        Absolute path of a checkout of the app's own swamp repo to write into.
+        Must contain .swamp.yaml.
+    repository:
+      type: string
+      description: >-
+        https URL of the app's repo, e.g. https://github.com/example/my-app.
+        Written into the manifest; the LICENSE names its owner.
     overwrite:
       type: boolean
       description: >-
@@ -32,11 +38,13 @@ inputs:
       type: string
       enum: [public, private]
       description: >-
-        Registry visibility of the drafted package. Default public.
-      default: public
+        Registry visibility of the drafted package. Default private, until
+        someone decides to share it.
+      default: private
   required:
     - spec
     - targetDir
+    - repository
 
 jobs:
   - name: build
@@ -60,5 +68,6 @@ jobs:
           inputs:
             spec: ${{ inputs.spec }}
             targetDir: ${{ inputs.targetDir }}
+            repository: ${{ inputs.repository }}
             overwrite: ${{ inputs.overwrite }}
             visibility: ${{ inputs.visibility }}

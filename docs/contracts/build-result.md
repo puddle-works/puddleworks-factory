@@ -1,17 +1,16 @@
 # The build result contract: `puddleworks.dev/build-result/v1`
 
 A build result says what a build produced and where it is. Factory writes one
-after a build. Anything can read it: puddleworks-capture records it against the
-request the spec came from, and a person or another tool can read it as it is.
-Any factory may write one, not only this one
-([ADR-001](../adr/ADR-001-three-separate-apps.md)).
+after a build. Anything can read it as it is: a person, or the tool the spec
+came from, to record it against the request. Any factory may write one, not only
+this one.
 
 - Schema and parser:
   [`extensions/contracts/build_result_v1.ts`](../../extensions/contracts/build_result_v1.ts)
 - Example: [`build-result.v1.example.json`](build-result.v1.example.json)
 
-This is Factory's copy. Every Puddleworks app that reads or writes the build
-result keeps its own copy and tests against the same example file.
+This is Factory's copy. Any tool that reads or writes the build result can test
+against the same example file.
 
 ## How Factory writes one
 
@@ -20,14 +19,14 @@ its inputs and the last draft that `@puddleworks/puddleworks-factory-build`
 rendered for the same `name`. It records the result as a `buildResult` resource
 (`build-result-<name>`) and, with `out`, writes it to a JSON file. Run it after
 the draft branch is pushed, and again once the pull request is open; the latest
-one wins.
+one wins. `repository` defaults to the one the draft was built with; pass
+`--input repository=<url>` only to record another.
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result \
   --input name=obsidian-puddle-scanner \
-  --input repository=https://github.com/puddle-works/puddleworks-apps \
   --input buildRef=draft/obsidian-puddle-scanner \
-  --input pullRequest=https://github.com/puddle-works/puddleworks-apps/pull/42 \
+  --input pullRequest=https://github.com/example/obsidian-puddle-scanner/pull/42 \
   --input out=$HOME/obsidian-puddle-scanner.build-result.json
 ```
 
@@ -41,7 +40,7 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
 | `extension`     | yes      | Package name of the built extension, `@<scope>/<name>`                        |
 | `entryPointRef` | yes      | The workflow to run the app with, `@<scope>/<slug>`                           |
 | `repository`    | yes      | `https://` URL of the repository the build was written to                     |
-| `path`          | no       | Where in the repository the app's manifest and docs are. Relative, no `..`    |
+| `path`          | no       | Where in the repository the app's manifest is, if not at the root. Relative   |
 | `buildRef`      | yes      | Branch or commit the build is on                                              |
 | `pullRequest`   | no       | `https://` URL of the pull request that proposes the build, once there is one |
 | `source`        | no       | The app spec's `source`, when it had one: where the spec was agreed           |

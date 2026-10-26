@@ -10,7 +10,7 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { OUTCOME_SPEC_V1, parseOutcomeSpec } from "./outcome_spec_v1.ts";
 
-/** Capture's example, copied as it is. */
+/** The contract's example. */
 const EXAMPLE = JSON.parse(
   await Deno.readTextFile(
     new URL(
@@ -25,7 +25,7 @@ function problemsOf(value: unknown): string[] {
   return result.ok ? [] : result.problems;
 }
 
-Deno.test("outcome-spec: Capture's example parses", () => {
+Deno.test("outcome-spec: the example parses", () => {
   const result = parseOutcomeSpec(EXAMPLE);
   assertEquals(result.ok, true);
   if (result.ok) {

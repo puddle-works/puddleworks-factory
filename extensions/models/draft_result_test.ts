@@ -19,8 +19,8 @@ const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
 );
 
-const REPO = "https://github.com/puddle-works/puddleworks-apps";
-const PR = "https://github.com/puddle-works/puddleworks-apps/pull/42";
+const REPO = "https://github.com/example/my-apps";
+const PR = "https://github.com/example/my-apps/pull/42";
 
 /** A context that keeps what is written, so a later method can read it. */
 function makeContext() {
@@ -52,12 +52,13 @@ async function withDraft(
 ) {
   const dir = await Deno.makeTempDir({ prefix: "puddle-apps-" });
   try {
-    await Deno.mkdir(`${dir}/extensions/models`, { recursive: true });
+    await Deno.writeTextFile(`${dir}/.swamp.yaml`, "tools:\n  - claude\n");
     const ctx = makeContext();
     await model.methods.render.execute(
       {
         spec,
         targetDir: dir,
+        repository: REPO,
         overwrite: false,
         visibility: "public",
       },
@@ -96,10 +97,22 @@ Deno.test("result: records a build-result/v1 for the last draft", async () => {
       extension: "@puddleworks/obsidian-puddle-scanner",
       entryPointRef: "@puddleworks/obsidian-scan",
       repository: REPO,
-      path: "puddles/obsidian-puddle-scanner",
       buildRef: "draft/obsidian-puddle-scanner",
       pullRequest: PR,
     });
+  });
+});
+
+// The draft already knows its repository, so the result need not be told again.
+Deno.test("result: the repository defaults to the draft's", async () => {
+  await withDraft(async (_dir, ctx) => {
+    const args = model.methods.result.arguments.parse({
+      name: "obsidian-puddle-scanner",
+      buildRef: "draft/obsidian-puddle-scanner",
+    });
+    await model.methods.result.execute(args, ctx);
+    const written = ctx.store.get("build-result-obsidian-puddle-scanner")!;
+    assertEquals(written.repository, REPO);
   });
 });
 
@@ -144,8 +157,12 @@ Deno.test("result: a blank pull request or out is left out", async () => {
     const data = ctx.store.get("build-result-obsidian-puddle-scanner")!;
     assertEquals("pullRequest" in data, false);
     assertEquals([...Deno.readDirSync(dir)].map((e) => e.name).sort(), [
+      ".swamp.yaml",
+      "CLAUDE.md",
+      "LICENSE",
+      "README.md",
       "extensions",
-      "puddles",
+      "manifest.yaml",
       "workflows",
     ]);
   });
