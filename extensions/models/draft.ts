@@ -26,8 +26,10 @@
  *
  * The draft passes `deno check` and its own tests as generated. Factory reads
  * no other app's data: whoever approved the spec did so before handing it
- * over. The `factory-build` skill then builds the behaviour, and `visibility`
- * checks the repo before it is published (extensions/lib/visibility.ts).
+ * over. The `factory-build` skill then builds the behaviour, `visibility`
+ * checks the repo before it is published (extensions/lib/visibility.ts), and
+ * `readiness` checks the independent review and summarises what would be
+ * published (extensions/lib/readiness.ts).
  *
  * @module
  */
@@ -47,6 +49,7 @@ import {
 } from "../lib/spec_source.ts";
 import { prefillAppSpec } from "../lib/prefill.ts";
 import { assessVisibility } from "../lib/visibility.ts";
+import { assessReadiness } from "../lib/readiness.ts";
 import {
   BUILD_RESULT_V1,
   type BuildResult,
@@ -904,6 +907,65 @@ const VisibilitySchema = z.object({
   assessedAt: z.iso.datetime(),
 });
 
+const ReadinessArgsSchema = z.object({
+  /** The app spec's name, as drafted by `render` on this instance. */
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+  /** The review report from the publish dry run: absolute, or relative to targetDir. */
+  review: z.string().min(1),
+  /** https URL of the app's pull request, shown in the summary. */
+  pullRequest: optional(z.string()),
+  /** The reviewed commit, shown in the summary. */
+  commit: optional(z.string()),
+  /** The app repo checkout to check. Defaults to where the draft was written. */
+  targetDir: optional(z.string().min(1)),
+});
+
+type ReadinessArgs = z.infer<typeof ReadinessArgsSchema>;
+
+const ReadinessSchema = z.object({
+  name: z.string(),
+  targetDir: z.string(),
+  /** No blockers: the review is complete and every acceptance criterion is checked. */
+  ready: z.boolean(),
+  package: z.string().nullable(),
+  version: z.string().nullable(),
+  /** The manifest's visibility. */
+  visibility: z.enum(["public", "private"]).nullable(),
+  /** What the visibility check recommended, or null when it has not run. */
+  recommendation: z.enum(["public", "private"]).nullable(),
+  reviewFile: z.string(),
+  review: z.object({
+    file: z.string(),
+    reviewedAt: z.string(),
+    counts: z.object({
+      pass: z.number().int(),
+      na: z.number().int(),
+      issue: z.number().int(),
+      pending: z.number().int(),
+    }),
+    issues: z.array(z.object({ id: z.string(), note: z.string() })),
+  }).nullable(),
+  criteria: z.array(z.object({
+    id: z.string(),
+    text: z.string(),
+    tests: z.array(z.string()),
+    manual: z.string(),
+    ok: z.boolean(),
+  })),
+  blockers: z.array(z.string()),
+  /** One screen of plain text to confirm publishing against. */
+  summary: z.string(),
+  pullRequest: z.string().nullable(),
+  commit: z.string().nullable(),
+  assessedAt: z.iso.datetime(),
+});
+
+/** The part of a visibility resource that readiness needs. */
+const VisibilityAnswerSchema = VisibilitySchema.pick({
+  recommendation: true,
+  canBePublic: true,
+});
+
 /** Directories the visibility check does not read: git, swamp runtime data, swamp-managed skills, dependencies. */
 const UNREAD = new Set([".git", ".swamp", ".claude/skills", "node_modules"]);
 
@@ -969,12 +1031,13 @@ async function exists(path: string): Promise<boolean> {
 /**
  * The `@puddleworks/puddleworks-factory/draft` model: `prefill` starts an app spec
  * from an outcome spec, `render` writes a first draft from an app spec,
- * `visibility` recommends publishing it publicly or privately, and `result`
- * says where that build went.
+ * `visibility` recommends publishing it publicly or privately, `readiness`
+ * says whether the reviewed app is ready to publish, and `result` says where
+ * that build went.
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.10.26.2",
+  version: "2026.10.26.3",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -1016,6 +1079,14 @@ export const model = {
         "as the build result's published field. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
+    {
+      toVersion: "2026.10.26.3",
+      description:
+        "Adds the readiness method and resource (is the independent review complete, " +
+        "is every acceptance criterion checked, and a one-screen summary to confirm " +
+        "publishing against). No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
   ],
   globalArguments: GlobalArgsSchema,
   resources: {
@@ -1044,6 +1115,13 @@ export const model = {
       description:
         "The last public-or-private check of an app's repo before publishing: the recommendation, each check and what it found.",
       schema: VisibilitySchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
+    readiness: {
+      description:
+        "The last check that an app is ready to publish: the review's verdicts, each acceptance criterion and its tests, the blockers, and a one-screen summary.",
+      schema: ReadinessSchema,
       lifetime: "infinite" as const,
       garbageCollection: 20,
     },
@@ -1293,6 +1371,67 @@ export const model = {
             targetDir: root,
             repoVisibility: args.repoVisibility,
             ...assessment,
+            assessedAt: new Date().toISOString(),
+          },
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+    readiness: {
+      description:
+        "After the independent review, check the app is ready to publish: the review report " +
+        "matches the manifest's name and version with no issue or pending verdict, every " +
+        "acceptance criterion in spec/ maps to tests that exist or a manual check " +
+        "(spec/acceptance.json), and the visibility check allows the manifest's visibility. " +
+        "Records the readiness resource with a one-screen summary.",
+      arguments: ReadinessArgsSchema,
+      execute: async (args: ReadinessArgs, context: MethodContext) => {
+        const raw = context.readResource
+          ? await context.readResource(args.name)
+          : null;
+        const draft = raw ? DraftSchema.safeParse(raw) : null;
+        if (!draft?.success) {
+          throw new Error(
+            `No draft of "${args.name}" has been rendered by this model instance. ` +
+              "Run @puddleworks/puddleworks-factory-build for the spec first.",
+          );
+        }
+        const root = (args.targetDir ?? draft.data.targetDir).replace(
+          /\/+$/,
+          "",
+        );
+        const reviewFile = args.review.startsWith("/")
+          ? args.review
+          : `${root}/${args.review}`;
+        const reviewText = await exists(reviewFile)
+          ? await Deno.readTextFile(reviewFile)
+          : null;
+        const answer = VisibilityAnswerSchema.safeParse(
+          await context.readResource?.(`visibility-${args.name}`),
+        );
+        const readiness = assessReadiness({
+          files: await textFiles(root),
+          review: reviewText === null
+            ? null
+            : { path: reviewFile, text: reviewText },
+          visibility: answer.success ? answer.data : null,
+          pullRequest: args.pullRequest,
+          commit: args.commit,
+        });
+        context.logger.info("Readiness for {name}: {ready}", {
+          name: args.name,
+          ready: readiness.ready,
+        });
+        const handle = await context.writeResource(
+          "readiness",
+          `readiness-${args.name}`,
+          {
+            name: args.name,
+            targetDir: root,
+            ...readiness,
+            reviewFile,
+            pullRequest: args.pullRequest ?? null,
+            commit: args.commit ?? null,
             assessedAt: new Date().toISOString(),
           },
         );
