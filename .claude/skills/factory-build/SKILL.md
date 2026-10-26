@@ -5,16 +5,16 @@ description: >
   (puddleworks.dev/outcome-spec/v1) or a puddleworks.dev/app-spec/v1 spec (a
   file path, an https URL or inline JSON): for an outcome spec, prefill an app
   spec and agree the builder's decisions with the user; generate the skeleton
-  (extension, tests, workflow) on a branch in an app repo, with both specs kept
-  beside it; then write a build plan for filling it in. Does not implement or
-  open a PR. Triggers on: "factory build", "build from spec", "build this
+  (extension, tests, workflow, manifest) on a branch in the app's own repo,
+  made from puddle-works/puddle-template, with both specs kept beside it; then
+  write a build plan for filling it in. Does not implement or open a PR. Triggers on: "factory build", "build from spec", "build this
   puddle", "plan the build for <spec>", "/factory-build <spec>".
 ---
 
 # Factory Build
 
-Turn an app spec into a skeleton on a branch in an app repo and a build plan
-for filling it in. **This skill writes the plan and stops.** It does not write
+Turn an app spec into a skeleton on a branch in the app's own repo and a build
+plan for filling it in. **This skill writes the plan and stops.** It does not write
 behaviour code or open a PR.
 
 1. **Generated skeleton**: the `@puddleworks/puddleworks-factory-build` workflow
@@ -32,9 +32,10 @@ has already agreed it; Factory does not check approvals.
 The spec: a file path, an `https://` URL, or the JSON itself. Ask for it if the
 user did not give one.
 
-The app repo: `APP`, the absolute path of a git checkout of the repo the app
-goes in, with an `extensions/models/` directory. Ask for it if the user did not
-give one.
+The app repo: each app gets its own repo, `puddle-works/NAME`, made from the
+template `puddle-works/puddle-template` (ADR-004). `APP` is the absolute path of
+its checkout. Step 2 creates the repo and the checkout if they do not exist
+yet. If the user names an existing checkout, use that.
 
 Check which kind of spec it is:
 
@@ -48,9 +49,10 @@ jq -r '.format // .apiVersion' SPEC_FILE   # or: curl -fsSL SPEC_URL | jq -r '.f
 - `puddleworks.dev/app-spec/v1`: already an app spec
   (`docs/contracts/app-spec.md`). Its `name` is the app name. Skip step 1a.
 
-Below, `NAME` is the app name, `SPEC` is the app spec to build from, and `W` is
-`APP-draft-NAME`, a worktree beside `APP`. The contracts are in `docs/contracts/`
-in the puddleworks-factory repo.
+Below, `NAME` is the app name, `SPEC` is the app spec to build from, `REPO` is
+the app repo's https URL (`https://github.com/puddle-works/NAME`), `W` is
+`APP-draft-NAME`, a worktree beside `APP`, and `SP` is the scratchpad directory.
+The contracts are in `docs/contracts/` in the puddleworks-factory repo.
 
 ## Step 1: Make sure the factory model exists
 
@@ -70,8 +72,7 @@ swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory --
 
 ## Step 1a: Prefill an app spec from an outcome spec
 
-Skip this for an app spec. Let `SP` be the scratchpad directory and `OUTCOME`
-the absolute path of the outcome spec file. If the user gave a URL or pasted
+Skip this for an app spec. Let `OUTCOME` be the absolute path of the outcome spec file. If the user gave a URL or pasted
 JSON, save it first (`curl -fsSL URL -o SP/outcome-spec.json`, or write the
 JSON there) and use that path. Prefill a starter app spec:
 
@@ -125,16 +126,49 @@ jq -e '.name and .specification.output != "" and .delivery.method != ""' SP/app-
 skeleton, so the build can always be traced back to what was agreed:
 
 ```bash
-mkdir -p W/puddles/NAME/spec
-cp OUTCOME W/puddles/NAME/spec/outcome-spec.v$(jq -r .specification.version OUTCOME).json
-cp SP/app-spec.json W/puddles/NAME/spec/app-spec.json
+mkdir -p W/spec
+cp OUTCOME W/spec/outcome-spec.v$(jq -r .specification.version OUTCOME).json
+cp SP/app-spec.json W/spec/app-spec.json
 ```
 
-In step 3, `SPEC` is `W/puddles/NAME/spec/app-spec.json`.
+In step 3, `SPEC` is `W/spec/app-spec.json`.
 The build checks it fully: a field left blank fails there with
 `is not a valid puddleworks.dev/app-spec/v1 spec`.
 
-## Step 2: Make a branch in the app repo
+## Step 2: Make the app repo and a branch in it
+
+Check whether the repo exists:
+
+```bash
+gh repo view puddle-works/NAME --json visibility -q .visibility
+```
+
+`PRIVATE` or `PUBLIC` means it exists: use the user's checkout as `APP`, or
+clone it (`gh repo clone puddle-works/NAME APP`). `Could not resolve to a
+Repository` means it does not exist yet. Creating a repo is outward-facing, so
+**ask first**, naming the repo and where the checkout goes (suggest
+`$HOME/dev/NAME`). On yes:
+
+```bash
+gh repo create puddle-works/NAME --template puddle-works/puddle-template --private --clone=false
+gh repo clone puddle-works/NAME APP
+ID=$(gh api repos/puddle-works/NAME -q .id)
+for S in SWAMP_API_KEY SWAMP_SIGNIN_TOKEN; do gh api -X PUT orgs/puddle-works/actions/secrets/$S/repositories/$ID; done
+```
+
+The last two lines give the repo the org secrets its CI publish dry run needs
+(they are shared with selected repos only). They need a token with `admin:org`;
+if `gh api` answers `403`, tell the user to add the repo under **Repository
+access** at `https://github.com/organizations/puddle-works/settings/secrets/actions`
+for both secrets.
+
+Every app starts private. Whether it goes public is decided at the end, once the
+extension is built and checked. A clone straight after `gh repo create` can
+come back empty while GitHub copies the template: if `git -C APP log` says
+`does not have any commits yet`, wait a few seconds, delete `APP` and clone
+again.
+
+Make the branch:
 
 ```bash
 git -C APP fetch origin --quiet
@@ -142,20 +176,42 @@ git -C APP worktree add W -b draft/NAME origin/main
 ```
 
 Expect `HEAD is now at …`. If the branch already exists, this is a re-draft:
-reuse the existing worktree instead and pass `overwrite=true` in step 3 only if
-the user agrees to replace the files. This is a plain git worktree: do not link
-it to any other worktree.
+reuse the existing worktree, skip the clean-up below, and pass `overwrite=true`
+in step 3 only if the user agrees to replace the files. This is a plain git
+worktree: do not link it to any other worktree.
+
+On a new branch, remove the template's placeholders so the draft replaces them,
+and give the repo its own swamp `repoId`:
+
+```bash
+git -C W rm -q --ignore-unmatch manifest.yaml README.md extensions/models/example.ts \
+  extensions/models/example_test.ts workflows/example.yaml 'swamp-extension-review/_puddleworks_puddle-template-*.json'
+{ head -1 W/contracts.ts; printf '\n// Maps each model instance a workflow reads with data.latest(...) to its type and the data names it writes.\nexport const CONTRACTS: Contracts = {};\n'; } > SP/contracts.ts
+mv SP/contracts.ts W/contracts.ts
+(cd W && swamp repo init --force --tool claude >/dev/null)
+git -C W add -A
+git -C W commit -q --author="Claude Code <claude-code@anthropic.com>" \
+  -m "Remove the template placeholders" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+`contracts.ts` keeps the template's `Contracts` import (and so its
+puddle-tooling version) and loses the example entry. `swamp repo init --force`
+only rewrites its own managed section of `CLAUDE.md`; the template's "Puddle
+repo" section stays.
 
 ## Step 3: Generate the skeleton
 
 ```bash
-swamp workflow run @puddleworks/puddleworks-factory-build --input spec=SPEC --input targetDir=W --json \
+swamp workflow run @puddleworks/puddleworks-factory-build --input spec=SPEC --input targetDir=W --input repository=REPO --json \
   | jq -r '.status + " " + ([.jobs[].steps[] | select(.status=="failed") | .error] | join(" | "))'
 ```
 
 For inline JSON, quote it: `--input "spec=$(cat spec.json)"`. The draft is
-public under `@puddleworks/NAME` by default. To keep it off the public registry,
-add `--input visibility=private`.
+private under `@puddleworks/NAME` by default; going public is the last step,
+after the build. The skeleton goes in the root of `W`: the extension, its test
+and the workflow under `extensions/models/` and `workflows/`, plus
+`manifest.yaml`, `README.md`, `LICENSE` (the template's is kept) and a marked
+app section in `CLAUDE.md` (added, or replaced on a re-draft).
 
 `succeeded` means the files are written. On `failed`, tell the user what the
 message says in plain words and stop:
@@ -167,10 +223,11 @@ message says in plain words and stop:
 | `Could not read` / `returned 404` / `only fetched over` | The spec could not be read                     | Check the path or URL; URLs must be `https://`          |
 | `has no swamp workflow to draft`                        | Delivery is `external_app` or `manual_process` | Nothing to draft; this skill does not apply             |
 | `Refusing to overwrite files that already exist`        | A draft is already on this branch              | Re-run with `--input overwrite=true` if the user agrees |
-| `does not look like an app repo checkout`               | `targetDir` has no `extensions/models/`        | Point it at the app repo worktree from step 2           |
+| `does not look like an app repo checkout`               | `targetDir` has no `.swamp.yaml`               | Point it at the app repo worktree from step 2           |
+| `must be the https URL of the app's repo`               | `repository` is not an `https://` URL          | Pass `REPO`, e.g. `https://github.com/puddle-works/NAME` |
 
-Then commit the skeleton untouched (with `puddles/NAME/spec/` when it came from
-an outcome spec), so review can tell generated code from written code:
+Then commit the skeleton untouched (with `spec/` when it came from an outcome
+spec), so review can tell generated code from written code:
 
 ```bash
 git -C W add -A
@@ -181,13 +238,12 @@ git -C W push -u origin draft/NAME
 
 Then write the build result (`puddleworks.dev/build-result/v1`, see
 `docs/contracts/build-result.md` in the puddleworks-factory repo), so whoever
-handed over the spec can see where the build went. `REPO` is the app repo's
-https URL (from `git -C APP remote get-url origin`), e.g.
-`https://github.com/example/my-apps`:
+handed over the spec can see where the build went. The repository is the one
+the draft was built with:
 
 ```bash
-swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME --input repository=REPO \
-  --input buildRef=draft/NAME --input out=<scratchpad>/NAME.build-result.json --json | jq -r .status
+swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME \
+  --input buildRef=draft/NAME --input out=SP/NAME.build-result.json --json | jq -r .status
 ```
 
 Expect `succeeded`. `No draft of "NAME" has been rendered` means the generate
@@ -195,10 +251,10 @@ step above did not run on this swamp repo's `puddleworks-factory` model.
 
 ## Step 4: Write the plan
 
-Read `W/puddles/NAME/CLAUDE.md` (purpose, inputs, settings, output, out of
-scope), the spec, and the skeleton under `W/extensions/models/` and
-`W/puddles/NAME/`. If it came from an outcome spec, also read
-`W/puddles/NAME/spec/outcome-spec.v*.json`: its acceptance criteria are what
+Read the app section of `W/CLAUDE.md` (purpose, inputs, settings, output, out
+of scope), the spec, the skeleton under `W/extensions/models/` and
+`W/workflows/`, and `W/manifest.yaml`. If it came from an outcome spec, also
+read `W/spec/outcome-spec.v*.json`: its acceptance criteria are what
 "done" means, so turn each one into a test or a verification step, and its
 constraints and assumptions are scope lines. Then write a plan, as markdown,
 with these sections:
@@ -213,19 +269,18 @@ with these sections:
   anything on the out-of-scope list, new permissions, or secrets the settings do
   not name; if the behaviour cannot be built within these limits, stop and
   report that the spec needs changing. Search before building.
-- **Register the app**: in `W/Makefile` add
-  `$(DENO) test <flags> extensions/models/<name_with_underscores>_test.ts` to
-  the `test` target; in `W/CLAUDE.md` add a row to the **Puddles** table and the
-  same command to **Development**; give the "Test it" command in
-  `W/puddles/NAME/README.md` the same flags.
-- **Checks**: `swamp extension fmt puddles/NAME/manifest.yaml` (the draft is not
-  formatted as generated), `deno check` and `deno test` on the extension and its
-  test file, and `swamp workflow validate <entryPointRef>` (the full
+- **Test flags**: if the tests need Deno permissions (`--allow-read` and so
+  on), add the same flags to the "Test it" command in `W/README.md`, the `test`
+  target of `W/Makefile` and the `deno test` lines of `W/.github/workflows/ci.yml`.
+- **Checks**: `swamp extension fmt manifest.yaml` (the draft is not formatted
+  as generated), `make test`, `make contracts-check`, `make guardrails-check`,
+  `swamp extension quality manifest.yaml`, `make publish VISIBILITY=private
+  DRY_RUN=1`, and `swamp workflow validate <entryPointRef>` (the full
   `@<collective>/<slug>` name; the `model not found` warning is expected in a
   fresh worktree).
 - **Commit and draft PR**: commit with
   `--author="Claude Code <claude-code@anthropic.com>"`, push `draft/NAME`, open
-  a draft PR to the app repo, never merge. Then run
+  a draft PR to `REPO`, never merge. Then run
   `@puddleworks/puddleworks-factory-result` again as in step 3, adding
   `--input pullRequest=<PR URL>`, so the build result links the PR.
 - **Verification**, including a real end-to-end run of the workflow.

@@ -17,7 +17,14 @@ import {
 } from "jsr:@std/assert@1.0.19";
 import { stub } from "jsr:@std/testing@1.0.21/mock";
 import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
-import { io, model, renderDraft } from "./draft.ts";
+import {
+  CLAUDE_BEGIN,
+  CLAUDE_END,
+  io,
+  model,
+  placeSection,
+  renderDraft,
+} from "./draft.ts";
 import type { AppSpec } from "../contracts/app_spec_v1.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
@@ -89,9 +96,12 @@ const DRAFTABLE_METHODS = [
   "packaged_script",
 ] as const;
 
+const REPO = "https://github.com/example/obsidian-puddle-scanner";
+
 const FIXED = {
   now: new Date("2026-10-06T12:00:00Z"),
   uuid: "00000000-0000-4000-8000-000000000111",
+  repository: REPO,
 };
 
 type Opts = { typeScope?: string; visibility?: "public" | "private" };
@@ -111,13 +121,16 @@ function workflowOf(spec: AppSpec, path: string, opts: Opts = {}): any {
 // renderDraft — pure rendering
 // ---------------------------------------------------------------------------
 
-Deno.test("render: produces the extension, its tests, the workflow and the puddle docs", () => {
+// One repo per app: the manifest, README, LICENSE and CLAUDE.md sit at the
+// repo root, beside extensions/models/ and workflows/.
+Deno.test("render: produces the extension, its tests, the workflow and the app docs at the repo root", () => {
   assertEquals([...fileMap(OBSIDIAN).keys()].sort(), [
+    "CLAUDE.md",
+    "LICENSE",
+    "README.md",
     "extensions/models/obsidian_puddle_scanner.ts",
     "extensions/models/obsidian_puddle_scanner_test.ts",
-    "puddles/obsidian-puddle-scanner/CLAUDE.md",
-    "puddles/obsidian-puddle-scanner/README.md",
-    "puddles/obsidian-puddle-scanner/manifest.yaml",
+    "manifest.yaml",
     "workflows/workflow-obsidian-scan.yaml",
   ]);
 });
@@ -215,43 +228,60 @@ Deno.test("render: a workflow with no inputs still lists an empty required array
   assertEquals(wf.jobs[0].steps[0].task.inputs, {});
 });
 
+// deno-lint-ignore no-explicit-any
+function manifestOf(opts: Opts = {}): any {
+  return parseYaml(fileMap(OBSIDIAN, opts).get("manifest.yaml")!);
+}
+
 Deno.test("render: the publish manifest points at the extension source", () => {
-  const manifest = parseYaml(
-    fileMap(OBSIDIAN).get("puddles/obsidian-puddle-scanner/manifest.yaml")!,
-    // deno-lint-ignore no-explicit-any
-  ) as any;
+  const manifest = manifestOf();
   assertEquals(manifest.name, "@puddleworks/obsidian-puddle-scanner");
   assertEquals(manifest.version, "2026.10.06.1");
   // swamp refuses ".." in manifest paths; these resolve against
-  // extensions/models/, workflows/ and the manifest's own folder.
+  // extensions/models/, workflows/ and the repo root.
   assertEquals(manifest.paths, undefined);
   assertEquals(manifest.models, ["obsidian_puddle_scanner.ts"]);
   assertEquals(manifest.workflows, ["workflow-obsidian-scan.yaml"]);
-  assertEquals(manifest.additionalFiles, ["README.md"]);
 });
 
-Deno.test("render: the manifest is public by default, with no visibility line", () => {
-  const manifest = parseYaml(
-    fileMap(OBSIDIAN).get("puddles/obsidian-puddle-scanner/manifest.yaml")!,
-    // deno-lint-ignore no-explicit-any
-  ) as any;
-  assertEquals(manifest.visibility, undefined);
+// A package can only be published publicly with a licence and a repository
+// link the registry can check, so the draft carries both as generated.
+Deno.test("render: the manifest names the licence and the repository, and ships the LICENSE", () => {
+  const manifest = manifestOf();
+  assertEquals(manifest.repository, REPO);
+  assertEquals(manifest.license, "MIT");
+  assertEquals(manifest.additionalFiles, ["README.md", "LICENSE"]);
 });
 
-Deno.test("render: visibility private is written into the manifest", () => {
-  const manifest = parseYaml(
-    fileMap(OBSIDIAN, { visibility: "private" }).get(
-      "puddles/obsidian-puddle-scanner/manifest.yaml",
-    )!,
-    // deno-lint-ignore no-explicit-any
-  ) as any;
-  assertEquals(manifest.visibility, "private");
+Deno.test("render: the LICENSE is MIT, for the repository's owner and this year", () => {
+  const license = fileMap(OBSIDIAN).get("LICENSE")!;
+  assertStringIncludes(license, "MIT License");
+  assertStringIncludes(license, "Copyright (c) 2026 example");
+});
+
+Deno.test("render: refuses a repository that is not an https URL", () => {
+  for (
+    const repository of ["git@github.com:example/x.git", "http://x.test/a"]
+  ) {
+    assertThrows(
+      () => renderDraft(OBSIDIAN, { ...FIXED, repository }),
+      Error,
+      repository,
+    );
+  }
+});
+
+// The draft starts private and stays so until someone decides to share it.
+Deno.test("render: the manifest is private by default", () => {
+  assertEquals(manifestOf().visibility, "private");
+});
+
+Deno.test("render: visibility public is written into the manifest", () => {
+  assertEquals(manifestOf({ visibility: "public" }).visibility, "public");
 });
 
 Deno.test("render: the README creates the instance the workflow runs and runs the workflow", () => {
-  const readme = fileMap(OBSIDIAN).get(
-    "puddles/obsidian-puddle-scanner/README.md",
-  )!;
+  const readme = fileMap(OBSIDIAN).get("README.md")!;
   assertStringIncludes(
     readme,
     "swamp model create @puddleworks/obsidian-puddle-scanner obsidian-puddle-scanner-model",
@@ -295,6 +325,20 @@ Deno.test("render: draft.ts has no model export text other than its own", async 
   assertEquals(source.match(/export\s+const\s+model\s*=/g)?.length, 1);
 });
 
+// The registry's quality score wants JSDoc on most exported symbols.
+Deno.test("render: every export in the extension has a doc comment", () => {
+  for (const input of [OBSIDIAN, AWKWARD]) {
+    const base = input.name.replaceAll("-", "_");
+    const lines = fileMap(input).get(`extensions/models/${base}.ts`)!.split(
+      "\n",
+    );
+    const bare = lines.filter((l, i) =>
+      l.startsWith("export ") && !lines[i - 1]?.trimEnd().endsWith("*/")
+    );
+    assertEquals(bare, [], input.name);
+  }
+});
+
 Deno.test("render: the extension exports its model", () => {
   const src = renderDraft(OBSIDIAN, FIXED)
     .find((f) => f.path.endsWith("obsidian_puddle_scanner.ts"))!.content;
@@ -315,15 +359,13 @@ Deno.test("render: the type scope can be changed", () => {
 
 Deno.test("render: CLAUDE.md lists what is out of scope", () => {
   const doc = fileMap(OBSIDIAN).get(
-    "puddles/obsidian-puddle-scanner/CLAUDE.md",
+    "CLAUDE.md",
   )!;
   for (const item of OBSIDIAN_SPEC.outOfScope) assertStringIncludes(doc, item);
 });
 
 Deno.test("render: the user section of the README does not mention swamp", () => {
-  const readme = fileMap(OBSIDIAN).get(
-    "puddles/obsidian-puddle-scanner/README.md",
-  )!;
+  const readme = fileMap(OBSIDIAN).get("README.md")!;
   const userPart = readme.split("## For the builder")[0];
   assertEquals(/swamp/i.test(userPart), false, userPart);
 });
@@ -333,7 +375,7 @@ Deno.test("render: the user section of the README does not mention swamp", () =>
 Deno.test("render: the user section of the README does not send the user to puddle", () => {
   for (const method of DRAFTABLE_METHODS) {
     const readme = fileMap({ ...OBSIDIAN, delivery: { method } }).get(
-      "puddles/obsidian-puddle-scanner/README.md",
+      "README.md",
     )!;
     const userPart = readme.split("## For the user")[1]
       .split("## For the builder")[0];
@@ -347,7 +389,7 @@ Deno.test("render: a scheduled app's README tells the builder how to set the sch
   const readme = fileMap({
     ...OBSIDIAN,
     delivery: { method: "scheduled_workflow", entryPointRef: "obsidian-scan" },
-  }).get("puddles/obsidian-puddle-scanner/README.md")!;
+  }).get("README.md")!;
   const builderPart = readme.split("## For the builder")[1];
   assertStringIncludes(
     builderPart,
@@ -359,7 +401,7 @@ Deno.test("render: a scheduled app's README tells the builder how to set the sch
 Deno.test("render: an app that is not scheduled has no schedule step", () => {
   for (const method of ["workflow_form", "packaged_script"] as const) {
     const readme = fileMap({ ...OBSIDIAN, delivery: { method } }).get(
-      "puddles/obsidian-puddle-scanner/README.md",
+      "README.md",
     )!;
     assertEquals(readme.includes("trigger set"), false, method);
   }
@@ -404,13 +446,43 @@ Deno.test("render: no test file under models has the model export text", async (
 });
 
 Deno.test("render: CLAUDE.md tells the builder where test permission flags go", () => {
-  const doc = fileMap(OBSIDIAN).get(
-    "puddles/obsidian-puddle-scanner/CLAUDE.md",
-  )!;
+  const doc = fileMap(OBSIDIAN).get("CLAUDE.md")!;
   const finishing = doc.split("## Finishing the draft")[1];
   assertStringIncludes(finishing, "--allow-");
   assertStringIncludes(finishing, "README.md");
   assertStringIncludes(finishing, "Makefile");
+  assertStringIncludes(finishing, ".github/workflows/ci.yml");
+});
+
+// The repo's own CLAUDE.md (swamp's managed section, the repo's rules) stays;
+// the app's part sits between markers so a re-draft can find and replace it.
+Deno.test("render: CLAUDE.md is one marked section", () => {
+  const doc = fileMap(OBSIDIAN).get("CLAUDE.md")!;
+  assertEquals(doc.startsWith(CLAUDE_BEGIN), true);
+  assertEquals(doc.trimEnd().endsWith(CLAUDE_END), true);
+});
+
+Deno.test("placeSection: with no file, the section is the file", () => {
+  assertEquals(placeSection(null, `${CLAUDE_BEGIN}\nnew\n${CLAUDE_END}\n`), {
+    text: `${CLAUDE_BEGIN}\nnew\n${CLAUDE_END}\n`,
+    replaced: false,
+  });
+});
+
+Deno.test("placeSection: a file without the section keeps its text and gets the section at the end", () => {
+  const section = `${CLAUDE_BEGIN}\nnew\n${CLAUDE_END}\n`;
+  assertEquals(placeSection("# Repo\n\nRules.\n", section), {
+    text: `# Repo\n\nRules.\n\n${section}`,
+    replaced: false,
+  });
+});
+
+Deno.test("placeSection: a file with the section has only that section replaced", () => {
+  const old = `# Repo\n\n${CLAUDE_BEGIN}\nold\n${CLAUDE_END}\n\nAfter.\n`;
+  assertEquals(placeSection(old, `${CLAUDE_BEGIN}\nnew\n${CLAUDE_END}\n`), {
+    text: `# Repo\n\n${CLAUDE_BEGIN}\nnew\n${CLAUDE_END}\n\nAfter.\n`,
+    replaced: true,
+  });
 });
 
 Deno.test("render: the generated test file points at the README test command", () => {
@@ -418,7 +490,7 @@ Deno.test("render: the generated test file points at the README test command", (
     "extensions/models/obsidian_puddle_scanner_test.ts",
   )!;
   assertEquals(tests.includes("deno test extensions/models/"), false);
-  assertStringIncludes(tests, "puddles/obsidian-puddle-scanner/README.md");
+  assertStringIncludes(tests, `"Test it" command in README.md`);
 });
 
 Deno.test("render: refuses a delivery method that has nothing to draft", () => {
@@ -544,9 +616,10 @@ function makeContext() {
   };
 }
 
+/** A swamp repo with nothing in it yet, like one just made from a template. */
 async function appRepo(): Promise<string> {
-  const dir = await Deno.makeTempDir({ prefix: "puddle-apps-" });
-  await Deno.mkdir(`${dir}/extensions/models`, { recursive: true });
+  const dir = await Deno.makeTempDir({ prefix: "app-repo-" });
+  await Deno.writeTextFile(`${dir}/.swamp.yaml`, "tools:\n  - claude\n");
   return dir;
 }
 
@@ -555,7 +628,7 @@ const renderArgs = (
   overwrite = false,
   visibility: "public" | "private" = "public",
   spec = EXAMPLE_TEXT,
-) => ({ spec, targetDir, overwrite, visibility });
+) => ({ spec, targetDir, repository: REPO, overwrite, visibility });
 
 Deno.test("method: writes every file and records them in a draft resource", async () => {
   const dir = await appRepo();
@@ -569,7 +642,9 @@ Deno.test("method: writes every file and records them in a draft resource", asyn
     assertEquals(ctx.writes.length, 1);
     assertEquals(ctx.writes[0].specName, "draft");
     assertEquals(ctx.writes[0].name, "obsidian-puddle-scanner");
-    assertEquals((ctx.writes[0].data.files as string[]).length, 6);
+    assertEquals((ctx.writes[0].data.files as string[]).length, 7);
+    assertEquals(ctx.writes[0].data.repository, REPO);
+    assertEquals(ctx.writes[0].data.visibility, "public");
     assertEquals(
       ctx.writes[0].data.entryPointRef,
       "@puddleworks/obsidian-scan",
@@ -596,11 +671,82 @@ Deno.test("method: visibility private reaches the written manifest", async () =>
     );
     const manifest = parseYaml(
       await Deno.readTextFile(
-        `${dir}/puddles/obsidian-puddle-scanner/manifest.yaml`,
+        `${dir}/manifest.yaml`,
       ),
       // deno-lint-ignore no-explicit-any
     ) as any;
     assertEquals(manifest.visibility, "private");
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("method: visibility is private when not given", () => {
+  const args = model.methods.render.arguments.parse({
+    spec: EXAMPLE_TEXT,
+    targetDir: "/x",
+    repository: REPO,
+  });
+  assertEquals(args.visibility, "private");
+});
+
+Deno.test("method: a repository is required", () => {
+  assertEquals(
+    model.methods.render.arguments.safeParse({
+      spec: EXAMPLE_TEXT,
+      targetDir: "/x",
+    }).success,
+    false,
+  );
+});
+
+// A repo made from a template already has its own LICENSE: keep it, and do not
+// count it as a file the draft would overwrite.
+Deno.test("method: an existing LICENSE is kept and does not block the draft", async () => {
+  const dir = await appRepo();
+  try {
+    await Deno.writeTextFile(`${dir}/LICENSE`, "theirs");
+    const ctx = makeContext();
+    await model.methods.render.execute(renderArgs(dir), ctx);
+    assertEquals(await Deno.readTextFile(`${dir}/LICENSE`), "theirs");
+    assertEquals(ctx.writes[0].data.overwrote, []);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("method: an existing CLAUDE.md keeps its text and gets the app section", async () => {
+  const dir = await appRepo();
+  try {
+    await Deno.writeTextFile(`${dir}/CLAUDE.md`, "# Repo rules\n");
+    const ctx = makeContext();
+    await model.methods.render.execute(renderArgs(dir), ctx);
+    const doc = await Deno.readTextFile(`${dir}/CLAUDE.md`);
+    assertEquals(doc.startsWith("# Repo rules\n\n" + CLAUDE_BEGIN), true);
+    assertStringIncludes(doc, "## Bounded purpose");
+    assertEquals(ctx.writes[0].data.overwrote, []);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("method: a CLAUDE.md that already has the app section needs overwrite=true", async () => {
+  const dir = await appRepo();
+  try {
+    const old = `# Repo rules\n\n${CLAUDE_BEGIN}\nold\n${CLAUDE_END}\n`;
+    await Deno.writeTextFile(`${dir}/CLAUDE.md`, old);
+    await assertRejects(
+      () => model.methods.render.execute(renderArgs(dir), makeContext()),
+      Error,
+      "CLAUDE.md",
+    );
+    assertEquals(await Deno.readTextFile(`${dir}/CLAUDE.md`), old);
+    const ctx = makeContext();
+    await model.methods.render.execute(renderArgs(dir, true), ctx);
+    const doc = await Deno.readTextFile(`${dir}/CLAUDE.md`);
+    assertEquals(doc.startsWith("# Repo rules\n\n" + CLAUDE_BEGIN), true);
+    assertEquals(doc.includes("\nold\n"), false);
+    assertEquals(ctx.writes[0].data.overwrote, ["CLAUDE.md"]);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
@@ -651,13 +797,14 @@ Deno.test("method: overwrite=true replaces existing files", async () => {
   }
 });
 
-Deno.test("method: refuses a target that is not an app repo checkout", async () => {
+Deno.test("method: refuses a target that is not a swamp repo checkout", async () => {
   const dir = await Deno.makeTempDir({ prefix: "not-apps-" });
   try {
+    await Deno.mkdir(`${dir}/extensions/models`, { recursive: true });
     await assertRejects(
       () => model.methods.render.execute(renderArgs(dir), makeContext()),
       Error,
-      "extensions/models",
+      ".swamp.yaml",
     );
   } finally {
     await Deno.remove(dir, { recursive: true });
@@ -757,7 +904,7 @@ const SOURCED: AppSpec = { ...OBSIDIAN, source: SOURCE };
 Deno.test("render: with a source, CLAUDE.md and the README link to where the spec was agreed", () => {
   const files = fileMap(SOURCED);
   for (const path of ["CLAUDE.md", "README.md"]) {
-    const doc = files.get(`puddles/obsidian-puddle-scanner/${path}`)!;
+    const doc = files.get(path)!;
     assertStringIncludes(doc, `[where it was agreed](${SOURCE.url})`);
     assertStringIncludes(doc, "version 2");
     assertStringIncludes(doc, SOURCE.specHash);
@@ -766,7 +913,7 @@ Deno.test("render: with a source, CLAUDE.md and the README link to where the spe
 
 Deno.test("render: a source with only a link gives only the link", () => {
   const doc = fileMap({ ...OBSIDIAN, source: { url: SOURCE.url } }).get(
-    "puddles/obsidian-puddle-scanner/CLAUDE.md",
+    "CLAUDE.md",
   )!;
   assertStringIncludes(doc, `[where it was agreed](${SOURCE.url})`);
   assertEquals(doc.includes("version"), false);

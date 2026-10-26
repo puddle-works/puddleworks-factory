@@ -4,9 +4,8 @@
   "name": "obsidian-puddle-scanner",
   "extension": "@puddleworks/obsidian-puddle-scanner",
   "entryPointRef": "@puddleworks/obsidian-scan",
-  "repository": "https://github.com/example/my-apps",
-  "path": "puddles/obsidian-puddle-scanner",
+  "repository": "https://github.com/example/obsidian-puddle-scanner",
   "buildRef": "draft/obsidian-puddle-scanner",
-  "pullRequest": "https://github.com/example/my-apps/pull/42",
+  "pullRequest": "https://github.com/example/obsidian-puddle-scanner/pull/42",
   "builtAt": "2026-10-16T10:00:00.000Z"
 }
