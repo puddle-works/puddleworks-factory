@@ -21,7 +21,9 @@ inputs:
       type: string
       description: >-
         https URL of the repository the draft was pushed to, e.g.
-        https://github.com/example/my-apps.
+        https://github.com/example/my-app. Leave blank to use the one the
+        draft was built with.
+      default: ""
     buildRef:
       type: string
       description: >-
@@ -40,7 +42,6 @@ inputs:
       default: ""
   required:
     - name
-    - repository
     - buildRef
 
 jobs:

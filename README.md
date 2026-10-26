@@ -35,18 +35,18 @@ flowchart LR
 ```
 
 1. **Describe** what the app should do.
-2. **Build** a starter app in the app repo.
+2. **Build** a starter app in the app's own repo.
 3. **Record** a receipt of where it went.
 
 ## What is in the package
 
-| Kind     | Name                                       | What it does                                                                                                        |
-| -------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Model    | `@puddleworks/puddleworks-factory/draft`   | `render` reads a spec and writes the extension, its tests, a workflow and the app docs                              |
-| Workflow | `@puddleworks/puddleworks-factory-prefill` | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                             |
-| Workflow | `@puddleworks/puddleworks-factory-build`   | Runs `render` on the `puddleworks-factory` instance                                                                 |
-| Workflow | `@puddleworks/puddleworks-factory-result`  | Runs `result`: writes a `build-result/v1` for the last draft of a spec                                              |
-| Skill    | `factory-build`                            | Drives a build end to end: prefill and agree the spec, branch in the app repo, generate, commit, write a build plan |
+| Kind     | Name                                       | What it does                                                                                                   |
+| -------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| Model    | `@puddleworks/puddleworks-factory/draft`   | `render` reads a spec and writes the extension, its tests, a workflow, the manifest and the app docs           |
+| Workflow | `@puddleworks/puddleworks-factory-prefill` | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                        |
+| Workflow | `@puddleworks/puddleworks-factory-build`   | Runs `render` on the `puddleworks-factory` instance                                                            |
+| Workflow | `@puddleworks/puddleworks-factory-result`  | Runs `result`: writes a `build-result/v1` for the last draft of a spec                                         |
+| Skill    | `factory-build`                            | Drives a build end to end: prefill and agree the spec, make the app repo, generate, commit, write a build plan |
 
 ## Use
 
@@ -61,8 +61,9 @@ swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory
 
 Run `/factory-build <path to the outcome spec>` in Claude Code. The skill
 prefills an app spec, asks you to confirm the name, inputs, output, settings and
-delivery, writes both specs to `puddles/<name>/spec/` in the app repo, and
-generates the draft there. To prefill by hand instead:
+delivery, makes the app's own repo from `puddle-works/puddle-template` if it
+does not exist yet (asking first), writes both specs to `spec/` there, and
+generates the draft. To prefill by hand instead:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-prefill \
@@ -75,26 +76,34 @@ Fill in the blanks the run lists (see
 
 ### From an app spec
 
-Build from a spec on disk, at an https URL, or inline:
+Build from a spec on disk, at an https URL, or inline. `targetDir` is a checkout
+of the app's own repo and `repository` is its https URL:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-build \
   --input spec=docs/contracts/app-spec.v1.example.json \
-  --input targetDir=$HOME/dev/my-apps
+  --input targetDir=$HOME/dev/obsidian-puddle-scanner \
+  --input repository=https://github.com/example/obsidian-puddle-scanner
 
 swamp workflow run @puddleworks/puddleworks-factory-build \
   --input spec=https://example.com/specs/scanner.json \
-  --input targetDir=$HOME/dev/my-apps
+  --input targetDir=$HOME/dev/obsidian-puddle-scanner \
+  --input repository=https://github.com/example/obsidian-puddle-scanner
 
 swamp workflow run @puddleworks/puddleworks-factory-build \
   --input "spec=$(cat spec.json)" \
-  --input targetDir=$HOME/dev/my-apps
+  --input targetDir=$HOME/dev/obsidian-puddle-scanner \
+  --input repository=https://github.com/example/obsidian-puddle-scanner
 ```
 
-`targetDir` must be an app repo checkout with an `extensions/models/` directory.
-A spec that breaks the contract writes nothing and lists every broken rule.
-Existing files are kept unless you pass `--input overwrite=true`.
-`--input visibility=private` keeps the drafted package off the public registry.
+`targetDir` must be a swamp repo (it has a `.swamp.yaml`), such as one made from
+`puddle-works/puddle-template`. The draft goes in its root: the extension and
+its test in `extensions/models/`, the workflow in `workflows/`, and
+`manifest.yaml`, `README.md`, `LICENSE` and an app section in `CLAUDE.md`. An
+existing `LICENSE` is kept, and the rest of `CLAUDE.md` is left alone. A spec
+that breaks the contract writes nothing and lists every broken rule. Existing
+files are kept unless you pass `--input overwrite=true`. The drafted package is
+private; pass `--input visibility=public` to publish it publicly.
 
 Once the draft is pushed, write the build result. Add `pullRequest` once the
 pull request is open:
@@ -102,7 +111,6 @@ pull request is open:
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result \
   --input name=obsidian-puddle-scanner \
-  --input repository=https://github.com/example/my-apps \
   --input buildRef=draft/obsidian-puddle-scanner \
   --input out=$HOME/obsidian-puddle-scanner.build-result.json
 ```

@@ -47,8 +47,8 @@ out first (`warnings`: open questions, no acceptance criteria).
 The starter is not a valid app spec until the builder fills in the blanks, so it
 cannot be built by mistake. Scope in, constraints, assumptions and acceptance
 criteria have no place in an app spec. The `factory-build` skill keeps the
-outcome spec beside the app spec, in `puddles/<name>/spec/` in the app repo, and
-the build plan reads them there.
+outcome spec beside the app spec, in `spec/` in the app's repo, and the build
+plan reads them there.
 
 ## Shape
 

@@ -19,14 +19,14 @@ its inputs and the last draft that `@puddleworks/puddleworks-factory-build`
 rendered for the same `name`. It records the result as a `buildResult` resource
 (`build-result-<name>`) and, with `out`, writes it to a JSON file. Run it after
 the draft branch is pushed, and again once the pull request is open; the latest
-one wins.
+one wins. `repository` defaults to the one the draft was built with; pass
+`--input repository=<url>` only to record another.
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result \
   --input name=obsidian-puddle-scanner \
-  --input repository=https://github.com/example/my-apps \
   --input buildRef=draft/obsidian-puddle-scanner \
-  --input pullRequest=https://github.com/example/my-apps/pull/42 \
+  --input pullRequest=https://github.com/example/obsidian-puddle-scanner/pull/42 \
   --input out=$HOME/obsidian-puddle-scanner.build-result.json
 ```
 
@@ -40,7 +40,7 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
 | `extension`     | yes      | Package name of the built extension, `@<scope>/<name>`                        |
 | `entryPointRef` | yes      | The workflow to run the app with, `@<scope>/<slug>`                           |
 | `repository`    | yes      | `https://` URL of the repository the build was written to                     |
-| `path`          | no       | Where in the repository the app's manifest and docs are. Relative, no `..`    |
+| `path`          | no       | Where in the repository the app's manifest is, if not at the root. Relative   |
 | `buildRef`      | yes      | Branch or commit the build is on                                              |
 | `pullRequest`   | no       | `https://` URL of the pull request that proposes the build, once there is one |
 | `source`        | no       | The app spec's `source`, when it had one: where the spec was agreed           |

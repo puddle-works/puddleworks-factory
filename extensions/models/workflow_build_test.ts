@@ -35,14 +35,26 @@ Deno.test("build workflow: is named for the package", () => {
   assertEquals(workflow.name, "@puddleworks/puddleworks-factory-build");
 });
 
-Deno.test("build workflow: takes a spec and a target, nothing else required", () => {
+Deno.test("build workflow: takes a spec, a target and its repository, nothing else required", () => {
   assertEquals(Object.keys(workflow.inputs.properties).sort(), [
     "overwrite",
+    "repository",
     "spec",
     "targetDir",
     "visibility",
   ]);
-  assertEquals(workflow.inputs.required.sort(), ["spec", "targetDir"]);
+  assertEquals(workflow.inputs.required.sort(), [
+    "repository",
+    "spec",
+    "targetDir",
+  ]);
+});
+
+Deno.test("build workflow: drafts private unless told otherwise", () => {
+  const visibility = workflow.inputs.properties.visibility as {
+    default: string;
+  };
+  assertEquals(visibility.default, "private");
 });
 
 Deno.test("build workflow: one render step passes every input to the draft model", () => {
