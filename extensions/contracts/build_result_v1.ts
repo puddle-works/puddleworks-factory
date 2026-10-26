@@ -51,6 +51,11 @@ export const BuildResultSchema = z.object({
   pullRequest: httpsUrl.optional(),
   /** Where the built spec was agreed, when the spec said. */
   source: SourceSchema.optional(),
+  /** What was pushed to the registry, once the extension is published. */
+  published: z.object({
+    version: z.string().min(1),
+    visibility: z.enum(["public", "private"]),
+  }).optional(),
   builtAt: z.iso.datetime(),
 });
 

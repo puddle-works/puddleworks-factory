@@ -18,9 +18,10 @@ The `@puddleworks/puddleworks-factory-result` workflow builds the result from
 its inputs and the last draft that `@puddleworks/puddleworks-factory-build`
 rendered for the same `name`. It records the result as a `buildResult` resource
 (`build-result-<name>`) and, with `out`, writes it to a JSON file. Run it after
-the draft branch is pushed, and again once the pull request is open; the latest
-one wins. `repository` defaults to the one the draft was built with; pass
-`--input repository=<url>` only to record another.
+the draft branch is pushed, again once the pull request is open, and again once
+the extension is published (`publishedVersion` and `publishedVisibility`, always
+together); the latest one wins. `repository` defaults to the one the draft was
+built with; pass `--input repository=<url>` only to record another.
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result \
@@ -32,19 +33,20 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
 
 ## Shape
 
-| Field           | Required | Meaning                                                                       |
-| --------------- | -------- | ----------------------------------------------------------------------------- |
-| `apiVersion`    | yes      | Always `puddleworks.dev/build-result/v1`                                      |
-| `kind`          | yes      | Always `BuildResult`                                                          |
-| `name`          | yes      | The app spec's `name`: which spec was built. A slug                           |
-| `extension`     | yes      | Package name of the built extension, `@<scope>/<name>`                        |
-| `entryPointRef` | yes      | The workflow to run the app with, `@<scope>/<slug>`                           |
-| `repository`    | yes      | `https://` URL of the repository the build was written to                     |
-| `path`          | no       | Where in the repository the app's manifest is, if not at the root. Relative   |
-| `buildRef`      | yes      | Branch or commit the build is on                                              |
-| `pullRequest`   | no       | `https://` URL of the pull request that proposes the build, once there is one |
-| `source`        | no       | The app spec's `source`, when it had one: where the spec was agreed           |
-| `builtAt`       | yes      | ISO 8601 timestamp of when the result was written                             |
+| Field           | Required | Meaning                                                                                         |
+| --------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `apiVersion`    | yes      | Always `puddleworks.dev/build-result/v1`                                                        |
+| `kind`          | yes      | Always `BuildResult`                                                                            |
+| `name`          | yes      | The app spec's `name`: which spec was built. A slug                                             |
+| `extension`     | yes      | Package name of the built extension, `@<scope>/<name>`                                          |
+| `entryPointRef` | yes      | The workflow to run the app with, `@<scope>/<slug>`                                             |
+| `repository`    | yes      | `https://` URL of the repository the build was written to                                       |
+| `path`          | no       | Where in the repository the app's manifest is, if not at the root. Relative                     |
+| `buildRef`      | yes      | Branch or commit the build is on                                                                |
+| `pullRequest`   | no       | `https://` URL of the pull request that proposes the build, once there is one                   |
+| `published`     | no       | What was pushed to the registry, once it is: `version` and `visibility` (`public` or `private`) |
+| `source`        | no       | The app spec's `source`, when it had one: where the spec was agreed                             |
+| `builtAt`       | yes      | ISO 8601 timestamp of when the result was written                                               |
 
 `parseBuildResult` checks the shape and returns each broken rule as a sentence.
 

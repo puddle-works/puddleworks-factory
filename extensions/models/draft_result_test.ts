@@ -219,3 +219,51 @@ Deno.test("result: a spec with no source gives a build result with none", async 
     assertEquals("source" in data, false);
   });
 });
+
+Deno.test("result: records the published version and visibility", async () => {
+  await withDraft(async (_dir, ctx) => {
+    await model.methods.result.execute(
+      resultArgs({
+        publishedVersion: "2026.10.26.1",
+        publishedVisibility: "public",
+      }),
+      ctx,
+    );
+    const data = ctx.store.get("build-result-obsidian-puddle-scanner")!;
+    assertEquals(data.published, {
+      version: "2026.10.26.1",
+      visibility: "public",
+    });
+  });
+});
+
+Deno.test("result: a published version needs its visibility, and the other way round", async () => {
+  await withDraft(async (_dir, ctx) => {
+    for (
+      const extra of [
+        { publishedVersion: "2026.10.26.1" },
+        { publishedVisibility: "private" },
+      ]
+    ) {
+      const before = ctx.writes.length;
+      const err = await assertRejects(
+        () => model.methods.result.execute(resultArgs(extra), ctx),
+        Error,
+      );
+      assertStringIncludes(err.message, "publishedVersion");
+      assertStringIncludes(err.message, "publishedVisibility");
+      assertEquals(ctx.writes.length, before);
+    }
+  });
+});
+
+Deno.test("result: blank published inputs record nothing published", async () => {
+  await withDraft(async (_dir, ctx) => {
+    await model.methods.result.execute(
+      resultArgs({ publishedVersion: "", publishedVisibility: "" }),
+      ctx,
+    );
+    const data = ctx.store.get("build-result-obsidian-puddle-scanner")!;
+    assertEquals("published" in data, false);
+  });
+});

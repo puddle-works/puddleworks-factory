@@ -38,11 +38,13 @@ Deno.test("result workflow: is named for the package", () => {
   assertEquals(workflow.name, "@puddleworks/puddleworks-factory-result");
 });
 
-Deno.test("result workflow: the repository, pull request and out file may be left blank", () => {
+Deno.test("result workflow: the repository, pull request, out file and published inputs may be left blank", () => {
   assertEquals(workflow.inputs.required.sort(), ["buildRef", "name"]);
   assertEquals(workflow.inputs.properties.repository.default, "");
   assertEquals(workflow.inputs.properties.pullRequest.default, "");
   assertEquals(workflow.inputs.properties.out.default, "");
+  assertEquals(workflow.inputs.properties.publishedVersion.default, "");
+  assertEquals(workflow.inputs.properties.publishedVisibility.default, "");
 });
 
 Deno.test("result workflow: one step passes every input to result", () => {

@@ -1,28 +1,37 @@
 ---
 name: factory-build
 description: >
-  Build the first draft of a swamp app from an agreed outcome spec
-  (puddleworks.dev/outcome-spec/v1) or a puddleworks.dev/app-spec/v1 spec (a
-  file path, an https URL or inline JSON): for an outcome spec, prefill an app
-  spec and agree the builder's decisions with the user; generate the skeleton
-  (extension, tests, workflow, manifest) on a branch in the app's own repo,
-  made from puddle-works/puddle-template, with both specs kept beside it; then
-  write a build plan for filling it in. Does not implement or open a PR. Triggers on: "factory build", "build from spec", "build this
-  puddle", "plan the build for <spec>", "/factory-build <spec>".
+  Take an agreed outcome spec (puddleworks.dev/outcome-spec/v1) or a
+  puddleworks.dev/app-spec/v1 spec (a file path, an https URL or inline JSON)
+  to a published swamp extension in one run: for an outcome spec, prefill an
+  app spec and agree the builder's decisions with the user; generate the
+  skeleton in the app's own repo (made from puddle-works/puddle-template, with
+  both specs kept beside it); build the behaviour test-first; get it through
+  the publish checks; recommend public or private and ask; write the review
+  report; publish once the user confirms, and record the result. Triggers on:
+  "factory build", "build from spec", "build this puddle", "publish this
+  puddle", "/factory-build <spec>".
 ---
 
 # Factory Build
 
-Turn an app spec into a skeleton on a branch in the app's own repo and a build
-plan for filling it in. **This skill writes the plan and stops.** It does not write
-behaviour code or open a PR.
+Take an app spec to a published extension, aiming for about an hour. Quality
+comes from checks that must pass, not from extra steps:
 
-1. **Generated skeleton**: the `@puddleworks/puddleworks-factory-build` workflow
-   checks the spec against the contract and writes the files. The skeleton
-   always compiles and passes its own tests. It is committed and pushed on
-   `draft/NAME`.
-2. **Build plan**: you write a plan against the skeleton and save it, to paste
-   into an agent.
+1. **Generate**: the `@puddleworks/puddleworks-factory-build` workflow checks
+   the spec against the contract and writes a skeleton that compiles and passes
+   its own tests, on `draft/NAME` in the app's own repo. Everything starts
+   private.
+2. **Build**: you fill in the behaviour test-first, within the spec.
+3. **Get it ready**: format, tests, contracts, guardrails and quality must all
+   pass, then a PR to the app repo.
+4. **Decide visibility**: the `@puddleworks/puddleworks-factory-visibility`
+   workflow recommends public or private; the user decides.
+5. **Publish**: the review report, a clean dry run, then the push once the user
+   confirms. The build result records what was published.
+
+Creating a repo, making it public and pushing to the registry are outward
+steps: ask before each one. Never merge the PR; the user does.
 
 Factory reads only the spec. Whoever wrote the spec (a person, another tool)
 has already agreed it; Factory does not check approvals.
@@ -249,49 +258,192 @@ swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME \
 Expect `succeeded`. `No draft of "NAME" has been rendered` means the generate
 step above did not run on this swamp repo's `puddleworks-factory` model.
 
-## Step 4: Write the plan
+
+## Step 4: Plan the build
 
 Read the app section of `W/CLAUDE.md` (purpose, inputs, settings, output, out
 of scope), the spec, the skeleton under `W/extensions/models/` and
 `W/workflows/`, and `W/manifest.yaml`. If it came from an outcome spec, also
-read `W/spec/outcome-spec.v*.json`: its acceptance criteria are what
-"done" means, so turn each one into a test or a verification step, and its
-constraints and assumptions are scope lines. Then write a plan, as markdown,
-with these sections:
+read `W/spec/outcome-spec.v*.json`: its acceptance criteria are what "done"
+means, so each one becomes a test or a verification step, and its constraints
+and assumptions are scope lines. Write a short plan to `SP/plan.md`:
 
-- **Context**, and the branch to start from (`draft/NAME`).
 - **What to build**, within the spec: the behaviour that replaces the `run`
   stub, and the shape of `ResultSchema.items`.
-- **Files to change, and tests to write first.** Tests of the behaviour call
+- **Tests to write first**, one or more per acceptance criterion. They call
   `run` directly with working settings (a temp directory, a fake server). The
-  generated tests and their `SETTINGS` placeholders stay untouched.
+  generated tests and their `SETTINGS` placeholders stay as they are.
 - **Scope lines**: do not rename, add or remove inputs or settings; do not add
-  anything on the out-of-scope list, new permissions, or secrets the settings do
-  not name; if the behaviour cannot be built within these limits, stop and
-  report that the spec needs changing. Search before building.
-- **Test flags**: if the tests need Deno permissions (`--allow-read` and so
-  on), add the same flags to the "Test it" command in `W/README.md`, the `test`
-  target of `W/Makefile` and the `deno test` lines of `W/.github/workflows/ci.yml`.
-- **Checks**: `swamp extension fmt manifest.yaml` (the draft is not formatted
-  as generated), `make test`, `make contracts-check`, `make guardrails-check`,
-  `swamp extension quality manifest.yaml`, `make publish VISIBILITY=private
-  DRY_RUN=1`, and `swamp workflow validate <entryPointRef>` (the full
-  `@<collective>/<slug>` name; the `model not found` warning is expected in a
-  fresh worktree).
-- **Commit and draft PR**: commit with
-  `--author="Claude Code <claude-code@anthropic.com>"`, push `draft/NAME`, open
-  a draft PR to `REPO`, never merge. Then run
-  `@puddleworks/puddleworks-factory-result` again as in step 3, adding
-  `--input pullRequest=<PR URL>`, so the build result links the PR.
-- **Verification**, including a real end-to-end run of the workflow.
+  anything on the out-of-scope list, new permissions, or secrets the settings
+  do not name. Search before building (`swamp extension search`).
 
-Save it to the scratchpad as `plan.md` and copy it to
-`~/.claude/plans/NAME.md`.
+If the behaviour cannot be built within these limits, or the spec leaves a
+choice open that changes what the user gets, stop and ask; do not build on a
+guess. Otherwise carry straight on.
 
-## Step 5: Stop and report
+## Step 5: Build it test-first
 
-Tell the user the branch (`draft/NAME`), the plan file path
-(`~/.claude/plans/NAME.md`) and the build result file. Do not implement
-anything or open a PR. The build result file is the record of the build. If
-the spec had a `source`, the build result names the request, version and hash,
-so it can be matched to the request later.
+Work in `W`. For each test in the plan: write it, run `make test` and see it
+fail for the right reason, then write the code that makes it pass. If the tests
+need Deno permissions (`--allow-read` and so on), add the same flags to the
+"Test it" command in `W/README.md`, the `test` target of `W/Makefile` and the
+`deno test` lines of `W/.github/workflows/ci.yml`, so all three run the same
+tests.
+
+Then run the workflow once for real, as `W/README.md` says (create the model
+instance, then `swamp workflow run <entryPointRef>`), with settings that work
+on this machine. If a setting needs a credential the user has not given, ask
+for it or skip the run, and say which in the report.
+
+```bash
+git -C W add -A
+git -C W commit -q --author="Claude Code <claude-code@anthropic.com>" \
+  -m "Build the NAME behaviour" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+## Step 6: Get it through the checks
+
+```bash
+cd W
+swamp extension fmt manifest.yaml
+make test
+make contracts-check
+make guardrails-check
+swamp workflow validate ENTRY_POINT_REF
+swamp extension quality manifest.yaml --json | jq '{percentage, gateFailures}'
+```
+
+`ENTRY_POINT_REF` is the full `@<collective>/<slug>` name from `W/README.md`;
+the `model not found` warning from `validate` is expected in a fresh worktree.
+Each must pass, and quality must be `100` with no `gateFailures`: fix the code
+(JSDoc on exports, a README, the licence) until it is. The draft is not
+formatted as generated, so `fmt` changes files the first time. Commit what
+changed, as in step 5, with the message `Get NAME ready to publish`.
+
+## Step 7: Recommend public or private, and ask
+
+```bash
+Q=$(cd W && swamp extension quality manifest.yaml --json | jq .percentage)
+RV=$(gh repo view puddle-works/NAME --json visibility -q .visibility | tr A-Z a-z)
+swamp workflow run @puddleworks/puddleworks-factory-visibility --input name=NAME \
+  --input quality=$Q --input repoVisibility=$RV --json | jq -r .status
+swamp data query 'behavior("puddleworks-factory") && name == "visibility-NAME"' \
+  --select content --json | jq '.results[0] | {recommendation, canBePublic, checks, findings}'
+```
+
+Run this from the swamp repo from step 1, like the other Factory
+workflows. The method reads every text file in `W` (not `.git`, `.swamp`,
+`.claude/skills`, `node_modules`) and gives the same answer for the same files:
+
+| Check              | Role     | Fails when                                                                   |
+| ------------------ | -------- | ---------------------------------------------------------------------------- |
+| `licence`          | required | No `license:` in the manifest, or no `LICENSE` file                          |
+| `repository`       | required | No `https://` `repository:` in the manifest                                  |
+| `quality`          | required | Quality below 100%                                                           |
+| `secrets`          | required | A key or token is in the files (its text is never shown)                     |
+| `internal-details` | signal   | Home paths, internal hosts, private IPs or real email addresses              |
+| `audience`         | signal   | The spec's `specification` says it is internal, confidential, for "our team" |
+| `repo-visibility`  | info     | The GitHub repo and the manifest disagree; decides nothing                   |
+
+A failed `secrets` check means the secret is in git history: tell the user to
+rotate it, and remove it before anything else. Show the recommendation, every
+check that failed, and each finding (`file:line` and the line), then ask with
+`AskUserQuestion`, the recommendation first. Offer **Public** only when
+`canBePublic` is true; otherwise say which required checks block it.
+
+Set the visibility **now**, before the review report: the report is bound to
+the content hash, and the manifest is part of it. Never pass `--visibility` to
+`swamp extension push`; it changes the hash too. For **private**, the manifest
+and `ci.yml` already say `private`. For **public**, after the user's answer:
+
+```bash
+sed -i '' 's/^visibility: private$/visibility: public/' W/manifest.yaml
+sed -i '' 's/visibility: private # must equal/visibility: public # must equal/' W/.github/workflows/ci.yml
+grep -n '^visibility:' W/manifest.yaml; grep -n 'visibility:' W/.github/workflows/ci.yml
+git -C W commit -q -am "Publish NAME publicly" --author="Claude Code <claude-code@anthropic.com>" \
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+Expect `visibility: public` from both greps. The GitHub repo itself is made
+public in step 9, with the push. `V` below is the chosen visibility.
+
+## Step 8: Write the review report and open the PR
+
+Review the code first, following the swamp skill's
+`references/extension/references/adversarial-review.md`: its mechanical checks,
+then each dimension. Fix anything it finds before writing the report: any code
+change moves the content hash, and so the report path. Then get the skeleton
+and its path from a dry run:
+
+```bash
+cd W
+SWAMP_EXTENSION_REVIEW_DIR=$(pwd) swamp extension push manifest.yaml --dry-run --json \
+  | jq '.warnings.review[] | select(.ruleId == "adversarial-review-report") | {file, skeleton}' > SP/review.json
+jq -r .file SP/review.json
+```
+
+Write `.skeleton` to `.file`, with `reviewedAt` set to now and every
+dimension's `verdict` set to `pass`, `na` (the dimension does not apply), or
+`issue` with a `note`. Leave none `pending`. An `issue` is reported by the dry
+run as a warning, and `make publish` stops on every warning except version
+drift: fix the problem and review again rather than publish with one. Then:
+
+```bash
+make publish VISIBILITY=V DRY_RUN=1
+```
+
+Expect `dry run only; nothing was pushed`, after the tests, `deno check`,
+`fmt --check`, the quality gate and a dry run with no warnings. A
+`declares visibility` error means step 7's change was not committed. Commit the
+report, push, and open the PR to the app repo:
+
+```bash
+git -C W add swamp-extension-review/
+git -C W commit -q --author="Claude Code <claude-code@anthropic.com>" \
+  -m "Review NAME for publishing" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C W push -u origin draft/NAME
+gh pr create --repo puddle-works/NAME --head draft/NAME --base main \
+  --title "Build NAME" --body-file SP/pr.md
+```
+
+`SP/pr.md` says what was built, how it was tested (and whether the real run in
+step 5 happened), the visibility and why, the review's verdicts, and ends with
+`🤖 Generated with [Claude Code](https://claude.com/claude-code)`. The PR's CI
+runs the same publish dry run, so it is green only with the report committed.
+
+## Step 9: Publish, once the user confirms
+
+Publishing is outward-facing, and a public package or repo may be cached even
+if it is changed back later. Show the package (`@puddleworks/NAME`), the
+version from `W/manifest.yaml`, `V`, the PR, and that it is published from the
+reviewed commit on `draft/NAME`. Ask; on yes:
+
+```bash
+gh repo edit puddle-works/NAME --visibility public --accept-visibility-change-consequences   # public only
+cd W && make publish VISIBILITY=V
+```
+
+Expect `published @puddleworks/NAME@VERSION (HASH)`. `make publish` never
+passes `--yes`; the clean dry run is its gate. If it stops, read what it lists,
+fix it, and repeat from step 8 (the report must match the new hash). A version
+that is already published needs a new `version:` in the manifest, which also
+means a new review.
+
+## Step 10: Record it and report
+
+Write the build result again, now with the PR and what was published:
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME \
+  --input buildRef=draft/NAME --input pullRequest=PR_URL \
+  --input publishedVersion=VERSION --input publishedVisibility=V \
+  --input out=SP/NAME.build-result.json --json | jq -r .status
+```
+
+Expect `succeeded`; `Pass publishedVersion and publishedVisibility together`
+means one was left out. If the user stopped before publishing, leave both out.
+
+Tell the user: the package and version, its visibility and why, the PR (which
+they merge), the build result file, how long the run took, and anything
+skipped (the real run, a check). If the spec had a `source`, the build result
+names the request, version and hash, so it can be matched to the request later.
