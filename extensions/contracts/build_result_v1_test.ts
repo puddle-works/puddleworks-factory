@@ -99,3 +99,20 @@ Deno.test("build-result: the spec's source is optional, and kept when given", ()
   assertEquals(result.ok, true);
   if (result.ok) assertEquals(result.result.source, source);
 });
+
+Deno.test("build-result: what was published is optional, and kept when given", () => {
+  const published = { version: "2026.10.26.1", visibility: "private" };
+  const result = parseBuildResult({ ...EXAMPLE, published });
+  assertEquals(result.ok, true);
+  if (result.ok) assertEquals(result.result.published, published);
+});
+
+Deno.test("build-result: published needs a version and a known visibility", () => {
+  const problems = problemsOf({
+    ...EXAMPLE,
+    published: { version: "", visibility: "unlisted" },
+  });
+  assertEquals(problems.length, 2);
+  assertStringIncludes(problems.join(" "), "published.version");
+  assertStringIncludes(problems.join(" "), "published.visibility");
+});

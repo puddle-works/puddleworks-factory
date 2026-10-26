@@ -3,8 +3,9 @@ name: "@puddleworks/puddleworks-factory-result"
 description: >-
   Write a puddleworks.dev/build-result/v1 for the last draft of an app spec:
   the extension, its entry point, the repository, the branch or commit, and
-  the pull request once there is one. Run it after the draft is pushed, and
-  again once the pull request is open. The result is recorded as a resource
+  the pull request once there is one, and what was published. Run it after
+  the draft is pushed, again once the pull request is open, and again once the
+  extension is published. The result is recorded as a resource
   on the puddleworks-factory model and, with out, written to a JSON file that
   anyone can read.
 version: 1
@@ -40,6 +41,18 @@ inputs:
         File to write the build result to as JSON. Leave blank to record it
         only as a resource.
       default: ""
+    publishedVersion:
+      type: string
+      description: >-
+        The version pushed to the registry, e.g. 2026.10.26.1. Leave blank
+        until it is published; give it with publishedVisibility.
+      default: ""
+    publishedVisibility:
+      type: string
+      description: >-
+        public or private: the visibility it was pushed with. Leave blank
+        until it is published; give it with publishedVersion.
+      default: ""
   required:
     - name
     - buildRef
@@ -69,3 +82,5 @@ jobs:
             buildRef: ${{ inputs.buildRef }}
             pullRequest: ${{ inputs.pullRequest }}
             out: ${{ inputs.out }}
+            publishedVersion: ${{ inputs.publishedVersion }}
+            publishedVisibility: ${{ inputs.publishedVisibility }}

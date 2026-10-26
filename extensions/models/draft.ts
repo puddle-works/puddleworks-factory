@@ -26,7 +26,8 @@
  *
  * The draft passes `deno check` and its own tests as generated. Factory reads
  * no other app's data: whoever approved the spec did so before handing it
- * over. The `factory-build` skill then plans the behaviour.
+ * over. The `factory-build` skill then builds the behaviour, and `visibility`
+ * checks the repo before it is published (extensions/lib/visibility.ts).
  *
  * @module
  */
@@ -45,6 +46,7 @@ import {
   type SpecIo,
 } from "../lib/spec_source.ts";
 import { prefillAppSpec } from "../lib/prefill.ts";
+import { assessVisibility } from "../lib/visibility.ts";
 import {
   BUILD_RESULT_V1,
   type BuildResult,
@@ -855,9 +857,74 @@ const ResultArgsSchema = z.object({
   pullRequest: optional(z.string()),
   /** File to write the build result to as JSON, as well as the resource. */
   out: optional(z.string()),
+  /** The version pushed to the registry, once it is published. Give it with publishedVisibility. */
+  publishedVersion: optional(z.string().min(1)),
+  /** The visibility it was pushed with. Give it with publishedVersion. */
+  publishedVisibility: optional(z.enum(["public", "private"])),
 });
 
 type ResultArgs = z.infer<typeof ResultArgsSchema>;
+
+const VisibilityArgsSchema = z.object({
+  /** The app spec's name, as drafted by `render` on this instance. */
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+  /** `swamp extension quality --json` percentage for the app's manifest. */
+  quality: z.number().int().min(0).max(100),
+  /** The app repo's visibility on GitHub. */
+  repoVisibility: z.enum(["public", "private"]),
+  /** The app repo checkout to check. Defaults to where the draft was written. */
+  targetDir: optional(z.string().min(1)),
+});
+
+type VisibilityArgs = z.infer<typeof VisibilityArgsSchema>;
+
+const FindingSchema = z.object({
+  file: z.string(),
+  line: z.number().int(),
+  kind: z.string(),
+  text: z.string(),
+});
+
+const VisibilitySchema = z.object({
+  name: z.string(),
+  targetDir: z.string(),
+  /** `public` only when every required check passes and no signal says otherwise. */
+  recommendation: z.enum(["public", "private"]),
+  /** Every required check passed, so public is allowed. */
+  canBePublic: z.boolean(),
+  manifestVisibility: z.enum(["public", "private"]).nullable(),
+  repoVisibility: z.enum(["public", "private"]),
+  checks: z.array(z.object({
+    id: z.string(),
+    role: z.enum(["required", "signal", "info"]),
+    ok: z.boolean(),
+    detail: z.string(),
+  })),
+  findings: z.array(FindingSchema),
+  assessedAt: z.iso.datetime(),
+});
+
+/** Directories the visibility check does not read: git, swamp runtime data, swamp-managed skills, dependencies. */
+const UNREAD = new Set([".git", ".swamp", ".claude/skills", "node_modules"]);
+
+/** Text files under root, relative paths, skipping UNREAD, large files and binaries. */
+async function textFiles(
+  root: string,
+  dir = "",
+): Promise<Array<{ path: string; text: string }>> {
+  const out: Array<{ path: string; text: string }> = [];
+  for await (const e of Deno.readDir(dir ? `${root}/${dir}` : root)) {
+    const path = dir ? `${dir}/${e.name}` : e.name;
+    if (UNREAD.has(path)) continue;
+    if (e.isDirectory) out.push(...await textFiles(root, path));
+    else if (e.isFile) {
+      const bytes = await Deno.readFile(`${root}/${path}`);
+      if (bytes.length > 512 * 1024 || bytes.includes(0)) continue;
+      out.push({ path, text: new TextDecoder().decode(bytes) });
+    }
+  }
+  return out.sort((a, b) => a.path.localeCompare(b.path));
+}
 
 /** Name of the build result resource for an app spec. */
 const resultName = (name: string) => `build-result-${name}`;
@@ -901,12 +968,13 @@ async function exists(path: string): Promise<boolean> {
 
 /**
  * The `@puddleworks/puddleworks-factory/draft` model: `prefill` starts an app spec
- * from an outcome spec, `render` writes a first draft from an app spec, and
- * `result` says where that build went.
+ * from an outcome spec, `render` writes a first draft from an app spec,
+ * `visibility` recommends publishing it publicly or privately, and `result`
+ * says where that build went.
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.10.26.1",
+  version: "2026.10.26.2",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -940,6 +1008,14 @@ export const model = {
         "and result defaults its repository to the draft's. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
+    {
+      toVersion: "2026.10.26.2",
+      description:
+        "Adds the visibility method and resource (recommend public or private before " +
+        "publishing), and publishedVersion and publishedVisibility on result, recorded " +
+        "as the build result's published field. No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
   ],
   globalArguments: GlobalArgsSchema,
   resources: {
@@ -961,6 +1037,13 @@ export const model = {
       description:
         `A ${BUILD_RESULT_V1}: what a build produced and where it is, for anyone to read.`,
       schema: BuildResultSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
+    visibility: {
+      description:
+        "The last public-or-private check of an app's repo before publishing: the recommendation, each check and what it found.",
+      schema: VisibilitySchema,
       lifetime: "infinite" as const,
       garbageCollection: 20,
     },
@@ -1107,6 +1190,11 @@ export const model = {
               "Run @puddleworks/puddleworks-factory-build for the spec first.",
           );
         }
+        if (!args.publishedVersion !== !args.publishedVisibility) {
+          throw new Error(
+            "Pass publishedVersion and publishedVisibility together, or neither.",
+          );
+        }
         const repository = args.repository ?? draft.data.repository;
         if (!repository) {
           throw new Error(
@@ -1129,6 +1217,14 @@ export const model = {
           buildRef: args.buildRef,
           ...(args.pullRequest ? { pullRequest: args.pullRequest } : {}),
           ...(draft.data.source ? { source: draft.data.source } : {}),
+          ...(args.publishedVersion && args.publishedVisibility
+            ? {
+              published: {
+                version: args.publishedVersion,
+                visibility: args.publishedVisibility,
+              },
+            }
+            : {}),
           builtAt: new Date().toISOString(),
         };
         const parsed = parseBuildResult(candidate);
@@ -1154,6 +1250,51 @@ export const model = {
           "buildResult",
           resultName(args.name),
           parsed.result,
+        );
+        return { dataHandles: [handle] };
+      },
+    },
+    visibility: {
+      description:
+        "Check the app's repo before publishing and recommend public or private: licence, " +
+        "repository and quality must pass to go public; paths, hosts, addresses and emails " +
+        "that look internal, or spec wording about who the app is for, recommend private. " +
+        "Secrets block public and are never repeated. Records the visibility resource.",
+      arguments: VisibilityArgsSchema,
+      execute: async (args: VisibilityArgs, context: MethodContext) => {
+        const raw = context.readResource
+          ? await context.readResource(args.name)
+          : null;
+        const draft = raw ? DraftSchema.safeParse(raw) : null;
+        if (!draft?.success) {
+          throw new Error(
+            `No draft of "${args.name}" has been rendered by this model instance. ` +
+              "Run @puddleworks/puddleworks-factory-build for the spec first.",
+          );
+        }
+        const root = (args.targetDir ?? draft.data.targetDir).replace(
+          /\/+$/,
+          "",
+        );
+        const assessment = assessVisibility({
+          files: await textFiles(root),
+          quality: args.quality,
+          repoVisibility: args.repoVisibility,
+        });
+        context.logger.info("Visibility for {name}: {recommendation}", {
+          name: args.name,
+          recommendation: assessment.recommendation,
+        });
+        const handle = await context.writeResource(
+          "visibility",
+          `visibility-${args.name}`,
+          {
+            name: args.name,
+            targetDir: root,
+            repoVisibility: args.repoVisibility,
+            ...assessment,
+            assessedAt: new Date().toISOString(),
+          },
         );
         return { dataHandles: [handle] };
       },

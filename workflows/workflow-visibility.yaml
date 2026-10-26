@@ -1,0 +1,64 @@
+id: 71ccc195-1e5f-4e27-b2f2-dba57ae2b972
+name: "@puddleworks/puddleworks-factory-visibility"
+description: >-
+  Before publishing, check an app's repo and recommend sharing it publicly or
+  keeping it private. A licence, a repository link and 100% quality are
+  required for public; paths, hosts, addresses or emails that look internal,
+  or spec wording about who the app is for, recommend private; secrets block
+  public. The answer is recorded as a visibility resource on the
+  puddleworks-factory model. It changes nothing: the builder decides.
+version: 1
+
+inputs:
+  type: object
+  properties:
+    name:
+      type: string
+      description: >-
+        The app spec's name, as drafted by @puddleworks/puddleworks-factory-build
+        on this swamp repo's puddleworks-factory model.
+    quality:
+      type: integer
+      description: >-
+        The app's quality percentage, from
+        swamp extension quality manifest.yaml --json (.percentage).
+    repoVisibility:
+      type: string
+      enum: [public, private]
+      description: >-
+        The app repo's visibility on GitHub, from
+        gh repo view --json visibility (lower case).
+    targetDir:
+      type: string
+      description: >-
+        The app repo checkout to check. Leave blank to use the one the draft
+        was written to.
+      default: ""
+  required:
+    - name
+    - quality
+    - repoVisibility
+
+jobs:
+  - name: visibility
+    description: >-
+      Read the app repo's text files and record the recommendation.
+    dependsOn: []
+    weight: 0
+    steps:
+      - name: visibility
+        description: >-
+          Check the repo and write the visibility resource on the
+          puddleworks-factory model.
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+        task:
+          type: model_method
+          modelIdOrName: puddleworks-factory
+          methodName: visibility
+          inputs:
+            name: ${{ inputs.name }}
+            quality: ${{ inputs.quality }}
+            repoVisibility: ${{ inputs.repoVisibility }}
+            targetDir: ${{ inputs.targetDir }}

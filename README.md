@@ -40,13 +40,14 @@ flowchart LR
 
 ## What is in the package
 
-| Kind     | Name                                       | What it does                                                                                                   |
-| -------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| Model    | `@puddleworks/puddleworks-factory/draft`   | `render` reads a spec and writes the extension, its tests, a workflow, the manifest and the app docs           |
-| Workflow | `@puddleworks/puddleworks-factory-prefill` | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                        |
-| Workflow | `@puddleworks/puddleworks-factory-build`   | Runs `render` on the `puddleworks-factory` instance                                                            |
-| Workflow | `@puddleworks/puddleworks-factory-result`  | Runs `result`: writes a `build-result/v1` for the last draft of a spec                                         |
-| Skill    | `factory-build`                            | Drives a build end to end: prefill and agree the spec, make the app repo, generate, commit, write a build plan |
+| Kind     | Name                                          | What it does                                                                                                                                                      |
+| -------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Model    | `@puddleworks/puddleworks-factory/draft`      | `render` reads a spec and writes the extension, its tests, a workflow, the manifest and the app docs; `visibility` recommends publishing it publicly or privately |
+| Workflow | `@puddleworks/puddleworks-factory-prefill`    | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                                                                           |
+| Workflow | `@puddleworks/puddleworks-factory-build`      | Runs `render` on the `puddleworks-factory` instance                                                                                                               |
+| Workflow | `@puddleworks/puddleworks-factory-visibility` | Runs `visibility`: checks the built app's repo and recommends public or private                                                                                   |
+| Workflow | `@puddleworks/puddleworks-factory-result`     | Runs `result`: writes a `build-result/v1` for the last draft of a spec, with what was published                                                                   |
+| Skill    | `factory-build`                               | Takes a spec to a published extension: agree the spec, make the app repo, generate, build test-first, check, decide visibility, publish                           |
 
 ## Use
 
@@ -63,7 +64,10 @@ Run `/factory-build <path to the outcome spec>` in Claude Code. The skill
 prefills an app spec, asks you to confirm the name, inputs, output, settings and
 delivery, makes the app's own repo from `puddle-works/puddle-template` if it
 does not exist yet (asking first), writes both specs to `spec/` there, and
-generates the draft. To prefill by hand instead:
+generates the draft. It then builds the behaviour test-first, gets it through
+the checks (tests, contracts, guardrails, quality 100%), recommends public or
+private and asks you, writes the review report, opens a PR to the app repo and
+publishes once you confirm. Aim for about an hour. To prefill by hand instead:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-prefill \
@@ -103,10 +107,30 @@ its test in `extensions/models/`, the workflow in `workflows/`, and
 existing `LICENSE` is kept, and the rest of `CLAUDE.md` is left alone. A spec
 that breaks the contract writes nothing and lists every broken rule. Existing
 files are kept unless you pass `--input overwrite=true`. The drafted package is
-private; pass `--input visibility=public` to publish it publicly.
+private; whether it goes public is decided once it is built (below).
 
-Once the draft is pushed, write the build result. Add `pullRequest` once the
-pull request is open:
+Once it is built and passes its checks, ask for a recommendation. `quality` is
+`swamp extension quality manifest.yaml --json | jq .percentage` in the app repo,
+and `repoVisibility` is the GitHub repo's (`public` or `private`):
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-visibility \
+  --input name=obsidian-puddle-scanner --input quality=100 --input repoVisibility=private
+swamp data query 'behavior("puddleworks-factory") && name == "visibility-obsidian-puddle-scanner"' \
+  --select content --json | jq '.results[0] | {recommendation, canBePublic, checks, findings}'
+```
+
+It can be public only when the licence, repository, quality and secrets checks
+pass (`canBePublic`). Anything that looks internal (home paths, internal hosts,
+private IPs, real email addresses) or spec wording that says it is for one team
+recommends private, and leaves the choice to you. Set `visibility:` in the
+manifest and in `.github/workflows/ci.yml` before writing the review report: the
+report is bound to the content hash, which the manifest is part of, so it is
+never passed as `--visibility`.
+
+Write the build result once the draft is pushed. Add `pullRequest` once the pull
+request is open, and `publishedVersion` with `publishedVisibility` once it is
+published:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result \
