@@ -1,0 +1,72 @@
+id: 91bf0e0b-ff68-4b92-bf74-5f3b97396e96
+name: "@puddleworks/puddleworks-factory-readiness"
+description: >-
+  After the independent review, check an app is ready to publish: the review
+  report matches the manifest's name and version with no issue or pending
+  verdict, every acceptance criterion in spec/ maps to tests that exist or a
+  manual check (spec/acceptance.json), and the visibility check allows the
+  manifest's visibility. The answer, with a one-screen summary to confirm
+  publishing against, is recorded as a readiness resource on the
+  puddleworks-factory model. It changes nothing.
+version: 1
+
+inputs:
+  type: object
+  properties:
+    name:
+      type: string
+      description: >-
+        The app spec's name, as drafted by @puddleworks/puddleworks-factory-build
+        on this swamp repo's puddleworks-factory model.
+    review:
+      type: string
+      description: >-
+        The review report, as the publish dry run names it (.file of the
+        adversarial-review-report warning): absolute, or relative to the app
+        repo checkout.
+    pullRequest:
+      type: string
+      description: >-
+        https URL of the app's pull request, shown in the summary. Leave blank
+        before there is one.
+      default: ""
+    commit:
+      type: string
+      description: >-
+        The reviewed commit, shown in the summary. Leave blank to leave it out.
+      default: ""
+    targetDir:
+      type: string
+      description: >-
+        The app repo checkout to check. Leave blank to use the one the draft
+        was written to.
+      default: ""
+  required:
+    - name
+    - review
+
+jobs:
+  - name: readiness
+    description: >-
+      Read the app repo, its review report and the visibility check, and
+      record whether it is ready to publish.
+    dependsOn: []
+    weight: 0
+    steps:
+      - name: readiness
+        description: >-
+          Check the review and the acceptance criteria and write the readiness
+          resource on the puddleworks-factory model.
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+        task:
+          type: model_method
+          modelIdOrName: puddleworks-factory
+          methodName: readiness
+          inputs:
+            name: ${{ inputs.name }}
+            review: ${{ inputs.review }}
+            pullRequest: ${{ inputs.pullRequest }}
+            commit: ${{ inputs.commit }}
+            targetDir: ${{ inputs.targetDir }}

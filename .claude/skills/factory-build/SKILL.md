@@ -7,8 +7,9 @@ description: >
   app spec and agree the builder's decisions with the user; generate the
   skeleton in the app's own repo (made from puddle-works/puddle-template, with
   both specs kept beside it); build the behaviour test-first; get it through
-  the publish checks; recommend public or private and ask; write the review
-  report; publish once the user confirms, and record the result. Triggers on:
+  the publish checks; recommend public or private and ask; have a fresh agent
+  review it against the spec; publish once the user confirms a one-screen
+  summary, and record the result. Triggers on:
   "factory build", "build from spec", "build this puddle", "publish this
   puddle", "/factory-build <spec>".
 ---
@@ -24,11 +25,15 @@ comes from checks that must pass, not from extra steps:
    private.
 2. **Build**: you fill in the behaviour test-first, within the spec.
 3. **Get it ready**: format, tests, contracts, guardrails and quality must all
-   pass, then a PR to the app repo.
+   pass.
 4. **Decide visibility**: the `@puddleworks/puddleworks-factory-visibility`
    workflow recommends public or private; the user decides.
-5. **Publish**: the review report, a clean dry run, then the push once the user
-   confirms. The build result records what was published.
+5. **Review independently**: a fresh agent that has not seen the build reviews
+   the repo against the spec, writes the review report and maps each acceptance
+   criterion to its tests. The `@puddleworks/puddleworks-factory-readiness`
+   workflow checks nothing is left, then a PR to the app repo.
+6. **Publish**: a clean dry run, then the push once the user confirms the
+   readiness summary. The build result records what was published.
 
 Creating a repo, making it public and pushing to the registry are outward
 steps: ask before each one. Never merge the PR; the user does.
@@ -365,40 +370,111 @@ git -C W commit -q -am "Publish NAME publicly" --author="Claude Code <claude-cod
 ```
 
 Expect `visibility: public` from both greps. The GitHub repo itself is made
-public in step 9, with the push. `V` below is the chosen visibility.
+public in step 10, with the push. `V` below is the chosen visibility.
 
-## Step 8: Write the review report and open the PR
+## Step 8: Have a fresh agent review it
 
-Review the code first, following the swamp skill's
-`references/extension/references/adversarial-review.md`: its mechanical checks,
-then each dimension. Fix anything it finds before writing the report: any code
-change moves the content hash, and so the report path. Then get the skeleton
-and its path from a dry run:
+You built it, so you do not review it. A fresh agent that has seen none of the
+build reads only the spec and the repo, writes the review report, and maps each
+acceptance criterion to the tests that check it. It changes no code.
+
+Clear out reports from earlier rounds, then get the report path and skeleton
+from a dry run:
 
 ```bash
 cd W
+rm -f swamp-extension-review/*.json
+mkdir -p swamp-extension-review
 SWAMP_EXTENSION_REVIEW_DIR=$(pwd) swamp extension push manifest.yaml --dry-run --json \
   | jq '.warnings.review[] | select(.ruleId == "adversarial-review-report") | {file, skeleton}' > SP/review.json
 jq -r .file SP/review.json
 ```
 
-Write `.skeleton` to `.file`, with `reviewedAt` set to now and every
-dimension's `verdict` set to `pass`, `na` (the dimension does not apply), or
-`issue` with a `note`. Leave none `pending`. An `issue` is reported by the dry
-run as a warning, and `make publish` stops on every warning except version
-drift: fix the problem and review again rather than publish with one. Then:
+Expect a path under `W/swamp-extension-review/`. Start the reviewer with the
+`Agent` tool, `subagent_type: "general-purpose"`. Never `fork`: a fork carries
+this conversation, which is exactly what the reviewer must not see. Fill in
+`W`, `SPEC` and `SP`, and send this as the prompt:
+
+```text
+Review a swamp extension before it is published. You did not build it; judge
+it only by the spec and the repo.
+
+Repo: W (a git worktree; do not commit, push or change any code or spec).
+Spec: SPEC, and every file in W/spec/. The agreed request is
+W/spec/outcome-spec.v*.json (the highest version) when there is one.
+Read nothing else outside W except SP/review.json.
+
+1. Run `make test` in W, and read the code, tests, workflow, manifest and
+   README.
+2. Load the swamp skill and follow its
+   references/extension/references/adversarial-review.md: the mechanical
+   checks, then every dimension in the skeleton.
+3. Check the build stays within the spec: inputs and settings as the spec names
+   them, nothing on the out-of-scope list, no permissions or secrets the
+   settings do not name.
+4. For each acceptance criterion in the outcome spec, read the test bodies and
+   list the tests that really check it (a matching name is not enough). If no
+   test does, check it yourself if you can (for example run the workflow as
+   W/README.md says) and say in "manual" what you ran and saw; otherwise leave
+   both empty. Write W/spec/acceptance.json:
+   {"criteria": [{"id": "AC1", "tests": ["exact Deno.test name"], "manual": ""}]}
+   Skip this step if there is no outcome spec.
+5. Write the .skeleton from SP/review.json to the path in its .file, with
+   reviewedAt set to now and every dimension's verdict set to pass, na or
+   issue, each with a note saying what you checked. Leave none pending.
+
+Reply in under 300 words: each issue verdict, each scope problem, each
+criterion with no test or manual check, and anything else the builder must fix.
+Say "no findings" if there are none.
+```
+
+When it replies, check what it wrote:
 
 ```bash
+F=$(jq -r .file SP/review.json)
+swamp workflow run @puddleworks/puddleworks-factory-readiness --input name=NAME --input review=$F --json | jq -r .status
+swamp data query 'behavior("puddleworks-factory") && name == "readiness-NAME"' \
+  --select content --json | jq -r '.results[0] | .ready, .summary'
+```
+
+Run it from the swamp repo from step 1. It changes nothing, and gives the same
+answer for the same files. `false` lists the blockers in the summary (the first
+six; `.blockers` has them all):
+
+- `The review report could not be read`, or it is for another name or
+  version: run this step again.
+- `Review issue, <dimension>`, or a dimension with no verdict: fix it, then run
+  this step again.
+- `<id> is not in spec/acceptance.json`, or `<id> has no test and no manual
+  check`: write the test the criterion needs, then run this step again.
+- `names a test that is not in any *_test.ts`: the reviewer misnamed it; run
+  this step again.
+- `The visibility check has not run`, or the manifest says public when its
+  required checks failed: run step 7 again.
+
+`true`, with no scope problems in the reply, means go on to step 9. Otherwise
+fix each finding the way step 5 does (test first), run step 6's checks, commit
+with the message `Fix review findings for NAME`, and, if any file changed, run
+step 7's visibility workflow again (ask again only if its answer changed). Then
+repeat this step with a **new** agent; never send the fix back to the old one.
+If it is still not ready after two rounds, stop and show the user the blockers.
+
+## Step 9: Open the PR
+
+```bash
+cd W
 make publish VISIBILITY=V DRY_RUN=1
 ```
 
 Expect `dry run only; nothing was pushed`, after the tests, `deno check`,
 `fmt --check`, the quality gate and a dry run with no warnings. A
-`declares visibility` error means step 7's change was not committed. Commit the
-report, push, and open the PR to the app repo:
+`declares visibility` error means step 7's change was not committed; an
+`adversarial-review` warning means the code changed after the review, so run
+step 8 again. Commit the report and the criteria map, push, and open the PR to
+the app repo:
 
 ```bash
-git -C W add swamp-extension-review/
+git -C W add swamp-extension-review/ spec/
 git -C W commit -q --author="Claude Code <claude-code@anthropic.com>" \
   -m "Review NAME for publishing" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 git -C W push -u origin draft/NAME
@@ -407,16 +483,31 @@ gh pr create --repo puddle-works/NAME --head draft/NAME --base main \
 ```
 
 `SP/pr.md` says what was built, how it was tested (and whether the real run in
-step 5 happened), the visibility and why, the review's verdicts, and ends with
-`🤖 Generated with [Claude Code](https://claude.com/claude-code)`. The PR's CI
-runs the same publish dry run, so it is green only with the report committed.
+step 5 happened), the visibility and why, that a fresh agent reviewed it and
+how many rounds it took, then the readiness `summary` in a code block, and ends
+with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. The
+PR's CI runs the same publish dry run, so it is green only with the report
+committed.
 
-## Step 9: Publish, once the user confirms
+## Step 10: Publish, once the user confirms
 
 Publishing is outward-facing, and a public package or repo may be cached even
-if it is changed back later. Show the package (`@puddleworks/NAME`), the
-version from `W/manifest.yaml`, `V`, the PR, and that it is published from the
-reviewed commit on `draft/NAME`. Ask; on yes:
+if it is changed back later. Check readiness once more, now with the PR and the
+commit that would be published:
+
+```bash
+F=$(jq -r .file SP/review.json)
+swamp workflow run @puddleworks/puddleworks-factory-readiness --input name=NAME --input review=$F \
+  --input pullRequest=PR_URL --input commit=$(git -C W rev-parse HEAD) --json | jq -r .status
+swamp data query 'behavior("puddleworks-factory") && name == "readiness-NAME"' \
+  --select content --json | jq -r '.results[0] | .ready, .summary'
+```
+
+Ask only if it says `true`. Show the `summary` exactly as it is, in a code
+block: the package and version, the visibility against the recommendation, the
+PR and commit, the review's verdicts, and each acceptance criterion with its
+tests. Add that it is published from that commit on `draft/NAME`, before the PR
+is merged. Then ask with `AskUserQuestion`; on yes:
 
 ```bash
 gh repo edit puddle-works/NAME --visibility public --accept-visibility-change-consequences   # public only
@@ -429,7 +520,7 @@ fix it, and repeat from step 8 (the report must match the new hash). A version
 that is already published needs a new `version:` in the manifest, which also
 means a new review.
 
-## Step 10: Record it and report
+## Step 11: Record it and report
 
 Write the build result again, now with the PR and what was published:
 

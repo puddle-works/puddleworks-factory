@@ -40,14 +40,15 @@ flowchart LR
 
 ## What is in the package
 
-| Kind     | Name                                          | What it does                                                                                                                                                      |
-| -------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Model    | `@puddleworks/puddleworks-factory/draft`      | `render` reads a spec and writes the extension, its tests, a workflow, the manifest and the app docs; `visibility` recommends publishing it publicly or privately |
-| Workflow | `@puddleworks/puddleworks-factory-prefill`    | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                                                                           |
-| Workflow | `@puddleworks/puddleworks-factory-build`      | Runs `render` on the `puddleworks-factory` instance                                                                                                               |
-| Workflow | `@puddleworks/puddleworks-factory-visibility` | Runs `visibility`: checks the built app's repo and recommends public or private                                                                                   |
-| Workflow | `@puddleworks/puddleworks-factory-result`     | Runs `result`: writes a `build-result/v1` for the last draft of a spec, with what was published                                                                   |
-| Skill    | `factory-build`                               | Takes a spec to a published extension: agree the spec, make the app repo, generate, build test-first, check, decide visibility, publish                           |
+| Kind     | Name                                          | What it does                                                                                                                                                                                                       |
+| -------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Model    | `@puddleworks/puddleworks-factory/draft`      | `render` reads a spec and writes the extension, its tests, a workflow, the manifest and the app docs; `visibility` recommends publishing it publicly or privately; `readiness` checks the review before publishing |
+| Workflow | `@puddleworks/puddleworks-factory-prefill`    | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                                                                                                                            |
+| Workflow | `@puddleworks/puddleworks-factory-build`      | Runs `render` on the `puddleworks-factory` instance                                                                                                                                                                |
+| Workflow | `@puddleworks/puddleworks-factory-visibility` | Runs `visibility`: checks the built app's repo and recommends public or private                                                                                                                                    |
+| Workflow | `@puddleworks/puddleworks-factory-readiness`  | Runs `readiness`: checks the review report and that each acceptance criterion has a test, and writes a one-screen summary                                                                                          |
+| Workflow | `@puddleworks/puddleworks-factory-result`     | Runs `result`: writes a `build-result/v1` for the last draft of a spec, with what was published                                                                                                                    |
+| Skill    | `factory-build`                               | Takes a spec to a published extension: agree the spec, make the app repo, generate, build test-first, check, decide visibility, publish                                                                            |
 
 ## Use
 
@@ -66,8 +67,9 @@ delivery, makes the app's own repo from `puddle-works/puddle-template` if it
 does not exist yet (asking first), writes both specs to `spec/` there, and
 generates the draft. It then builds the behaviour test-first, gets it through
 the checks (tests, contracts, guardrails, quality 100%), recommends public or
-private and asks you, writes the review report, opens a PR to the app repo and
-publishes once you confirm. Aim for about an hour. To prefill by hand instead:
+private and asks you, has a fresh agent that has not seen the build review it
+against the spec, opens a PR to the app repo and publishes once you confirm a
+one-screen summary. Aim for about an hour. To prefill by hand instead:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-prefill \
@@ -127,6 +129,27 @@ recommends private, and leaves the choice to you. Set `visibility:` in the
 manifest and in `.github/workflows/ci.yml` before writing the review report: the
 report is bound to the content hash, which the manifest is part of, so it is
 never passed as `--visibility`.
+
+Before publishing, have someone other than the builder review it: write the
+review report from the publish dry run's skeleton, and map each acceptance
+criterion in `spec/outcome-spec.v*.json` to the tests that check it in
+`spec/acceptance.json`
+(`{"criteria": [{"id": "AC1", "tests": ["a Deno.test name"], "manual": ""}]}`,
+with `manual` saying how it was checked by hand when no test can). Then check
+nothing is left. `review` is the report's path, from the dry run:
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-readiness \
+  --input name=obsidian-puddle-scanner \
+  --input review=swamp-extension-review/_puddleworks_obsidian-puddle-scanner-HASH.json
+swamp data query 'behavior("puddleworks-factory") && name == "readiness-obsidian-puddle-scanner"' \
+  --select content --json | jq -r '.results[0] | .ready, .summary'
+```
+
+It is ready when the report matches the manifest's name and version with no
+`issue` or `pending` verdict, every criterion has a test that exists or a manual
+check, and the visibility check allows the manifest's visibility. The summary
+fits on one screen: confirm publishing against it.
 
 Write the build result once the draft is pushed. Add `pullRequest` once the pull
 request is open, and `publishedVersion` with `publishedVisibility` once it is
