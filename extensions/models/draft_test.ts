@@ -126,7 +126,18 @@ Deno.test("render: workflow is named <collective>/<entry point> so the package c
   const wf = workflowOf(OBSIDIAN, "workflows/workflow-obsidian-scan.yaml");
   assertEquals(wf.name, "@puddleworks/obsidian-scan");
   assertEquals(wf.id, FIXED.uuid);
-  assertEquals(wf.tags, { puddle: "true" });
+  assertEquals(wf.tags.puddle, "true");
+});
+
+// The app repo's `make guardrails-check` fails any workflow without run limits
+// in its tags: maxReruns a quoted 3 to 10, maxWallClock a duration up to 24h.
+Deno.test("render: workflow carries the run limits the app repo's guardrails check needs", () => {
+  const wf = workflowOf(OBSIDIAN, "workflows/workflow-obsidian-scan.yaml");
+  assertEquals(wf.tags, {
+    puddle: "true",
+    maxReruns: "5",
+    maxWallClock: "30m",
+  });
 });
 
 Deno.test("render: without an entry point the workflow takes the app name", () => {
