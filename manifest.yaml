@@ -1,6 +1,6 @@
 manifestVersion: 1
 name: "@puddleworks/puddleworks-factory"
-version: "2026.10.27.1"
+version: "2026.10.27.2"
 description: "Puddleworks Factory: prefill an app spec from an agreed puddleworks.dev/outcome-spec/v1, build the first draft of a swamp app from a puddleworks.dev/app-spec/v1 spec read from a file, an https URL or inline JSON, recommend whether to publish it publicly or privately, check the independent review before publishing, and report where it went as a puddleworks.dev/build-result/v1"
 repository: "https://github.com/puddle-works/puddleworks-factory"
 license: MIT

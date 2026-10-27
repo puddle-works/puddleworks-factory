@@ -566,6 +566,26 @@ Deno.test("render: refuses an app name that is not a slug", () => {
   );
 });
 
+// The draft resource is stored under the bare app name, and the other
+// resources under a prefix plus the app name (issue #38).
+const RESERVED = ["prefill-", "build-result-", "visibility-", "readiness-"];
+
+Deno.test("render: refuses an app name that starts with a reserved prefix", () => {
+  for (const prefix of RESERVED) {
+    assertThrows(
+      () => renderDraft({ ...OBSIDIAN, name: `${prefix}foo` }, FIXED),
+      Error,
+      `"${prefix}"`,
+    );
+  }
+});
+
+Deno.test("render: a name that only contains a reserved word is fine", () => {
+  for (const name of ["readiness", "my-readiness-foo", "prefill"]) {
+    assertEquals(renderDraft({ ...OBSIDIAN, name }, FIXED).length > 0, true);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Acceptance — the rendered draft passes deno check and its own tests
 // ---------------------------------------------------------------------------
@@ -673,6 +693,31 @@ const renderArgs = (
   visibility: "public" | "private" = "public",
   spec = EXAMPLE_TEXT,
 ) => ({ spec, targetDir, repository: REPO, overwrite, visibility });
+
+Deno.test("method: a reserved app name writes no file and no resource", async () => {
+  for (const prefix of RESERVED) {
+    const dir = await appRepo();
+    try {
+      const ctx = makeContext();
+      const spec = JSON.stringify({ ...OBSIDIAN, name: `${prefix}foo` });
+      await assertRejects(
+        () =>
+          model.methods.render.execute(
+            renderArgs(dir, false, "public", spec),
+            ctx,
+          ),
+        Error,
+        "pick another name",
+      );
+      assertEquals(ctx.writes, []);
+      const names = [];
+      for await (const e of Deno.readDir(dir)) names.push(e.name);
+      assertEquals(names, [".swamp.yaml"]);
+    } finally {
+      await Deno.remove(dir, { recursive: true });
+    }
+  }
+});
 
 Deno.test("method: writes every file and records them in a draft resource", async () => {
   const dir = await appRepo();

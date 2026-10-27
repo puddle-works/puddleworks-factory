@@ -48,6 +48,11 @@ import {
   type SpecIo,
 } from "../lib/spec_source.ts";
 import { prefillAppSpec } from "../lib/prefill.ts";
+import {
+  reservedNameProblem,
+  reservedPrefix,
+  RESOURCE_PREFIX,
+} from "../lib/names.ts";
 import { assessVisibility } from "../lib/visibility.ts";
 import { assessReadiness } from "../lib/readiness.ts";
 import {
@@ -714,6 +719,8 @@ export function renderDraft(
       `App name "${name}" is not a slug (lowercase letters, digits and hyphens).`,
     );
   }
+  const prefix = reservedPrefix(name);
+  if (prefix) throw new Error(reservedNameProblem(name, prefix));
   if (!DRAFTABLE.includes(delivery.method)) {
     throw new Error(
       `Delivery method "${delivery.method}" has no swamp workflow to draft. ` +
@@ -1002,7 +1009,7 @@ async function textFiles(
 }
 
 /** Name of the build result resource for an app spec. */
-const resultName = (name: string) => `build-result-${name}`;
+const resultName = (name: string) => `${RESOURCE_PREFIX.buildResult}${name}`;
 
 /** Where specs are read from. Tests swap these to avoid the network. */
 export const io: SpecIo = {
@@ -1050,7 +1057,7 @@ async function exists(path: string): Promise<boolean> {
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.10.27.1",
+  version: "2026.10.27.2",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -1106,6 +1113,14 @@ export const model = {
         "Deprecates delivery method workflow_form: render drafts it as packaged_script " +
         "(the user guide gives a one-line command) and prefill no longer offers it. " +
         "Specs that use it still parse. No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.10.27.2",
+      description:
+        "render refuses app names that start with prefill-, build-result-, visibility- " +
+        "or readiness-, which would share an instance name with another app's resource, " +
+        "and prefill flags a suggested name that does. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -1175,7 +1190,7 @@ export const model = {
         });
         const handle = await context.writeResource(
           "prefill",
-          `prefill-${spec.name}`,
+          `${RESOURCE_PREFIX.prefill}${spec.name}`,
           {
             name: spec.name,
             specSource: source,
@@ -1386,7 +1401,7 @@ export const model = {
         });
         const handle = await context.writeResource(
           "visibility",
-          `visibility-${args.name}`,
+          `${RESOURCE_PREFIX.visibility}${args.name}`,
           {
             name: args.name,
             targetDir: root,
@@ -1428,7 +1443,9 @@ export const model = {
           ? await Deno.readTextFile(reviewFile)
           : null;
         const answer = VisibilityAnswerSchema.safeParse(
-          await context.readResource?.(`visibility-${args.name}`),
+          await context.readResource?.(
+            `${RESOURCE_PREFIX.visibility}${args.name}`,
+          ),
         );
         const readiness = assessReadiness({
           files: await textFiles(root),
@@ -1445,7 +1462,7 @@ export const model = {
         });
         const handle = await context.writeResource(
           "readiness",
-          `readiness-${args.name}`,
+          `${RESOURCE_PREFIX.readiness}${args.name}`,
           {
             name: args.name,
             targetDir: root,
