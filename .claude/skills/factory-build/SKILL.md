@@ -125,7 +125,7 @@ criteria) and **propose** a value for each `toDecide` field, in one message:
 - `specification.settings`: what the builder sets once (paths, tokens), each
   with `name` (camelCase), `description` and `sensitive` (true for secrets,
   which are then read with `vault.get()`). Empty is fine.
-- `delivery.method`: usually `workflow_form`; `scheduled_workflow` if it runs
+- `delivery.method`: usually `packaged_script`; `scheduled_workflow` if it runs
   on a timer; `external_app` or `manual_process` mean there is nothing to draft.
 
 Use `AskUserQuestion` for choices with real alternatives, and wait for the user

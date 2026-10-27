@@ -39,9 +39,16 @@ function decide(spec: StarterSpec): StarterSpec {
     },
   ];
   s.specification.output = "The reorder list.";
-  s.delivery.method = "workflow_form";
+  s.delivery.method = "packaged_script";
   return s;
 }
+
+Deno.test("prefill: does not offer the deprecated workflow_form", () => {
+  const { toDecide } = prefillAppSpec(OUTCOME);
+  const method = toDecide.find((t) => t.startsWith("delivery.method:"))!;
+  assertStringIncludes(method, "packaged_script");
+  assertEquals(method.includes("workflow_form"), false);
+});
 
 Deno.test("prefill: copies what the outcome spec says", () => {
   const { spec } = prefillAppSpec(OUTCOME);
@@ -145,4 +152,12 @@ Deno.test("slug: titles become slugs the app spec accepts", () => {
     assertEquals(slugFrom(title), slug, title);
     assertEquals(/^[a-z0-9][a-z0-9-]*$/.test(slug), true, slug);
   }
+});
+
+Deno.test("prefill: the factory-build skill does not offer workflow_form either", async () => {
+  const skill = await Deno.readTextFile(
+    new URL("../../.claude/skills/factory-build/SKILL.md", import.meta.url),
+  );
+  assertEquals(skill.includes("workflow_form"), false);
+  assertStringIncludes(skill, "usually `packaged_script`");
 });

@@ -418,6 +418,39 @@ Deno.test("render: an app that is not scheduled has no schedule step", () => {
   }
 });
 
+Deno.test("render: workflow_form is drafted as packaged_script, with a note in the README", () => {
+  const userPart = (method: "workflow_form" | "packaged_script") => {
+    const readme = fileMap({ ...OBSIDIAN, delivery: { method } }).get(
+      "README.md",
+    )!;
+    return readme.slice(
+      readme.indexOf("## For the user"),
+      readme.indexOf("## For the builder"),
+    );
+  };
+  assertEquals(userPart("workflow_form"), userPart("packaged_script"));
+  assertStringIncludes(userPart("workflow_form"), "one-line command");
+
+  const readme = fileMap({ ...OBSIDIAN, delivery: { method: "workflow_form" } })
+    .get("README.md")!;
+  assertStringIncludes(
+    readme,
+    "- Delivery method: `workflow_form` (deprecated, drafted as `packaged_script`)",
+  );
+});
+
+Deno.test("render: the other files are the same for workflow_form and packaged_script", () => {
+  const form = fileMap({ ...OBSIDIAN, delivery: { method: "workflow_form" } });
+  const script = fileMap({
+    ...OBSIDIAN,
+    delivery: { method: "packaged_script" },
+  });
+  for (const [path, text] of script) {
+    if (path === "README.md" || path === "CLAUDE.md") continue;
+    assertEquals(form.get(path), text, path);
+  }
+});
+
 // CLAUDE.md rule 7: jsr specifiers are pinned to an exact version, in every
 // extension source file and in the test files draft.ts generates.
 Deno.test("render: every extension source pins its jsr specifiers to an exact version", async () => {
