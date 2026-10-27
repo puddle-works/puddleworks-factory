@@ -533,10 +533,23 @@ SOFTWARE.
 `;
 }
 
+/**
+ * `workflow_form` is deprecated: nothing gives the user a form, so it is
+ * drafted as `packaged_script`, a command to run. app-spec/v2 removes it.
+ */
+function draftedAs(method: DeliveryMethod): DeliveryMethod {
+  return method === "workflow_form" ? "packaged_script" : method;
+}
+
+function describeMethod(method: DeliveryMethod): string {
+  const as = draftedAs(method);
+  return as === method
+    ? `\`${method}\``
+    : `\`${method}\` (deprecated, drafted as \`${as}\`)`;
+}
+
 function userHowTo(method: DeliveryMethod): string {
-  switch (method) {
-    case "workflow_form":
-      return "Your builder will show you where to run it. Each run asks for the values below.";
+  switch (draftedAs(method)) {
     case "scheduled_workflow":
       return "The app runs on a schedule your builder sets. Each run uses the values below.";
     default:
@@ -599,7 +612,7 @@ ${input.source ? `\n${agreedAt(input.source)}\n` : ""}
 - Extension: \`${n.modelType}\` in \`extensions/models/${n.fileBase}.ts\`
 - Entry point: workflow \`${n.entryPointRef}\` in
   \`workflows/workflow-${n.slug}.yaml\`
-- Delivery method: \`${input.delivery.method}\`
+- Delivery method: ${describeMethod(input.delivery.method)}
 
 Create the model instance the workflow runs${
     settings.some((s) => s.sensitive)
@@ -1037,7 +1050,7 @@ async function exists(path: string): Promise<boolean> {
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.10.26.3",
+  version: "2026.10.27.1",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -1085,6 +1098,14 @@ export const model = {
         "Adds the readiness method and resource (is the independent review complete, " +
         "is every acceptance criterion checked, and a one-screen summary to confirm " +
         "publishing against). No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.10.27.1",
+      description:
+        "Deprecates delivery method workflow_form: render drafts it as packaged_script " +
+        "(the user guide gives a one-line command) and prefill no longer offers it. " +
+        "Specs that use it still parse. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],

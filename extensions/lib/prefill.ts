@@ -77,7 +77,7 @@ export function prefillAppSpec(outcome: OutcomeSpec): Prefill {
     "specification.inputs: what the person running it enters each time, each typed and required or with a default",
     "specification.output: what one run produces",
     "specification.settings: what the builder sets once per instance (paths, tokens); leave empty if none",
-    "delivery.method: one of workflow_form, packaged_script, scheduled_workflow, external_app, manual_process",
+    "delivery.method: one of packaged_script, scheduled_workflow, external_app, manual_process",
   ];
   if (!recordedBy) {
     toDecide.push(

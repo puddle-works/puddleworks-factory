@@ -15,7 +15,11 @@ import { z } from "npm:zod@4";
 
 export const APP_SPEC_V1 = "puddleworks.dev/app-spec/v1";
 
-/** How the app reaches the person who asked for it. */
+/**
+ * How the app reaches the person who asked for it. `workflow_form` is
+ * deprecated: nothing gives the user a form, so Factory drafts it as
+ * `packaged_script`. It still parses in v1 and goes in app-spec/v2.
+ */
 export const DeliveryMethodSchema = z.enum([
   "workflow_form",
   "packaged_script",

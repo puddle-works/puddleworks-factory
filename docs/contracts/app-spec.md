@@ -24,17 +24,17 @@ The `@puddleworks/puddleworks-factory-build` workflow takes one `spec` input:
 
 ## Shape
 
-| Field                    | Required | Meaning                                                                                                                                          |
-| ------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `apiVersion`             | yes      | Always `puddleworks.dev/app-spec/v1`                                                                                                             |
-| `kind`                   | yes      | Always `AppSpec`                                                                                                                                 |
-| `name`                   | yes      | Slug (lowercase letters, digits, hyphens). Becomes the app name, the extension type suffix and the model instance name (`<name>-model`)          |
-| `title`                  | yes      | One line a person reads                                                                                                                          |
-| `specification`          | yes      | Purpose, typed inputs, output, out of scope, settings, who recorded it and when                                                                  |
-| `delivery.method`        | yes      | One of `workflow_form`, `packaged_script`, `scheduled_workflow`, `external_app`, `manual_process`. Only the first three have a workflow to build |
-| `delivery.entryPointRef` | no       | Workflow name, or `<scope>/<slug>`. Defaults to `name`                                                                                           |
-| `reusabilityNote`        | no       | Why the result is reusable beyond the one case that asked for it                                                                                 |
-| `source`                 | no       | Where the spec was agreed: `url` (http or https), and optionally the agreed `version` and `specHash`                                             |
+| Field                    | Required | Meaning                                                                                                                                                                                                        |
+| ------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apiVersion`             | yes      | Always `puddleworks.dev/app-spec/v1`                                                                                                                                                                           |
+| `kind`                   | yes      | Always `AppSpec`                                                                                                                                                                                               |
+| `name`                   | yes      | Slug (lowercase letters, digits, hyphens). Becomes the app name, the extension type suffix and the model instance name (`<name>-model`)                                                                        |
+| `title`                  | yes      | One line a person reads                                                                                                                                                                                        |
+| `specification`          | yes      | Purpose, typed inputs, output, out of scope, settings, who recorded it and when                                                                                                                                |
+| `delivery.method`        | yes      | One of `packaged_script`, `scheduled_workflow`, `external_app`, `manual_process`, or the deprecated `workflow_form`. Only `packaged_script`, `scheduled_workflow` and `workflow_form` have a workflow to build |
+| `delivery.entryPointRef` | no       | Workflow name, or `<scope>/<slug>`. Defaults to `name`                                                                                                                                                         |
+| `reusabilityNote`        | no       | Why the result is reusable beyond the one case that asked for it                                                                                                                                               |
+| `source`                 | no       | Where the spec was agreed: `url` (http or https), and optionally the agreed `version` and `specHash`                                                                                                           |
 
 Each input is either `required: true` with no default, or `required: false` with
 a default of its own type. Input and setting names are unique. `parseAppSpec`
@@ -46,6 +46,19 @@ When a spec has a `source`, the build links back to it: the drafted app's
 hash `…`", the draft resource records it, and the build result carries it.
 `http://` is allowed in `source.url` because the page where a spec was agreed
 may be on a local server; it is only a link and is never fetched.
+
+### Deprecated: `workflow_form`
+
+`workflow_form` promised a form that people fill in to run the app. Nothing
+provides one: Puddleworks has no UI, and `swamp serve` can neither show a form
+nor start a run. So a `workflow_form` app is really one you run with a command,
+which is what `packaged_script` is.
+
+A v1 spec with `workflow_form` still parses. Factory drafts it exactly as
+`packaged_script` (the user guide gives a one-line command) and notes in the
+drafted README that the method is deprecated. Prefill and the factory-build
+skill no longer offer it. It will be removed in `app-spec/v2`, when there is a
+v2 for another reason.
 
 ## Changing the contract
 

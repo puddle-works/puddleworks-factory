@@ -29,6 +29,18 @@ Deno.test("app-spec: the documented example parses", () => {
   }
 });
 
+Deno.test("app-spec: the example uses packaged_script, not the deprecated workflow_form", () => {
+  assertEquals(EXAMPLE.delivery.method, "packaged_script");
+});
+
+Deno.test("app-spec: workflow_form is deprecated but a v1 spec with it still parses", () => {
+  const result = parseAppSpec({
+    ...EXAMPLE,
+    delivery: { method: "workflow_form" },
+  });
+  assertEquals(result.ok, true);
+});
+
 Deno.test("app-spec: another apiVersion is refused by name", () => {
   const problems = problemsOf({
     ...EXAMPLE,
