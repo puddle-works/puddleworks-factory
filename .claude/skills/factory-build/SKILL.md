@@ -116,7 +116,9 @@ spec (problem, desired outcome, scope, constraints, assumptions, acceptance
 criteria) and **propose** a value for each `toDecide` field, in one message:
 
 - `name`: short, lowercase, hyphens. The suggestion is the title as a slug and
-  is often too long.
+  is often too long. It must not start with `prefill-`, `build-result-`,
+  `visibility-` or `readiness-`: the Factory keeps those for its own records,
+  and `render` refuses them.
 - `specification.purpose`: one bounded sentence.
 - `specification.inputs`: what the person enters each run, each with `name`
   (camelCase), `type` (`string`, `number`, `integer` or `boolean`),

@@ -94,6 +94,24 @@ Deno.test("prefill: leaves inputs, output, settings and delivery to the builder"
   ]);
 });
 
+Deno.test("prefill: a suggested name with a reserved prefix is flagged to change", () => {
+  for (const prefix of ["prefill", "build-result", "visibility", "readiness"]) {
+    const outcome = structuredClone(OUTCOME);
+    outcome.request.title = `${prefix.replace("-", " ")} for stock`;
+    const { spec, toDecide } = prefillAppSpec(outcome);
+    assertEquals(spec.name, `${prefix}-for-stock`);
+    const name = toDecide.find((t) => t.startsWith("name:"))!;
+    assertStringIncludes(name, `"${prefix}-"`);
+    assertStringIncludes(name, "pick another name");
+  }
+});
+
+Deno.test("prefill: an ordinary suggested name is not flagged", () => {
+  const { toDecide } = prefillAppSpec(OUTCOME);
+  const name = toDecide.find((t) => t.startsWith("name:"))!;
+  assertEquals(name.includes("pick another name"), false);
+});
+
 Deno.test("prefill: the starter is not buildable until the builder decides", () => {
   const { spec } = prefillAppSpec(OUTCOME);
   assertEquals(parseAppSpec(spec).ok, false);

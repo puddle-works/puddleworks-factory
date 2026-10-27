@@ -21,6 +21,7 @@ import {
   type SpecSource,
 } from "../contracts/app_spec_v1.ts";
 import type { OutcomeSpec } from "../contracts/outcome_spec_v1.ts";
+import { reservedNameProblem, reservedPrefix } from "./names.ts";
 
 /** An app spec with the builder's decisions still blank. */
 export interface StarterSpec {
@@ -71,8 +72,11 @@ export function prefillAppSpec(outcome: OutcomeSpec): Prefill {
     : "";
   const name = slugFrom(request.title);
 
+  const prefix = reservedPrefix(name);
   const toDecide = [
-    `name: suggested from the title as "${name}"; it names the extension, workflow and folder`,
+    `name: suggested from the title as "${name}"; it names the extension, workflow and folder${
+      prefix ? `. ${reservedNameProblem(name, prefix)}` : ""
+    }`,
     "specification.purpose: copied from the desired outcome; make it one bounded purpose in a sentence",
     "specification.inputs: what the person running it enters each time, each typed and required or with a default",
     "specification.output: what one run produces",
