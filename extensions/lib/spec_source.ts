@@ -10,6 +10,9 @@
  * | `http://`            | refused                          |
  * | anything else        | a file path; JSON or YAML        |
  *
+ * A URL is stored, logged and shown without its login or query, where a
+ * token may be.
+ *
  * @module
  */
 import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
@@ -23,6 +26,7 @@ import {
   type OutcomeSpec,
   parseOutcomeSpec,
 } from "../contracts/outcome_spec_v1.ts";
+import { shownUrl, withShownUrls } from "./urls.ts";
 
 /** The file system and network, passed in so tests need neither. */
 export interface SpecIo {
@@ -41,14 +45,16 @@ const httpsOnly = (source: string, to: string) =>
 
 /**
  * Fetch over https only, following redirects here rather than in fetch, so a
- * hop to http is refused before anything is sent to it.
+ * hop to http is refused before anything is sent to it. `source` is the URL
+ * as it may be shown.
  */
 async function fetchHttps(
+  start: string,
   source: string,
   io: SpecIo,
   signal: AbortSignal,
 ): Promise<Response> {
-  let url = source;
+  let url = start;
   for (let hop = 0;; hop++) {
     let res: Response;
     try {
@@ -59,7 +65,9 @@ async function fetchHttps(
           `${source} did not answer within ${FETCH_SECONDS} seconds.`,
         );
       }
-      throw new Error(`Could not fetch ${source}: ${(e as Error).message}`);
+      throw new Error(
+        `Could not fetch ${source}: ${withShownUrls((e as Error).message)}`,
+      );
     }
     const location = res.headers.get("location");
     if (res.status < 300 || res.status > 399 || location === null) return res;
@@ -69,8 +77,17 @@ async function fetchHttps(
         `${source} redirected more than ${MAX_REDIRECTS} times.`,
       );
     }
-    const next = new URL(location, url).href;
-    if (!next.startsWith("https://")) throw httpsOnly(source, next);
+    let next: string;
+    try {
+      next = new URL(location, url).href;
+    } catch {
+      throw new Error(
+        `${source} redirected to a Location that is not a URL.`,
+      );
+    }
+    if (!next.startsWith("https://")) {
+      throw httpsOnly(source, shownUrl(next));
+    }
     url = next;
   }
 }
@@ -101,7 +118,7 @@ async function cappedText(res: Response, source: string): Promise<string> {
 
 export interface LoadedSpec {
   spec: AppSpec;
-  /** `inline`, or the path or URL the spec was read from. */
+  /** `inline`, or the path or URL the spec was read from, without the URL's login or query. */
   source: string;
 }
 
@@ -114,20 +131,24 @@ async function readText(
   }
   if (source.startsWith("http://")) {
     throw new Error(
-      `Refusing to fetch ${source}: specs are only fetched over https.`,
+      `Refusing to fetch ${
+        shownUrl(source)
+      }: specs are only fetched over https.`,
     );
   }
   if (source.startsWith("https://")) {
+    const shown = shownUrl(source);
     const res = await fetchHttps(
       source,
+      shown,
       io,
       AbortSignal.timeout(FETCH_SECONDS * 1000),
     );
     if (!res.ok) {
       await res.body?.cancel();
-      throw new Error(`${source} returned ${res.status}.`);
+      throw new Error(`${shown} returned ${res.status}.`);
     }
-    return { text: await cappedText(res, source), from: source };
+    return { text: await cappedText(res, shown), from: shown };
   }
   try {
     return { text: await io.readTextFile(source), from: source };

@@ -52,7 +52,8 @@ import {
   reservedPrefix,
   RESOURCE_PREFIX,
 } from "../lib/names.ts";
-import { assessVisibility } from "../lib/visibility.ts";
+import { assessVisibility, hideSecrets } from "../lib/visibility.ts";
+import { hasLogin, withoutLogin } from "../lib/urls.ts";
 import { assessReadiness } from "../lib/readiness.ts";
 import {
   DraftSchema,
@@ -515,6 +516,14 @@ workflows:
 `;
 }
 
+/** A repository URL with a user or token in it would be written into the manifest and published. */
+const loginInRepository = (repository: string) =>
+  new Error(
+    `repository ${
+      withoutLogin(repository)
+    } has a login in it. Pass the plain https URL and let git find the credentials.`,
+  );
+
 /** The MIT licence, held by the repository's owner (its first path part). */
 function renderLicense(repository: string, now: Date): string {
   const owner = new URL(repository).pathname.split("/").filter(Boolean)[0] ??
@@ -743,10 +752,13 @@ export function renderDraft(
   }
   if (!/^https:\/\/[^/]+\/./.test(opts.repository)) {
     throw new Error(
-      `repository "${opts.repository}" must be the https URL of the app's repo, ` +
+      `repository "${
+        hideSecrets(opts.repository)
+      }" must be the https URL of the app's repo, ` +
         "e.g. https://github.com/<owner>/<name>.",
     );
   }
+  if (hasLogin(opts.repository)) throw loginInRepository(opts.repository);
   const problems = specificationProblems(input.specification);
   if (problems.length > 0) {
     throw new Error(
@@ -894,8 +906,8 @@ const VisibilityAnswerSchema = VisibilitySchema.pick({
 const UNREAD = new Set([".git", ".swamp", ".claude/skills", "node_modules"]);
 
 /**
- * Text files under root, relative paths, skipping UNREAD, large files and
- * binaries. `notRead` says what was skipped and why, except git, swamp runtime
+ * Text files under root, relative paths, skipping UNREAD, symlinks, large
+ * files and binaries. `notRead` says what was skipped and why, except git, swamp runtime
  * data and dependencies, which hold nothing the app ships.
  */
 async function textFiles(
@@ -914,6 +926,9 @@ async function textFiles(
     }
     if (e.isDirectory) {
       files.push(...(await textFiles(root, path, notRead)).files);
+    } else if (e.isSymlink) {
+      // Not followed: it may point outside the repo, or at a file it lists twice.
+      notRead.push(`${path} (symlink)`);
     } else if (e.isFile) {
       const bytes = await Deno.readFile(`${root}/${path}`);
       if (bytes.length > 512 * 1024) notRead.push(`${path} (over 512 KB)`);
@@ -1046,11 +1061,14 @@ export const model = {
       toVersion: "2026.10.30.1",
       description:
         "visibility findings hold only what matched, never the line, so no secret is " +
-        "repeated; URL passwords, sk-ant- keys and labelled AWS secret keys count as " +
-        "secrets; the secrets check says which files it did not read. prefill and render " +
+        "repeated, and an email is kept as its domain; user:password@host, with or " +
+        "without a scheme, sk-ant- keys and labelled AWS secret keys count as secrets; " +
+        "check details hide any secret they copy; the repository check fails, and " +
+        "render and result refuse, a repository URL with a login in it; the secrets " +
+        "check says which files and symlinks it did not read. prefill and render " +
         "follow a spec URL's redirects themselves, refusing a hop off https before it " +
-        "is requested, more than 5 hops, over 30 seconds or over 1 MB. No data " +
-        "migration required.",
+        "is requested, more than 5 hops, over 30 seconds or over 1 MB, and record, log " +
+        "and show the URL without its login or query. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -1245,6 +1263,7 @@ export const model = {
             `The draft of "${args.name}" records no repository. Pass repository.`,
           );
         }
+        if (hasLogin(repository)) throw loginInRepository(repository);
         const manifest = draft.data.files.find((f) =>
           f.endsWith("/manifest.yaml")
         );
@@ -1303,7 +1322,8 @@ export const model = {
         "Check the app's repo before publishing and recommend public or private: licence, " +
         "repository and quality must pass to go public; paths, hosts, addresses and emails " +
         "that look internal, or spec wording about who the app is for, recommend private. " +
-        "Secrets block public and are never repeated. Records the visibility resource.",
+        "Secrets block public and are never repeated; emails are kept as their domain. " +
+        "Records the visibility resource.",
       arguments: VisibilityArgsSchema,
       execute: async (args: VisibilityArgs, context: MethodContext) => {
         const raw = context.readResource

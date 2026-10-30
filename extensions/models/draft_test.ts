@@ -282,6 +282,18 @@ Deno.test("render: refuses a repository that is not an https URL", () => {
   }
 });
 
+Deno.test("render: refuses a repository with a login in it, without repeating it", () => {
+  for (const login of ["x-access-token:s3cret", "alice"]) {
+    const repository = `https://${login}@github.com/example/x`;
+    const err = assertThrows(
+      () => renderDraft(OBSIDIAN, { ...FIXED, repository }),
+      Error,
+      "login",
+    );
+    assertEquals(err.message.includes(login), false, err.message);
+  }
+});
+
 // The draft starts private and stays so until someone decides to share it.
 Deno.test("render: the manifest is private by default", () => {
   assertEquals(manifestOf().visibility, "private");

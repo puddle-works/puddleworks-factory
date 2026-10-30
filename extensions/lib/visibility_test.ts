@@ -187,7 +187,7 @@ Deno.test("scan: a finding stores what it found, not the line", () => {
   assertEquals(
     findings.map((f) => [f.kind, f.text]),
     [
-      ["email", "bob@acme.io"],
+      ["email", "…@acme.io"],
       ["home-path", "/Users/alice/"],
       ["private-ip", "10.0.0.5"],
       ["internal-host", "nas.internal"],
@@ -325,4 +325,92 @@ Deno.test("scan: a file name like settings.local.json is not a host", () => {
     scanFile(".gitignore", text).map((f) => [f.line, f.kind]),
     [[3, "internal-host"], [4, "internal-host"]],
   );
+});
+
+Deno.test("scan: an email is stored as its domain only", () => {
+  const stored = JSON.stringify(
+    scanFile("x.md", "mail bob.smith@acme.io or priya@shop.acme.co.uk\n"),
+  );
+  assertEquals(stored.includes("bob.smith"), false);
+  assertEquals(stored.includes("priya"), false);
+  assertEquals(
+    scanFile("x.md", "mail bob.smith@acme.io\n").map((f) => f.text),
+    ["…@acme.io"],
+  );
+});
+
+Deno.test("scan: a password with @ in it is hidden up to the last @", () => {
+  const findings = scanFile(
+    "x.env",
+    "postgres://admin:P@ssw0rd@db.acme.io:5432/app\n",
+  );
+  const stored = JSON.stringify(findings);
+  assertEquals(stored.includes("ssw0rd"), false);
+  assertEquals(findings.map((f) => f.kind), ["secret"]);
+});
+
+Deno.test("scan: a user:password@host with no scheme is a secret", () => {
+  const text = [
+    "REDIS=default:pw@redis.prod.com:6379",
+    "cache admin:hunter2@10.0.0.9",
+  ].join("\n");
+  const findings = scanFile("x.env", text);
+  const stored = JSON.stringify(findings);
+  for (const s of ["default:pw", "hunter2", "pw@redis"]) {
+    assertEquals(stored.includes(s), false, s);
+  }
+  assertEquals(
+    findings.map((f) => [f.line, f.kind]),
+    [[1, "secret"], [2, "secret"], [2, "private-ip"]],
+  );
+});
+
+Deno.test("scan: package specifiers and mailto links are not passwords", () => {
+  const text = [
+    'import _ from "npm:lodash-es@4.17.21";',
+    'import { z } from "npm:zod@4";',
+    'import { parse } from "jsr:@std/yaml@1.0.12";',
+    "[mail](mailto:help@example.com)",
+  ].join("\n");
+  assertEquals(scanFile("x.ts", text), []);
+});
+
+Deno.test("visibility: no check detail repeats a secret from the manifest", () => {
+  const token = ["ghp_", "f".repeat(36)].join("");
+  const manifest = MANIFEST.replace(
+    "https://github.com/puddle-works/obsidian-puddle-scanner",
+    `https://x-access-token:${token}@github.com/puddle-works/obsidian-puddle-scanner`,
+  ).replace("license: MIT", "license: MIT admin:hunter2@db.acme.io");
+  const a = assessVisibility(
+    facts({
+      files: replace("manifest.yaml", manifest),
+      notRead: [`data/${token}.bin (binary)`],
+    }),
+  );
+  const shown = JSON.stringify(a.checks);
+  assertEquals(shown.includes(token), false);
+  assertEquals(shown.includes("hunter2"), false);
+  assertEquals(shown.includes("x-access-token"), false);
+});
+
+Deno.test("visibility: a repository with a login in it is refused", () => {
+  for (
+    const login of ["x-access-token:tok", "alice", "alice:pw"]
+  ) {
+    const manifest = MANIFEST.replace(
+      "https://github.com/",
+      `https://${login}@github.com/`,
+    );
+    const a = assessVisibility(
+      facts({ files: replace("manifest.yaml", manifest) }),
+    );
+    const repo = check(a, "repository");
+    assertEquals(repo.ok, false, login);
+    assertEquals(a.canBePublic, false);
+    assertEquals(repo.detail.includes(login), false, repo.detail);
+    assertStringIncludes(
+      repo.detail,
+      "https://github.com/puddle-works/obsidian-puddle-scanner",
+    );
+  }
 });

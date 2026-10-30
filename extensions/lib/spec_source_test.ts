@@ -303,3 +303,62 @@ Deno.test("spec source: an app spec given as an outcome spec says which format i
     "not a valid puddleworks.dev/outcome-spec/v1",
   );
 });
+
+Deno.test("spec source: a URL is recorded without its query or login", async () => {
+  const url = "https://bot:pw@example.com/specs/scanner.json?token=s3cret#v2";
+  const r = routes({ [url]: () => new Response(EXAMPLE_TEXT) });
+  const { source } = await loadAppSpec(url, io({ fetch: r.fetch }));
+  assertEquals(r.fetched, [url]);
+  assertEquals(source, "https://example.com/specs/scanner.json");
+});
+
+Deno.test("spec source: errors do not repeat a URL's query or login", async () => {
+  const url = "https://bot:pw@example.com/specs/gone.json?token=s3cret";
+  const failures: Array<() => Response> = [
+    () => new Response("not found", { status: 404 }),
+    redirect("http://example.com/x?token=s3cret"),
+    () => new Response("{", { status: 200 }),
+  ];
+  for (const answer of failures) {
+    const err = await assertRejects(
+      () => loadAppSpec(url, io({ fetch: routes({ [url]: answer }).fetch })),
+      Error,
+    );
+    assertStringIncludes(err.message, "https://example.com/specs/gone.json");
+    for (const s of ["s3cret", "bot:pw"]) {
+      assertEquals(err.message.includes(s), false, err.message);
+    }
+  }
+  const http = await assertRejects(
+    () => loadAppSpec("http://bot:pw@example.com/a?token=s3cret", io()),
+    Error,
+  );
+  assertEquals(http.message.includes("s3cret"), false, http.message);
+});
+
+Deno.test("spec source: a Location that is not a URL gives a plain error", async () => {
+  const url = "https://example.com/specs/moved.json";
+  const r = routes({ [url]: redirect("https://[bad") });
+  await assertRejects(
+    () => loadAppSpec(url, io({ fetch: r.fetch })),
+    Error,
+    `${url} redirected to a Location that is not a URL.`,
+  );
+});
+
+Deno.test("spec source: a fetch error that quotes the URL does not repeat its query", async () => {
+  const url = "https://example.com/a.json?token=s3cret";
+  const err = await assertRejects(
+    () =>
+      loadAppSpec(
+        url,
+        io({
+          fetch: (u) =>
+            Promise.reject(new Error(`error sending request for url (${u})`)),
+        }),
+      ),
+    Error,
+    "https://example.com/a.json",
+  );
+  assertEquals(err.message.includes("s3cret"), false, err.message);
+});

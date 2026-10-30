@@ -195,6 +195,25 @@ Deno.test("result: a link that is not https writes nothing", async () => {
   });
 });
 
+Deno.test("result: a repository with a login in it writes nothing", async () => {
+  await withDraft(async (_dir, ctx) => {
+    const before = ctx.writes.length;
+    const err = await assertRejects(
+      () =>
+        model.methods.result.execute(
+          resultArgs({
+            repository: "https://x-access-token:s3cret@github.com/example/x",
+          }),
+          ctx,
+        ),
+      Error,
+      "login",
+    );
+    assertEquals(err.message.includes("s3cret"), false, err.message);
+    assertEquals(ctx.writes.length, before);
+  });
+});
+
 Deno.test("result: carries where the spec was agreed into the build result", async () => {
   const source = {
     url: "http://localhost:3001/requests/8f0c6a52",

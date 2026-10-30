@@ -10,6 +10,7 @@
  * @module
  */
 import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
+import { hasLogin, withoutLogin } from "./urls.ts";
 
 /** Registry and repo visibility. */
 export type Visibility = "public" | "private";
@@ -23,7 +24,10 @@ export type FindingKind =
   | "email"
   | "audience";
 
-/** One thing that looks internal, and only that: never its line. A secret's text is never repeated. */
+/**
+ * One thing that looks internal, and only that: never its line. A secret's
+ * text is never repeated, and an email is kept as its domain.
+ */
 export interface Finding {
   file: string;
   line: number;
@@ -77,10 +81,17 @@ const PATTERNS: Array<{ kind: FindingKind; re: RegExp }> = [
     re: /\baws_secret_access_key\s*[=:]\s*["']?[A-Za-z0-9/+]{40}/gi,
   },
   { kind: "secret", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
-  // A password in a URL; the host must come next, so it is the last @.
+  // A password in a URL. It may hold an @, so it runs to the last @ before the host.
   {
     kind: "secret",
-    re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@(?=[A-Za-z0-9.-]+)/gi,
+    re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/]+@(?=[A-Za-z0-9.-]+)/gi,
+  },
+  // The same with no scheme, like `default:pw@redis.example.com`. The host must
+  // look like one, so `npm:zod@4` and `npm:lodash-es@4.17.21` are not passwords.
+  {
+    kind: "secret",
+    re:
+      /(?<![\w.~%+:/@-])(?!mailto:)[A-Za-z0-9._~%+-]+:[^\s/]+@(?=(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?![\w-])|\d{1,3}(?:\.\d{1,3}){3}(?!\d))/gi,
   },
   {
     kind: "internal-host",
@@ -120,6 +131,35 @@ function harmlessUrlPassword(line: string, end: number): boolean {
 
 const secretPatterns = PATTERNS.filter((p) => p.kind === "secret");
 
+/** Where on the line each secret is, as [start, end). */
+function secretSpans(line: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (const { re } of secretPatterns) {
+    for (const m of line.matchAll(re)) {
+      const at = m.index ?? 0;
+      if (harmlessUrlPassword(line, at + m[0].length)) continue;
+      spans.push([at, at + m[0].length]);
+    }
+  }
+  return spans;
+}
+
+/** The text with every secret in it replaced by `(hidden)`. */
+export function hideSecrets(text: string): string {
+  return text.split("\n").map((line) => {
+    const spans = secretSpans(line).sort((a, b) => b[0] - a[0]);
+    let out = line;
+    let from = Infinity;
+    for (const [s, e] of spans) {
+      // Overlapping secrets, as one: hide from the leftmost start to the furthest end.
+      const end = Math.min(e, from);
+      if (end > s) out = `${out.slice(0, s)}(hidden)${out.slice(end)}`;
+      from = Math.min(from, s);
+    }
+    return out;
+  }).join("\n");
+}
+
 const clip = (s: string) => {
   const t = s.trim();
   return t.length > 120 ? `${t.slice(0, 117)}...` : t;
@@ -129,20 +169,15 @@ const clip = (s: string) => {
 export function scanFile(path: string, text: string): Finding[] {
   const found: Array<Finding & { at: number }> = [];
   text.split("\n").forEach((line, i) => {
-    const secrets: Array<[number, number]> = [];
-    for (const { re } of secretPatterns) {
-      for (const m of line.matchAll(re)) {
-        const at = m.index ?? 0;
-        if (harmlessUrlPassword(line, at + m[0].length)) continue;
-        secrets.push([at, at + m[0].length]);
-        found.push({
-          file: path,
-          line: i + 1,
-          kind: "secret",
-          text: "(hidden)",
-          at,
-        });
-      }
+    const secrets = secretSpans(line);
+    for (const [at] of secrets) {
+      found.push({
+        file: path,
+        line: i + 1,
+        kind: "secret",
+        text: "(hidden)",
+        at,
+      });
     }
     for (const { kind, re } of PATTERNS) {
       if (kind === "secret") continue;
@@ -153,7 +188,10 @@ export function scanFile(path: string, text: string): Finding[] {
         if (secrets.some(([s, e]) => at < e && end > s)) continue;
         if (kind === "email" && harmlessEmail(m[0])) continue;
         // Only what matched, never the line, which may hold a secret no pattern knows.
-        found.push({ file: path, line: i + 1, kind, text: clip(m[0]), at });
+        const text = kind === "email"
+          ? `…@${m[0].slice(m[0].indexOf("@") + 1)}`
+          : m[0];
+        found.push({ file: path, line: i + 1, kind, text: clip(text), at });
       }
     }
   });
@@ -227,7 +265,7 @@ export function assessVisibility(facts: RepoFacts): Assessment {
     ...(f.path.startsWith("spec/") && f.path.endsWith(".json")
       ? audienceFindings(f.path, f.text)
       : []),
-  ]);
+  ]).map((f) => ({ ...f, file: hideSecrets(f.file) }));
   const secrets = findings.filter((f) => f.kind === "secret");
   const internal = findings.filter((f) =>
     f.kind !== "secret" && f.kind !== "audience"
@@ -236,6 +274,7 @@ export function assessVisibility(facts: RepoFacts): Assessment {
 
   const licence = field("license");
   const repository = field("repository");
+  const login = hasLogin(repository);
   const checks: Check[] = [
     {
       id: "licence",
@@ -252,11 +291,15 @@ export function assessVisibility(facts: RepoFacts): Assessment {
     {
       id: "repository",
       role: "required",
-      ok: /^https:\/\/[^/]+\/./.test(repository),
+      ok: /^https:\/\/[^/]+\/./.test(repository) && !login,
       detail: !manifest
         ? noManifest
         : repository === ""
         ? "manifest.yaml has no repository:"
+        : login
+        ? `repository: ${
+          withoutLogin(repository)
+        }, but with a login in it: remove it and let git find the credentials`
         : `repository: ${repository}`,
     },
     {
@@ -304,6 +347,9 @@ export function assessVisibility(facts: RepoFacts): Assessment {
       }`,
     },
   ];
+
+  // Details copy manifest values and file names as written: hide any secret in them.
+  for (const c of checks) c.detail = hideSecrets(c.detail);
 
   const canBePublic = checks.every((c) => c.role !== "required" || c.ok);
   const signalsClear = checks.every((c) => c.role !== "signal" || c.ok);

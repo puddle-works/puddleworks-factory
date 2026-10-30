@@ -132,6 +132,19 @@ Deno.test("visibility: says which files it did not read", async () => {
   });
 });
 
+Deno.test("visibility: lists symlinks it did not follow", async () => {
+  await withDraft(async (dir, ctx) => {
+    await Deno.writeTextFile(`${dir}/outside.env`, "PW=x\n");
+    await Deno.mkdir(`${dir}/config`);
+    await Deno.symlink(`${dir}/outside.env`, `${dir}/config/prod.env`);
+    await model.methods.visibility.execute(args(), ctx);
+    const data = ctx.store.get(`visibility-${NAME}`)!;
+    const secrets = (data.checks as Array<{ id: string; detail: string }>)
+      .find((c) => c.id === "secrets")!;
+    assertStringIncludes(secrets.detail, "config/prod.env (symlink)");
+  });
+});
+
 Deno.test("visibility: targetDir overrides where the draft was written", async () => {
   await withDraft(async (_dir, ctx) => {
     const other = await Deno.makeTempDir({ prefix: "factory-visibility-" });
