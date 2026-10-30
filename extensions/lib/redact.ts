@@ -21,32 +21,45 @@ interface SecretPattern {
   /** A URL's login: `safeText` removes it, so the URL still parses. */
   login?: true;
   /** More than a pattern can say about whether `v` is a secret. */
-  check?: (m: RegExpMatchArray) => boolean;
+  check?: (m: RegExpMatchArray, code: boolean) => boolean;
 }
 
 /** Text that stands in for a secret in docs and templates: `your-token-here`, `%s`, `${…}`, `xxxxxx`. */
 const PLACEHOLDER =
   /%s|\$\{|\{\{|<[^>]*>|\byour[-_ ]|[-_]here\b|\.\.\.|x{6,}|\*{3,}|replace[-_]?me|change[-_]?me|placeholder|(?<![a-z])(?:todo|tbd|fixme|fake|dummy|test)(?![a-z])/i;
 
-/** Lower-case letters and digits only, so `access_token`, `authToken` and `X-CSRF-Token` compare. */
-const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+/**
+ * A name for a secret rather than one: words only, one of them the secret's
+ * kind, like `X-Auth-Token`, `access_token` or `XSRF-TOKEN`.
+ */
+const secretLabel = (v: string) => {
+  const words = v.split(/[-_.]+|(?<=[a-z])(?=[A-Z])/);
+  return words.every((w) => /^[A-Za-z]+$/.test(w)) &&
+    words.some((w) =>
+      /^(?:password|passwd|pass|pwd|secret|token|key)$/i.test(w)
+    );
+};
 
-/** An identifier made of words, like `Uint8Array` or `refresh_token`, not of random letters like `Xk29vLq83mZp`. */
-const madeOfWords = (v: string) =>
-  /^[A-Za-z_$][\w$]*$/.test(v) &&
-  v.split(/[_$]+|(?<=[a-z])(?=[A-Z])|(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])/)
-    .filter((p) => /[A-Za-z]/.test(p))
-    .every((p) => p.length >= 3);
+/** Whether `at` on the line is inside a quoted string. */
+function inString(line: string, at: number): boolean {
+  let quote = "";
+  for (let i = 0; i < at; i++) {
+    const c = line[i];
+    if (quote && c === "\\") i++;
+    else if (quote ? c === quote : /["'`]/.test(c)) quote = quote ? "" : c;
+  }
+  return quote !== "";
+}
 
 /**
  * Whether the value of a `NAME=value` or `name: value` is a secret, not code,
- * a reference or a word. A value in quotes is a literal, unless it is the
- * name again (`ACCESS_TOKEN = "access_token"`). One without quotes must be a
- * single word with no code in it, not a type or variable in code
- * (`secretKey: Uint8Array;`, `token = refresh_token`), and, under a name
+ * a reference or a word. A value in quotes is a literal, unless it only
+ * names a secret (`CSRF_TOKEN = "X-CSRF-Token"`). In source code, `code`, a
+ * value without quotes outside a string is an expression, not a secret. In
+ * other text it must be a single word with no code in it and, under a name
  * that is not all capitals (so not an env file), have a digit or symbol in it.
  */
-function assignedSecret(m: RegExpMatchArray): boolean {
+function assignedSecret(m: RegExpMatchArray, code: boolean): boolean {
   const { name = "", q = "", v = "" } = m.groups ?? {};
   if (v.length < 8) return false;
   // A variable, a path, a Ruby symbol, `++n`, a URL (its own patterns find a
@@ -65,17 +78,12 @@ function assignedSecret(m: RegExpMatchArray): boolean {
   ) {
     return false;
   }
-  const sv = squash(v), sn = squash(name);
-  if (sv.endsWith(sn) && sv.length - sn.length <= 2) return false;
+  if (secretLabel(v)) return false;
   if (q) return true;
+  if (code && !inString(m.input ?? "", m.index ?? 0)) return false;
   if (/[(){}[\];,`]/.test(v)) return false;
   // A reference like `args.password`, `secrets.GITHUB_TOKEN` or `o?.token`.
   if (/^[A-Za-z_$][\w$]*(?:\??\.[\w$]+)+$/.test(v)) return false;
-  // A type or a variable: code goes on after it, or spaces `=`.
-  const end = (m as RegExpExecArray).indices?.groups?.v?.[1] ?? 0;
-  const inCode = /^\s*[;,=)|&<[?]/.test((m.input ?? "").slice(end)) ||
-    /\s=\s/.test(m[0].slice(0, -v.length));
-  if (inCode && madeOfWords(v)) return false;
   return name === name.toUpperCase() || /[^A-Za-z]/.test(v);
 }
 
@@ -167,14 +175,17 @@ function harmlessUrlPassword(line: string, end: number): boolean {
 }
 
 /** Each secret on the line, left to right, overlapping matches as one. */
-function spans(line: string): Array<{ s: number; e: number; login: boolean }> {
+function spans(
+  line: string,
+  code = false,
+): Array<{ s: number; e: number; login: boolean }> {
   const found: Array<{ s: number; e: number; login: boolean }> = [];
   for (const { re, hide, login, check } of SECRET_PATTERNS) {
     for (const m of line.matchAll(re)) {
       const at = m.index ?? 0;
       if (harmlessUrlPassword(line, at + m[0].length)) continue;
       if (PLACEHOLDER.test(m.groups?.v ?? m[0])) continue;
-      if (check && !check(m)) continue;
+      if (check && !check(m, code)) continue;
       const v = hide === "v" ? m.indices?.groups?.v : undefined;
       found.push({
         s: v ? v[0] : at,
@@ -195,9 +206,16 @@ function spans(line: string): Array<{ s: number; e: number; login: boolean }> {
   return merged;
 }
 
-/** Where on the line each secret is, as [start, end), left to right. */
-export function secretSpans(line: string): Array<[number, number]> {
-  return spans(line).map(({ s, e }) => [s, e]);
+/**
+ * Where on the line each secret is, as [start, end), left to right. `code`
+ * says the line is from source code, where `secretKey: Uint8Array` is a type.
+ * What is logged or shown is checked as other text, so more is hidden.
+ */
+export function secretSpans(
+  line: string,
+  { code = false }: { code?: boolean } = {},
+): Array<[number, number]> {
+  return spans(line, code).map(({ s, e }) => [s, e]);
 }
 
 /** The text with every secret, and every private key whole, replaced; a URL's login by `loginAs`. */

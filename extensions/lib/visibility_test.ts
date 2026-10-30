@@ -482,3 +482,11 @@ Deno.test("visibility: a finding as it may be shown, also for records written be
     assertEquals(findingText(kind, text), shown, `${kind}: ${text}`);
   }
 });
+
+Deno.test("visibility: a type in source code is not a secret, a password in a config file is", () => {
+  assertEquals(scanFile("src/keys.ts", "  secretKey: Uint8Array;\n"), []);
+  assertEquals(
+    scanFile("config/app.ini", "password = Summer2024\n").map((f) => f.kind),
+    ["secret"],
+  );
+});

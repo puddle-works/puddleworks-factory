@@ -125,11 +125,16 @@ export function findingText(kind: string, text: string): string {
   return "(hidden)";
 }
 
+/** Source code, where a value without quotes is an expression, not a secret. */
+const SOURCE_CODE =
+  /\.(?:[cm]?[jt]sx?|py|go|rs|java|kts?|rb|php|cs|swift|scala|dart)$/i;
+
 /** Every line of one file that looks internal or holds a secret. */
 export function scanFile(path: string, text: string): Finding[] {
   const found: Array<Finding & { at: number }> = [];
+  const code = SOURCE_CODE.test(path);
   text.split("\n").forEach((line, i) => {
-    const secrets = secretSpans(line);
+    const secrets = secretSpans(line, { code });
     for (const [at] of secrets) {
       found.push({
         file: path,

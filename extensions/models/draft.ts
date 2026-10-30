@@ -1178,8 +1178,10 @@ export const model = {
         "connection strings, and as a Bearer token; a whole private key, PGP " +
         "included, is hidden; a URL password that looks like a port is hidden, a " +
         "hidden secret or a bracket no longer ends a URL early, and a placeholder " +
-        "only excuses the password itself, not the user; code, placeholders and " +
-        "references to where a secret lives are no longer taken for secrets. A URL " +
+        "only excuses the password itself, not the user; placeholders, names of " +
+        "secrets and references to where a secret lives are no longer taken for " +
+        "secrets, nor is a value without quotes in source code, outside a string. " +
+        "A URL " +
         "keeps a query parameter that holds no secret. An outcome spec's request " +
         "link must be http or https, and its specHash not empty. Every resource is " +
         "checked against its schema before it, or any file with it, is written, and " +

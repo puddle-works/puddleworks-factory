@@ -8,7 +8,13 @@
  * @module
  */
 import { assertEquals } from "jsr:@std/assert@1.0.19";
-import { hideSecrets, linkProblem, safeText, shownUrl } from "./redact.ts";
+import {
+  hideSecrets,
+  linkProblem,
+  safeText,
+  secretSpans,
+  shownUrl,
+} from "./redact.ts";
 
 Deno.test("redact: a URL in text loses its login and secret query, whatever its case", () => {
   assertEquals(
@@ -171,17 +177,13 @@ Deno.test("redact: placeholders and package specifiers are not secrets", () => {
       "task reset_password: :environment do",
       "const token = ++reloads;",
       "KPI_DATABASE_PASSWORD=password mvn spring-boot:run",
-      "  secretKey: Uint8Array;",
-      "const privateKey: Uint8Array = ed.utils.randomPrivateKey();",
-      "  token: Uint8Array;",
-      "  apiKey: Base64Url;",
-      "  password?: HashedPassword,",
-      "this.token = refresh_token;",
-      "user.password = hashed_password;",
-      "self.token = refresh_token",
       'export const ACCESS_TOKEN = "access_token";',
       'const AUTH_TOKEN = "authToken";',
       'const CSRF_TOKEN = "X-CSRF-Token";',
+      'const header_token = "X-Auth-Token";',
+      'const CSRF_TOKEN = "XSRF-TOKEN";',
+      'const TOKEN = "accessToken";',
+      'const COOKIE_TOKEN = "session_token";',
     ]
   ) {
     assertEquals(hideSecrets(t), t);
@@ -352,8 +354,57 @@ Deno.test("redact: a weak password is still a secret", () => {
       ['password: "password123"', "password123"],
       ["PASSWORD=Summer2024", "Summer2024"],
       ['const API_TOKEN = "Summer2024token";', "Summer2024token"],
+      ["PASSWORD=Password1", "Password1"],
+      ['"password": "password1"', "password1"],
+      ["MYSQL_ROOT_PASSWORD: password1", "password1"],
+      ["password = Summer2024", "Summer2024"],
+      ["spring.datasource.password = Welcome2024", "Welcome2024"],
+      ['"Server=db.acme.io;User Id=sa;Password=Summer2024;"', "Summer2024"],
+      ["Pwd=Secret_Pass_2024;Encrypt=true", "Secret_Pass_2024"],
+      ["DB_PASSWORD = Summer2024", "Summer2024"],
+      ["token = AbcDefGhiJkl123", "AbcDefGhiJkl123"],
     ]
   ) {
     assertEquals(hideSecrets(t).includes(secret), false, t);
+  }
+});
+
+Deno.test("redact: in source code a value without quotes is code, not a secret", () => {
+  for (
+    const t of [
+      "  secretKey: Uint8Array;",
+      "  secretKey: Uint8Array",
+      "const privateKey: Uint8Array = ed.utils.randomPrivateKey();",
+      "  apiKey: Base64Url;",
+      "  password?: HashedPassword,",
+      "this.token = refresh_token;",
+      "user.password = hashed_password;",
+      "self.token = refresh_token",
+      "function sign(opts: { secretKey: Uint8Array }) {",
+      "type Token = { secret: Uint8Array };",
+      "return { token: access_token };",
+      "Client(api_key=api_key_v2, timeout=30)",
+      "  client_secret: client_secret_v2,",
+      '{"password": hashed_pw, "user": u}',
+    ]
+  ) {
+    assertEquals(secretSpans(t, { code: true }), [], t);
+  }
+  for (
+    const [t, secret] of [
+      [
+        'const cs = "Server=db.acme.io;User Id=sa;Password=Summer2024;";',
+        "Summer2024",
+      ],
+      ['const password = "Summer2024";', "Summer2024"],
+      ["db_url = 'postgres://app:Summer2024@db.acme.io/app'", "Summer2024"],
+    ]
+  ) {
+    const spans = secretSpans(t, { code: true });
+    assertEquals(
+      spans.some(([s, e]) => t.slice(s, e).includes(secret)),
+      true,
+      t,
+    );
   }
 });
