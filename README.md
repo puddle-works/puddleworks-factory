@@ -65,12 +65,13 @@ swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory
 Run `/factory-build <path to the outcome spec>` in Claude Code. The skill
 prefills an app spec, asks you to confirm the name, inputs, output, settings and
 delivery, makes the app's own repo from `puddle-works/puddle-template` if it
-does not exist yet (asking first), writes both specs to `spec/` there, and
-generates the draft. It then builds the behaviour test-first, gets it through
-the checks (tests, contracts, guardrails, quality 100%), recommends public or
-private and asks you, has a fresh agent that has not seen the build review it
-against the spec, opens a PR to the app repo and publishes once you confirm a
-one-screen summary. Aim for about an hour. To prefill by hand instead:
+does not exist yet (asking first), adds it to Orca as a project, makes the
+`draft/NAME` branch in a new Orca worktree, writes both specs to `spec/` there,
+and generates the draft. It then builds the behaviour test-first, gets it
+through the checks (tests, contracts, guardrails, quality 100%), recommends
+public or private and asks you, has a fresh agent that has not seen the build
+review it against the spec, opens a PR to the app repo and publishes once you
+confirm a one-screen summary. Aim for about an hour. To prefill by hand instead:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-prefill \
