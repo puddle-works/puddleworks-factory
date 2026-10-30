@@ -14,6 +14,7 @@ import {
   assertStringIncludes,
 } from "jsr:@std/assert@1.0.19";
 import { model } from "./draft.ts";
+import { REVIEW_DIMENSIONS } from "../lib/readiness.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
@@ -80,7 +81,7 @@ async function withReviewedDraft(
         extension: `@puddleworks/${NAME}`,
         version,
         reviewedAt: "2026-10-26T16:00:00Z",
-        dimensions: [{ id: "credentials-secrets", verdict: "pass" }],
+        dimensions: REVIEW_DIMENSIONS.map((id) => ({ id, verdict: "pass" })),
       }),
     );
     await fn(dir, ctx);

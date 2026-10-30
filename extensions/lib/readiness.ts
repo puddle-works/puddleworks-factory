@@ -71,20 +71,60 @@ export interface ReadinessFacts {
   commit?: string;
 }
 
+/**
+ * The dimensions of swamp's adversarial review. A report must give each a
+ * verdict: one that leaves some out has not reviewed them.
+ */
+export const REVIEW_DIMENSIONS = [
+  "credentials-secrets",
+  "logging-quality",
+  "error-handling",
+  "testing-completeness",
+  "idempotency-resilience",
+  "api-contracts",
+  "resource-management",
+  "published-surface-hygiene",
+  "schema-strictness",
+  "lifetime-gc",
+  "crud-completeness",
+  "preflight-checks",
+  "instance-names",
+  "data-access",
+  "version-upgrades",
+];
+
 const STRING = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`[^`$\\]*`/.source;
 const TEST_CALL = new RegExp(
-  `(?:\\bDeno\\.test|\\.step)\\(\\s*(?:\\{\\s*name:\\s*)?(${STRING})`,
+  `(?:\\bDeno\\.test|\\.step)(\\.ignore)?\\(\\s*(?:\\{\\s*name:\\s*)?(${STRING})`,
   "g",
 );
+
+/** The text with its comments blanked, strings left as they are. */
+function withoutComments(text: string): string {
+  return text.replace(
+    new RegExp(`${STRING}|\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?(?:\\*\\/|$)`, "g"),
+    (m) => /^["'`]/.test(m) ? m : m.replace(/[^\n]/g, " "),
+  );
+}
 
 function unquote(literal: string): string {
   if (literal.startsWith('"')) return JSON.parse(literal);
   return literal.slice(1, -1).replace(/\\(.)/g, "$1");
 }
 
-/** Names of the `Deno.test` and `t.step` calls in a test file, in order. */
+/**
+ * Names of the `Deno.test` and `t.step` calls in a test file that run, in
+ * order: not those in comments, or ignored with `.ignore(` or
+ * `ignore: true` before the next call.
+ */
 export function testNames(text: string): string[] {
-  return [...text.matchAll(TEST_CALL)].map((m) => unquote(m[1]));
+  const code = withoutComments(text);
+  const calls = [...code.matchAll(TEST_CALL)];
+  return calls.flatMap((m, i) => {
+    const until = calls[i + 1]?.index ?? code.length;
+    const options = code.slice((m.index ?? 0) + m[0].length, until);
+    return m[1] || /\bignore:\s*true\b/.test(options) ? [] : [unquote(m[2])];
+  });
 }
 
 const record = (v: unknown): Record<string, unknown> | null =>
@@ -159,6 +199,16 @@ function checkReview(
     : [];
   if (dimensions.length === 0) {
     blockers.push("The review report has no dimensions.");
+  } else {
+    const given = new Set(dimensions.map((d) => str(d.id)));
+    const missing = REVIEW_DIMENSIONS.filter((id) => !given.has(id));
+    if (missing.length) {
+      blockers.push(
+        `The review report has no verdict for ${
+          missing.join(", ")
+        }: review those too, from the publish dry run's skeleton.`,
+      );
+    }
   }
   const counts = { pass: 0, na: 0, issue: 0, pending: 0 };
   const issues: ReviewSummary["issues"] = [];

@@ -27,7 +27,7 @@ export const OutcomeSpecSchema = z.object({
     initialDescription: z.string(),
     currentProcess: z.string(),
     /** The request's page, where the discussion and agreement are. */
-    url: z.url(),
+    url: z.url({ protocol: /^https?$/ }),
   }),
   specification: z.object({
     /** Which agreed version of the specification this is. */

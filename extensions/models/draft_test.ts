@@ -20,6 +20,7 @@ import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
 import {
   CLAUDE_BEGIN,
   CLAUDE_END,
+  guarded,
   io,
   model,
   placeSection,
@@ -702,6 +703,55 @@ for (const input of [OBSIDIAN, AWKWARD]) {
 // ---------------------------------------------------------------------------
 // render method — writes the files into the app repo checkout
 // ---------------------------------------------------------------------------
+
+Deno.test("guarded: a resource that fails its schema is refused, not written", async () => {
+  const ctx = makeContext();
+  await assertRejects(
+    () => guarded(ctx).writeResource("draft", "x", { name: "x" }),
+    Error,
+    "draft",
+  );
+  assertEquals(ctx.writes, []);
+});
+
+Deno.test("guarded: log lines and resources keep no secret", async () => {
+  const lines: string[] = [];
+  const ctx = {
+    ...makeContext(),
+    logger: {
+      info: (msg: string, props?: Record<string, unknown>) =>
+        lines.push(msg + JSON.stringify(props)),
+    },
+  };
+  const token = "ghp_" + "a".repeat(36);
+  guarded(ctx).logger.info(`x ${token}`, { a: { b: [token] } });
+  assertEquals(lines.join("").includes(token), false, lines.join(""));
+});
+
+Deno.test("method: an error never repeats a secret from the spec", async () => {
+  const dir = await appRepo();
+  try {
+    const token = "ghp_" + "Q".repeat(36);
+    const spec = structuredClone(OBSIDIAN);
+    spec.specification.inputs = [{
+      name: "limit",
+      type: "integer",
+      description: "How many",
+      required: false,
+      default: token,
+    }] as typeof spec.specification.inputs;
+    const err = await assertRejects(() =>
+      model.methods.render.execute(
+        renderArgs(dir, false, "public", JSON.stringify(spec)),
+        makeContext(),
+      )
+    );
+    assertEquals(String((err as Error).message).includes(token), false);
+    assertEquals(String((err as Error).stack).includes(token), false);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
 
 function makeContext() {
   const writes: Array<

@@ -977,19 +977,68 @@ interface MethodContext {
   ) => Promise<Record<string, unknown> | null>;
 }
 
+/** Each resource's schema, by its spec name. */
+const SCHEMAS: Record<string, z.ZodType> = {
+  prefill: PrefillSchema,
+  draft: DraftSchema,
+  buildResult: BuildResultSchema,
+  visibility: VisibilitySchema,
+  readiness: ReadinessSchema,
+};
+
 /**
  * The context as a method uses it: every log line and resource as `safeText`
- * gives it, so a token in an argument, a spec or a file is never kept.
+ * gives it, so a token in an argument, a spec or a file is never kept, and a
+ * resource that does not match its schema refused rather than written.
+ * Exported for tests.
  */
-function guarded(context: MethodContext): MethodContext {
+export function guarded(context: MethodContext): MethodContext {
   return {
     ...context,
     logger: {
       info: (msg, props) =>
         context.logger.info(safeText(msg), props && safeData(props)),
     },
-    writeResource: (specName, name, data) =>
-      context.writeResource(specName, name, safeData(data)),
+    writeResource: (specName, name, data) => {
+      const clean = safeData(data);
+      const checked = SCHEMAS[specName]?.safeParse(clean);
+      if (!checked?.success) {
+        return Promise.reject(
+          new Error(
+            `The Factory built a ${specName} resource that does not match its schema, ` +
+              `so it was not written: ${
+                safeText(checked?.error.message ?? "no schema")
+              }. Report this as a Factory bug.`,
+          ),
+        );
+      }
+      return context.writeResource(specName, name, clean);
+    },
+  };
+}
+
+/** An error as it may be shown: its message and stack as `safeText` gives them. */
+function safeError(e: unknown): Error {
+  if (!(e instanceof Error)) return new Error(safeText(String(e)));
+  e.message = safeText(e.message);
+  if (e.stack) e.stack = safeText(e.stack);
+  if (e.cause !== undefined) e.cause = safeError(e.cause);
+  return e;
+}
+
+/**
+ * A method's execute, run with a guarded context, so what it logs, records
+ * and throws keeps no secret.
+ */
+function method<A>(
+  run: (args: A, context: MethodContext) => Promise<{ dataHandles: unknown[] }>,
+) {
+  return async (args: A, context: MethodContext) => {
+    try {
+      return await run(args, guarded(context));
+    } catch (e) {
+      throw safeError(e);
+    }
   };
 }
 
@@ -1109,8 +1158,16 @@ export const model = {
         "runs the visibility checks again on the files as they are, so a secret added " +
         "after the visibility check blocks public, and asks for the check again when " +
         "it was for another checkout or by an older Factory. render refuses a " +
-        "CLAUDE.md with the Factory's begin marker but no end marker. No data " +
-        "migration required.",
+        "CLAUDE.md with the Factory's begin marker but no end marker. A secret is " +
+        "found by its name on its own and in any case, a whole private key is " +
+        "hidden, a URL password that looks like a port is hidden, and a placeholder " +
+        "only excuses the password itself, not the user; code, placeholders and " +
+        "references to where a secret lives are no longer taken for secrets. A URL " +
+        "keeps a query parameter that holds no secret. An outcome spec's request " +
+        "link must be http or https. Every resource is checked against its schema " +
+        "before it is written, and errors hide any secret they repeat. readiness " +
+        "needs a review verdict for every dimension, and does not count a " +
+        "commented-out or ignored test. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -1160,8 +1217,7 @@ export const model = {
         "where it was agreed, and blanks for the builder's decisions, which are listed in the " +
         "prefill resource. Refuses to replace out unless overwrite=true.",
       arguments: PrefillArgsSchema,
-      execute: async (args: PrefillArgs, unguarded: MethodContext) => {
-        const context = guarded(unguarded);
+      execute: method(async (args: PrefillArgs, context: MethodContext) => {
         context.logger.info("Reading the outcome spec from {source}", {
           source: sourceLabel(args.outcomeSpec),
         });
@@ -1196,7 +1252,7 @@ export const model = {
           },
         );
         return { dataHandles: [handle] };
-      },
+      }),
     },
     render: {
       description:
@@ -1205,8 +1261,7 @@ export const model = {
         "JSON, into the root of the app's own repo checkout. Private unless visibility=public. " +
         "Refuses to overwrite files unless overwrite=true.",
       arguments: RenderArgsSchema,
-      execute: async (args: RenderArgs, unguarded: MethodContext) => {
-        const context = guarded(unguarded);
+      execute: method(async (args: RenderArgs, context: MethodContext) => {
         const root = args.targetDir.replace(/\/+$/, "");
         if (!(await exists(`${root}/.swamp.yaml`))) {
           throw new Error(
@@ -1283,7 +1338,7 @@ export const model = {
           renderedAt: new Date().toISOString(),
         });
         return { dataHandles: [handle] };
-      },
+      }),
     },
     result: {
       description:
@@ -1291,8 +1346,7 @@ export const model = {
         "its entry point, the repository, the branch or commit, and the pull request. " +
         "Records it as a resource and, with out, as a JSON file.",
       arguments: ResultArgsSchema,
-      execute: async (args: ResultArgs, unguarded: MethodContext) => {
-        const context = guarded(unguarded);
+      execute: method(async (args: ResultArgs, context: MethodContext) => {
         context.logger.info("Recording the build result for {name}", {
           name: args.name,
         });
@@ -1371,7 +1425,7 @@ export const model = {
           result,
         );
         return { dataHandles: [handle] };
-      },
+      }),
     },
     visibility: {
       description:
@@ -1381,8 +1435,7 @@ export const model = {
         "Secrets block public and are never repeated; emails are kept as their domain. " +
         "Records the visibility resource.",
       arguments: VisibilityArgsSchema,
-      execute: async (args: VisibilityArgs, unguarded: MethodContext) => {
-        const context = guarded(unguarded);
+      execute: method(async (args: VisibilityArgs, context: MethodContext) => {
         context.logger.info("Checking whether {name} can be public", {
           name: args.name,
         });
@@ -1424,7 +1477,7 @@ export const model = {
           },
         );
         return { dataHandles: [handle] };
-      },
+      }),
     },
     readiness: {
       description:
@@ -1436,8 +1489,7 @@ export const model = {
         "visibility. " +
         "Records the readiness resource with a one-screen summary.",
       arguments: ReadinessArgsSchema,
-      execute: async (args: ReadinessArgs, unguarded: MethodContext) => {
-        const context = guarded(unguarded);
+      execute: method(async (args: ReadinessArgs, context: MethodContext) => {
         context.logger.info("Checking whether {name} is ready to publish", {
           name: args.name,
         });
@@ -1510,7 +1562,7 @@ export const model = {
           },
         );
         return { dataHandles: [handle] };
-      },
+      }),
     },
   },
 };

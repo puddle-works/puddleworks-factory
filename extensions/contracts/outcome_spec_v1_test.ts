@@ -75,3 +75,13 @@ Deno.test("outcome-spec: a v1 reader ignores fields it does not know", () => {
   assertEquals(result.ok, true);
   if (result.ok) assertEquals("priority" in result.spec, false);
 });
+
+Deno.test("outcome-spec: the request link is an http or https URL", () => {
+  for (const url of ["ftp://capture.acme.io/r/1", "javascript:alert(1)"]) {
+    const spec = structuredClone(EXAMPLE);
+    spec.request.url = url;
+    const problems = problemsOf(spec);
+    assertEquals(problems.length, 1, url);
+    assertStringIncludes(problems[0], "request.url");
+  }
+});

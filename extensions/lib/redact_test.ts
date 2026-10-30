@@ -10,12 +10,12 @@
 import { assertEquals } from "jsr:@std/assert@1.0.19";
 import { hideSecrets, linkProblem, safeText, shownUrl } from "./redact.ts";
 
-Deno.test("redact: a URL in text loses its login and query, whatever its case", () => {
+Deno.test("redact: a URL in text loses its login and secret query, whatever its case", () => {
   assertEquals(
     safeText(
       "read HTTPS://user:pw@specs.acme.io/a.json?token=SEKRET1 and Http://h.io/x?k=v",
     ),
-    "read https://specs.acme.io/a.json and http://h.io/x",
+    "read https://specs.acme.io/a.json and http://h.io/x?k=v",
   );
 });
 
@@ -118,7 +118,7 @@ Deno.test("redact: common token shapes are secrets", () => {
     [
       "https://hooks.slack.com/services/",
       "T00000000/B00000000/",
-      "XXXXXXXXXXXXXXXXXXXXXXXX",
+      "Q9x7Kp2mZr4Lw8Vb3nYtAb12",
     ],
     ["token_", "ghp_", "g".repeat(36)],
     ["admin:", "hunter2", "@localhost:5432"],
@@ -144,8 +144,122 @@ Deno.test("redact: placeholders and package specifiers are not secrets", () => {
       'member: "serviceAccount:deploy@acme-prod.iam.gserviceaccount.com"',
       "user:alice@acme.io",
       'git.push("https://mesgme:%s@github.com/acme/app.git")',
+      "OAUTH_TOKEN_ENDPOINT: https://login.microsoftonline.com/common/oauth2/v2.0/token",
+      "DB_PASSWORD_SECRET_ARN: arn:aws:secretsmanager:eu-west-1:123456789012:secret:db-AbCdEf",
+      "API_TOKEN=xxxxxxxxxxxxxxxx",
+      "API_TOKEN=********",
+      "API_TOKEN=REPLACE_ME_TOKEN",
+      "API_TOKEN=TODO_SET_ME",
+      "GITHUB_TOKEN: secrets.GITHUB_TOKEN",
+      "  token: z.string(),",
+      "  password: args.password,",
+      "  password: input.password",
+      "  secret: string;",
+      "maxTokens: 1000000",
+      "tokenizer: cl100k_base",
+      "token: optional",
+      'const token = Deno.env.get("GITHUB_TOKEN");',
+      "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      `"adminPassword": "[parameters('adminPassword')]"`,
+      'swamp list ${token:+--token "${token}"} --json',
+      "echo ${API_TOKEN:-unset-value}",
+      "apiToken: puddle/SCANNER_TOKEN",
+      '{ "sas_token": "SAS_TOKEN" }',
+      '{ "secret_access_key": "SECRET_ACCESS_KEY" }',
+      'VAULT_SECRET_KEY: "vault.secret_key",',
     ]
   ) {
     assertEquals(hideSecrets(t), t);
   }
+});
+
+Deno.test("redact: a placeholder user does not excuse a real password", () => {
+  for (
+    const t of [
+      "DATABASE_URL=postgres://${POSTGRES_USER}:Xk29vLq83mZp@db.acme.com:5432/app",
+      "https://<user>:Xk29vLq83mZp@git.acme.com/repo.git",
+      "https://your-user:Xk29vLq83mZp@git.acme.com/repo.git",
+    ]
+  ) {
+    assertEquals(hideSecrets(t).includes("Xk29vLq83mZp"), false, t);
+    assertEquals(safeText(t).includes("Xk29vLq83mZp"), false, t);
+  }
+});
+
+Deno.test("redact: a password the URL parser reads as a port is hidden", () => {
+  for (
+    const t of [
+      "https://deploy:1234#abcXYZ@git.acme.com/repo",
+      "https://deploy:1234/abcXYZ@git.acme.com/repo",
+      "https://deploy:1234?abcXYZ@git.acme.com/repo",
+    ]
+  ) {
+    const shown = safeText(t);
+    assertEquals(shown.includes("1234"), false, shown);
+    assertEquals(shown.includes("abcXYZ"), false, shown);
+    assertEquals(hideSecrets(t).includes("abcXYZ"), false, t);
+  }
+  // A path with an email in it is not a password.
+  for (
+    const t of [
+      "https://jenkins.acme.io:8080/user/bob@acme.io",
+      "https://acme.io/u/bob@acme.io",
+    ]
+  ) {
+    assertEquals(hideSecrets(t), t);
+  }
+});
+
+Deno.test("redact: a secret's name on its own or in any case is a secret", () => {
+  for (
+    const t of [
+      "PASSWORD=Xk29vLq83mZp",
+      "TOKEN=Xk29vLq83mZp",
+      "SECRET=Xk29vLq83mZp",
+      "API_KEY=Xk29vLq83mZp",
+      "db_password: Xk29vLq83mZp",
+      "password: Xk29vLq83mZp",
+      '{"user": "a", "password": "Xk29vLq83mZp"}',
+      "export db_password=Xk29vLq83mZp",
+      'githubToken: "Xk29vLq83mZp"',
+      'client_secret = "Xk29vLq83mZp"',
+      "  - SWAMP_API_KEY=Xk29vLq83mZp",
+    ]
+  ) {
+    const shown = hideSecrets(t);
+    assertEquals(shown.includes("Xk29vLq83mZp"), false, t);
+    assertEquals(shown.includes("(hidden)"), true, t);
+  }
+});
+
+Deno.test("redact: a private key is hidden to its end", () => {
+  const pem = [
+    "key:",
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "MIIEowIBAAKCAQEA1x2y3z",
+    "-----END RSA PRIVATE KEY-----",
+    "after",
+  ].join("\n");
+  const shown = safeText(pem);
+  assertEquals(shown.includes("MIIEowIBAAKCAQEA1x2y3z"), false, shown);
+  assertEquals(shown.startsWith("key:\n"), true, shown);
+  assertEquals(shown.endsWith("\nafter"), true, shown);
+  const json =
+    '{"key": "-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBg\\n-----END PRIVATE KEY-----\\n", "x": 1}';
+  const hidden = safeText(json);
+  assertEquals(hidden.includes("MIIEvQIBADANBg"), false, hidden);
+  assertEquals(hidden.includes('"x": 1'), true, hidden);
+});
+
+Deno.test("redact: a URL keeps a query that holds no secret", () => {
+  assertEquals(
+    shownUrl("https://capture.acme.io/requests?id=42"),
+    "https://capture.acme.io/requests?id=42",
+  );
+  assertEquals(
+    shownUrl(
+      "https://x.io/a?id=42&token=abc&sig=Q9x&t=Q9x7Kp2mZr4Lw8Vb3nYt&k=ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&page=2#frag",
+    ),
+    "https://x.io/a?id=42&page=2",
+  );
 });

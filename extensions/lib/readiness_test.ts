@@ -11,6 +11,7 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import {
   assessReadiness,
   type ReadinessFacts,
+  REVIEW_DIMENSIONS,
   testNames,
 } from "./readiness.ts";
 
@@ -49,10 +50,11 @@ const REVIEW_PATH =
   "swamp-extension-review/_puddleworks_obsidian-puddle-scanner-abc.json";
 
 const review = (
-  dimensions: Array<{ id: string; verdict: string; note?: string }> = [
-    { id: "credentials-secrets", verdict: "pass" },
-    { id: "api-contracts", verdict: "na" },
-  ],
+  dimensions: Array<{ id: string; verdict: string; note?: string }> =
+    REVIEW_DIMENSIONS.map((id) => ({
+      id,
+      verdict: id === "api-contracts" ? "na" : "pass",
+    })),
   over: Record<string, unknown> = {},
 ) => ({
   path: REVIEW_PATH,
@@ -128,7 +130,7 @@ Deno.test("readiness: a complete review with every criterion checked is ready", 
   assertEquals(r.version, "2026.10.26.1");
   assertEquals(r.visibility, "private");
   assertEquals(r.recommendation, "private");
-  assertEquals(r.review?.counts, { pass: 1, na: 1, issue: 0, pending: 0 });
+  assertEquals(r.review?.counts, { pass: 14, na: 1, issue: 0, pending: 0 });
   assertEquals(r.criteria.map((c) => [c.id, c.ok]), [
     ["AC1", true],
     ["AC2", true],
@@ -319,7 +321,7 @@ Deno.test("readiness: the summary fits one screen and says what is published", (
       "Ready to publish: yes",
       "https://github.com/puddle-works/obsidian-puddle-scanner/pull/1",
       "0123456",
-      "1 pass, 1 n/a, 0 issue, 0 pending",
+      "14 pass, 1 n/a, 0 issue, 0 pending",
       "3 of 3 acceptance criteria checked",
       "AC3",
       "by hand: Ran the workflow on a real vault",
@@ -336,4 +338,38 @@ Deno.test("readiness: the summary lists blockers and caps a long list", () => {
   assertEquals(r.summary.split("\n").length <= 24, true, r.summary);
   assertStringIncludes(r.summary, "Ready to publish: no");
   assertStringIncludes(r.summary, "more");
+});
+
+Deno.test("readiness: a review report without every dimension blocks", () => {
+  const r = assessReadiness(
+    facts({ review: review([{ id: "credentials-secrets", verdict: "pass" }]) }),
+  );
+  assertEquals(r.ready, false);
+  const missing = r.blockers.find((b) => b.includes("has no verdict for"));
+  assertEquals(missing !== undefined, true, r.blockers.join("\n"));
+  assertStringIncludes(missing!, "logging-quality");
+  assertStringIncludes(missing!, "version-upgrades");
+});
+
+Deno.test("readiness: a commented-out or ignored test does not count", () => {
+  const text = `
+// Deno.test("AC1 commented", () => {});
+/* Deno.test("AC2 in a block comment", () => {}); */
+Deno.test({ name: "AC3 ignored", ignore: true, fn: () => {} });
+Deno.test({ name: "AC4 ignored last", fn: () => {}, ignore: true });
+Deno.test.ignore("AC5 ignore call", () => {});
+Deno.test("AC6 ignore option", { ignore: true }, () => {});
+Deno.test("AC7 real https://x.io/a // not a comment", () => {});
+Deno.test({ name: "AC8 not ignored", ignore: false, fn: () => {} });
+Deno.test("AC9 /* not a comment */", async (t) => {
+  await t.step({ name: "AC10 ignored step", ignore: true, fn: () => {} });
+  await t.step("AC11 step", () => {});
+});
+`;
+  assertEquals(testNames(text), [
+    "AC7 real https://x.io/a // not a comment",
+    "AC8 not ignored",
+    "AC9 /* not a comment */",
+    "AC11 step",
+  ]);
 });
