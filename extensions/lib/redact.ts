@@ -37,9 +37,14 @@ const PLACEHOLDER =
 function assignedSecret(m: RegExpMatchArray): boolean {
   const { name = "", q = "", v = "" } = m.groups ?? {};
   if (v.length < 8) return false;
-  // A variable, a path, a URL (its own patterns find a password in it), an ARN.
-  if (/^[$<{[%/~.]|^[a-z][a-z0-9+.-]*:\/\/|^arn:/i.test(v)) return false;
-  if (/^(?:true|false|null|none|undefined)$/i.test(v)) return false;
+  // A variable, a path, a Ruby symbol, `++n`, a URL (its own patterns find a
+  // password in it), an ARN.
+  if (/^[$<{[%/~.:]|^\+\+|^--|^[a-z][a-z0-9+.-]*:\/\/|^arn:/i.test(v)) {
+    return false;
+  }
+  if (
+    /^(?:true|false|null|none|undefined|password|passwd|secret|token)$/i.test(v)
+  ) return false;
   // The name of where it lives: `SAS_TOKEN`, `puddle/SCANNER_TOKEN`,
   // `vault.secret_key`.
   if (
@@ -50,8 +55,8 @@ function assignedSecret(m: RegExpMatchArray): boolean {
   }
   if (q) return true;
   if (/[(){}[\];,`]/.test(v)) return false;
-  // A reference like `args.password` or `secrets.GITHUB_TOKEN`.
-  if (/^[A-Za-z_$][\w$]*(?:\.[\w$]+)+$/.test(v)) return false;
+  // A reference like `args.password`, `secrets.GITHUB_TOKEN` or `o?.token`.
+  if (/^[A-Za-z_$][\w$]*(?:\??\.[\w$]+)+$/.test(v)) return false;
   return name === name.toUpperCase() || /[^A-Za-z]/.test(v);
 }
 
@@ -78,16 +83,21 @@ const SECRET_PATTERNS: SecretPattern[] = [
       /\b(?:aws_secret_access_key|SecretAccessKey)["']?\s*[=:]\s*["']?(?<v>[A-Za-z0-9/+]{40})/dgi,
     hide: "v",
   },
-  // A secret set by name, in an env file, YAML, JSON or code: `DB_PASSWORD=…`,
-  // `password: …`, `"apiKey": "…"`. The name ends in the word, so
-  // `TOKEN_ENDPOINT` and `PASSWORD_FILE` are not; only the value is hidden.
+  // A secret set by name, in an env file, YAML, JSON, code, a header or a
+  // connection string: `DB_PASSWORD=…`, `password: …`, `"apiKey": "…"`,
+  // `const API_KEY = "…"`, `X-API-Key: …`, `;Password=…;`. The name ends in
+  // the word, so `TOKEN_ENDPOINT` and `PASSWORD_FILE` are not, and a shell
+  // `${token:-…}` is not an assignment. Only the value is hidden; one without
+  // quotes ends at a `;`.
   {
     re:
-      /(?:^|(?<!\$)\{|[,;(]|\bexport\b)\s*(?:-\s+)?(?<q1>["']?)(?<name>[A-Za-z0-9_.-]*?(?:password|passwd|pwd|secret|token|api[-_]?key|apikey|(?:secret|access|private|signing|encryption|client|master)[-_]?key))\k<q1>\s*[=:]\s*(?<q>["']?)(?<v>[^\s"'<>]+)/dgi,
+      /(?<![\w.$:/-]|\$\{)(?<q1>["']?)(?<name>[A-Za-z0-9_.-]*?(?:password|passwd|pwd|secret|token|api[-_]?key|apikey|(?:secret|access|private|signing|encryption|client|master|account)[-_]?key))\k<q1>\s*[=:]\s*(?<q>["']?)(?<v>(?<=["'])[^\s"'<>]+|[^\s"'<>;]+)/dgi,
     hide: "v",
     check: assignedSecret,
   },
-  { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
+  { re: /-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----/g },
+  // A token sent as `Authorization: Bearer …`.
+  { re: /\bBearer\s+(?<v>[A-Za-z0-9._~+/-]{16,}=*)/dg, hide: "v" },
   // A password in a URL, with or without a user. It may hold an @, so it
   // runs to the last @ before the host. The scheme stays, so the URL is
   // still found and stripped after the login is hidden.
@@ -123,7 +133,7 @@ const SECRET_PATTERNS: SecretPattern[] = [
 
 /** A private key from its BEGIN line to its END line, or to the end of the text. */
 const PRIVATE_KEY =
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g;
+  /-----BEGIN [A-Z ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY(?: BLOCK)?-----|$)/g;
 
 /** Documentation domains: an address or URL there names nobody real. */
 export const exampleDomain = (domain: string) =>
@@ -190,9 +200,9 @@ export const hideSecrets = (text: string) => hide(text, "(hidden)");
 const SECRET_PARAM =
   /token|key|secret|sig|pass|pwd|auth|code|session|credential|jwt|^x-amz-|^x-goog-/i;
 
-/** A query value that may be a secret: a known shape, or long with letters and digits, unless a UUID. */
+/** A query value that may be a secret: already hidden, a known shape, or long with letters and digits, unless a UUID. */
 const mayBeSecret = (value: string) =>
-  secretSpans(value).length > 0 ||
+  value.includes("(hidden)") || secretSpans(value).length > 0 ||
   (value.length >= 16 && /\d/.test(value) && /[A-Za-z]/.test(value) &&
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
       value,
@@ -229,7 +239,9 @@ export function shownUrl(url: string): string {
  */
 export const safeText = (text: string) =>
   hide(text, "").replace(
-    /\b[a-z][a-z0-9+.-]*:\/\/[^\s)'"<>]+/gi,
+    // A URL may hold brackets, like `Foo_(bar)` or a `(hidden)` secret, but a
+    // `)` with no `(` ends it, as in `(see https://…)`.
+    /\b[a-z][a-z0-9+.-]*:\/\/(?:\([^\s()'"<>]*\)|[^\s()'"<>])+/gi,
     (u) => shownUrl(u),
   );
 

@@ -987,6 +987,25 @@ const SCHEMAS: Record<string, z.ZodType> = {
 };
 
 /**
+ * A resource as `safeData` gives it, or an error when that does not match
+ * the resource's schema. A method that also writes a file checks first, so
+ * it writes neither.
+ */
+function checkedResource<T>(specName: string, data: T): T {
+  const clean = safeData(data);
+  const checked = SCHEMAS[specName]?.safeParse(clean);
+  if (!checked?.success) {
+    throw new Error(
+      `The Factory built a ${specName} resource that does not match its schema, ` +
+        `so it was not written: ${
+          safeText(checked?.error.message ?? "no schema")
+        }. Report this as a Factory bug.`,
+    );
+  }
+  return clean;
+}
+
+/**
  * The context as a method uses it: every log line and resource as `safeText`
  * gives it, so a token in an argument, a spec or a file is never kept, and a
  * resource that does not match its schema refused rather than written.
@@ -1000,19 +1019,15 @@ export function guarded(context: MethodContext): MethodContext {
         context.logger.info(safeText(msg), props && safeData(props)),
     },
     writeResource: (specName, name, data) => {
-      const clean = safeData(data);
-      const checked = SCHEMAS[specName]?.safeParse(clean);
-      if (!checked?.success) {
-        return Promise.reject(
-          new Error(
-            `The Factory built a ${specName} resource that does not match its schema, ` +
-              `so it was not written: ${
-                safeText(checked?.error.message ?? "no schema")
-              }. Report this as a Factory bug.`,
-          ),
+      try {
+        return context.writeResource(
+          specName,
+          name,
+          checkedResource(specName, data),
         );
+      } catch (e) {
+        return Promise.reject(e);
       }
-      return context.writeResource(specName, name, clean);
     },
   };
 }
@@ -1159,15 +1174,18 @@ export const model = {
         "after the visibility check blocks public, and asks for the check again when " +
         "it was for another checkout or by an older Factory. render refuses a " +
         "CLAUDE.md with the Factory's begin marker but no end marker. A secret is " +
-        "found by its name on its own and in any case, a whole private key is " +
-        "hidden, a URL password that looks like a port is hidden, and a placeholder " +
+        "found by its name on its own and in any case, also in code, headers and " +
+        "connection strings, and as a Bearer token; a whole private key, PGP " +
+        "included, is hidden; a URL password that looks like a port is hidden, a " +
+        "hidden secret or a bracket no longer ends a URL early, and a placeholder " +
         "only excuses the password itself, not the user; code, placeholders and " +
         "references to where a secret lives are no longer taken for secrets. A URL " +
         "keeps a query parameter that holds no secret. An outcome spec's request " +
-        "link must be http or https. Every resource is checked against its schema " +
-        "before it is written, and errors hide any secret they repeat. readiness " +
-        "needs a review verdict for every dimension, and does not count a " +
-        "commented-out or ignored test. No data migration required.",
+        "link must be http or https, and its specHash not empty. Every resource is " +
+        "checked against its schema before it, or any file with it, is written, and " +
+        "errors hide any secret they repeat. readiness needs a review verdict for " +
+        "every dimension, and does not count a commented-out or ignored test, or a " +
+        "step inside one. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -1232,6 +1250,15 @@ export const model = {
           );
         }
         const { spec, toDecide, warnings } = prefillAppSpec(outcome);
+        const record = checkedResource("prefill", {
+          name: spec.name,
+          specSource: source,
+          out: args.out,
+          source: spec.source,
+          toDecide,
+          warnings,
+          prefilledAt: new Date().toISOString(),
+        });
         await writeFileIn(args.out, JSON.stringify(spec, null, 2) + "\n");
         context.logger.info("Prefilled {name} from {source} into {out}", {
           name: spec.name,
@@ -1241,15 +1268,7 @@ export const model = {
         const handle = await context.writeResource(
           "prefill",
           `${RESOURCE_PREFIX.prefill}${spec.name}`,
-          {
-            name: spec.name,
-            specSource: source,
-            out: args.out,
-            source: spec.source,
-            toDecide,
-            warnings,
-            prefilledAt: new Date().toISOString(),
-          },
+          record,
         );
         return { dataHandles: [handle] };
       }),
@@ -1411,7 +1430,7 @@ export const model = {
         }
 
         // What the builder passed, like buildRef, may hold a token.
-        const result = safeData(parsed.result);
+        const result = checkedResource("buildResult", parsed.result);
         if (args.out) {
           await writeFileIn(args.out, JSON.stringify(result, null, 2) + "\n");
         }

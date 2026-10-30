@@ -85,3 +85,11 @@ Deno.test("outcome-spec: the request link is an http or https URL", () => {
     assertStringIncludes(problems[0], "request.url");
   }
 });
+
+Deno.test("outcome-spec: the agreement has a spec hash", () => {
+  const spec = structuredClone(EXAMPLE);
+  spec.agreement.specHash = "";
+  const problems = problemsOf(spec);
+  assertEquals(problems.length, 1);
+  assertStringIncludes(problems[0], "agreement.specHash");
+});

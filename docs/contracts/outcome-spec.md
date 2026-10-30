@@ -56,10 +56,10 @@ plan reads them there.
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `format`                | Always `puddleworks.dev/outcome-spec/v1`                                                                                         |
 | `request`               | `id`, `title`, `initialDescription`, `currentProcess`, and `url`                                                                 |
-| `request.url`           | The page where the request was discussed and agreed                                                                              |
+| `request.url`           | The page where the request was discussed and agreed; an `http` or `https` URL                                                    |
 | `specification.version` | Which agreed version this is; a positive whole number                                                                            |
 | `specification`         | `problemStatement`, `desiredOutcome`, `scope.in`, `scope.out`, `constraints`, `assumptions`, `acceptanceCriteria` (`id`, `text`) |
-| `agreement`             | `agreedBy` (`name`, `email`), `agreedAt`, and `specHash`                                                                         |
+| `agreement`             | `agreedBy` (`name`, `email`), `agreedAt`, and `specHash`, which is not empty                                                     |
 | `participants`          | `name`, `email` and `role` of everyone involved                                                                                  |
 | `openQuestions`         | `question`, `askedBy`, `askedAt`; empty when nothing is open                                                                     |
 | `exportedAt`            | When the file was exported                                                                                                       |

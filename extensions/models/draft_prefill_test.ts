@@ -167,3 +167,23 @@ Deno.test("prefill: a request link that is not http or https writes nothing", as
     assertEquals(await Deno.stat(out).then(() => true, () => false), false);
   });
 });
+
+Deno.test("prefill: an outcome spec with no spec hash writes nothing", async () => {
+  await inTempDir(async (dir) => {
+    const outcome = JSON.parse(OUTCOME_TEXT);
+    outcome.agreement.specHash = "";
+    const out = `${dir}/app-spec.json`;
+    const ctx = makeContext();
+    await assertRejects(
+      () =>
+        model.methods.prefill.execute(
+          args(out, { outcomeSpec: JSON.stringify(outcome) }),
+          ctx,
+        ),
+      Error,
+      "agreement.specHash",
+    );
+    assertEquals(ctx.writes, []);
+    assertEquals(await Deno.stat(out).then(() => true, () => false), false);
+  });
+});

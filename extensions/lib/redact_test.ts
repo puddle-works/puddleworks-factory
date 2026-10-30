@@ -167,6 +167,10 @@ Deno.test("redact: placeholders and package specifiers are not secrets", () => {
       '{ "sas_token": "SAS_TOKEN" }',
       '{ "secret_access_key": "SECRET_ACCESS_KEY" }',
       'VAULT_SECRET_KEY: "vault.secret_key",',
+      'const apiToken = overrides?.apiToken ?? Deno.env.get("API_TOKEN");',
+      "task reset_password: :environment do",
+      "const token = ++reloads;",
+      "KPI_DATABASE_PASSWORD=password mvn spring-boot:run",
     ]
   ) {
     assertEquals(hideSecrets(t), t);
@@ -262,4 +266,69 @@ Deno.test("redact: a URL keeps a query that holds no secret", () => {
     ),
     "https://x.io/a?id=42&page=2",
   );
+});
+
+Deno.test("redact: a hidden secret does not cut a URL short", () => {
+  const sig =
+    "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0";
+  for (
+    const [t, gone, kept] of [
+      [
+        `Reading https://b.s3.amazonaws.com/spec.md?X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20261030&X-Amz-Signature=${sig}`,
+        sig,
+        "https://b.s3.amazonaws.com/spec.md",
+      ],
+      [
+        "at https://x.io/cb?id_token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJlMTIz&session=opaqueSess10nValue",
+        "opaqueSess10nValue",
+        "https://x.io/cb",
+      ],
+      [
+        "see https://en.wikipedia.org/wiki/Foo_(bar)?token=s3cretvalue123",
+        "s3cretvalue123",
+        "https://en.wikipedia.org/wiki/Foo_(bar)",
+      ],
+    ]
+  ) {
+    const shown = safeText(t);
+    assertEquals(shown.includes(gone), false, shown);
+    assertEquals(shown.includes(kept), true, shown);
+  }
+  assertEquals(
+    safeText("(see https://x.io/a?id=1)"),
+    "(see https://x.io/a?id=1)",
+  );
+});
+
+Deno.test("redact: secrets assigned in code, headers and connection strings are hidden", () => {
+  for (
+    const [t, secret] of [
+      ['const API_KEY = "sk_9f8e7d6c5b4a39281706";', "sk_9f8e7d6c5b4a39281706"],
+      ['let dbPassword = "Tr0ub4dor&3x";', "Tr0ub4dor&3x"],
+      [
+        '"Server=db.acme.io;User Id=sa;Password=Pa55word123;"',
+        "Pa55word123",
+      ],
+      [
+        'Authorization: "Bearer 9f8e7d6c5b4a39281706abc"',
+        "9f8e7d6c5b4a39281706abc",
+      ],
+      [
+        'curl -H "X-API-Key: 9f8e7d6c5b4a39281706abc" https://api.acme.io',
+        "9f8e7d6c5b4a39281706abc",
+      ],
+      [
+        "DefaultEndpointsProtocol=https;AccountName=acme;AccountKey=Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MA==;EndpointSuffix=core.windows.net",
+        "Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MA",
+      ],
+      [
+        "-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOYBF9x2abc\n-----END PGP PRIVATE KEY BLOCK-----",
+        "lQOYBF9x2abc",
+      ],
+    ]
+  ) {
+    const shown = hideSecrets(t);
+    assertEquals(shown.includes(secret), false, t);
+    assertEquals(shown.includes("(hidden)"), true, t);
+  }
 });

@@ -113,18 +113,46 @@ function unquote(literal: string): string {
 }
 
 /**
+ * Where the call whose `(` is at `open` ends, and its text with strings and
+ * everything deeper than its own arguments' brackets blanked, so
+ * `{ ignore: true }` in a test's body is not read as the test's own option.
+ */
+function callExtent(code: string, open: number): { end: number; own: string } {
+  const string = new RegExp(`^(?:${STRING})`);
+  let depth = 0;
+  let own = "";
+  for (let i = open; i < code.length; i++) {
+    const quoted = /["'`]/.test(code[i]) && string.exec(code.slice(i));
+    if (quoted) {
+      own += " ";
+      i += quoted[0].length - 1;
+      continue;
+    }
+    const c = code[i];
+    if ("([{".includes(c)) depth++;
+    if (depth <= 2) own += c;
+    if (")]}".includes(c) && --depth === 0) return { end: i, own };
+  }
+  return { end: code.length, own };
+}
+
+/**
  * Names of the `Deno.test` and `t.step` calls in a test file that run, in
- * order: not those in comments, or ignored with `.ignore(` or
- * `ignore: true` before the next call.
+ * order: not those in comments, ignored with `.ignore(` or an `ignore: true`
+ * option, or inside an ignored test.
  */
 export function testNames(text: string): string[] {
   const code = withoutComments(text);
-  const calls = [...code.matchAll(TEST_CALL)];
-  return calls.flatMap((m, i) => {
-    const until = calls[i + 1]?.index ?? code.length;
-    const options = code.slice((m.index ?? 0) + m[0].length, until);
-    return m[1] || /\bignore:\s*true\b/.test(options) ? [] : [unquote(m[2])];
-  });
+  const names: string[] = [];
+  let skipUntil = -1;
+  for (const m of code.matchAll(TEST_CALL)) {
+    const at = m.index ?? 0;
+    if (at < skipUntil) continue;
+    const { end, own } = callExtent(code, at + m[0].indexOf("("));
+    if (m[1] || /\bignore:\s*true\b/.test(own)) skipUntil = end;
+    else names.push(unquote(m[2]));
+  }
+  return names;
 }
 
 const record = (v: unknown): Record<string, unknown> | null =>

@@ -373,3 +373,28 @@ Deno.test("AC9 /* not a comment */", async (t) => {
     "AC11 step",
   ]);
 });
+
+Deno.test("readiness: a step in an ignored test does not count, and ignore in a test's body does not ignore it", () => {
+  const text = `
+Deno.test.ignore("outer", async (t) => {
+  await t.step("AC1 in an ignored test", () => {});
+});
+Deno.test({ name: "outer", ignore: true, fn: async (t) => {
+  await t.step("AC2 in an ignored test", () => {});
+} });
+Deno.test("AC3 runs", () => {
+  const o = { ignore: true };
+  assert(o);
+});
+Deno.test("AC4 runs", async (t) => {
+  await t.step("AC5 step) with a bracket", () => {
+    const s = "}) ignore: true";
+  });
+});
+`;
+  assertEquals(testNames(text), [
+    "AC3 runs",
+    "AC4 runs",
+    "AC5 step) with a bracket",
+  ]);
+});

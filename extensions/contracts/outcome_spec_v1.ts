@@ -42,7 +42,7 @@ export const OutcomeSpecSchema = z.object({
   agreement: z.object({
     agreedBy: PersonSchema,
     agreedAt: z.string(),
-    specHash: z.string(),
+    specHash: z.string().min(1),
   }),
   participants: z.array(PersonSchema.extend({ role: z.string() })),
   openQuestions: z.array(
