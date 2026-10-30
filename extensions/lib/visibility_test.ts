@@ -124,6 +124,24 @@ Deno.test("visibility: quality below 100% cannot be public", () => {
   assertEquals(a.canBePublic, false);
 });
 
+// `swamp extension quality` scores some points as provisional: only the
+// registry awards them, at push (a verified public repository is one).
+Deno.test("visibility: quality short only by points the registry gives at push can be public", () => {
+  const a = assessVisibility(facts({ quality: 87, provisionalQuality: 100 }));
+  assertEquals(check(a, "quality").ok, true);
+  assertStringIncludes(check(a, "quality").detail, "87%");
+  assertStringIncludes(check(a, "quality").detail, "100% once the registry");
+  assertEquals(a.canBePublic, true);
+});
+
+Deno.test("visibility: quality below 100% even with the registry's points cannot be public", () => {
+  const a = assessVisibility(facts({ quality: 80, provisionalQuality: 93 }));
+  assertEquals(check(a, "quality").ok, false);
+  assertStringIncludes(check(a, "quality").detail, "80%");
+  assertStringIncludes(check(a, "quality").detail, "93%");
+  assertEquals(a.canBePublic, false);
+});
+
 Deno.test("visibility: an internal detail recommends private but allows public", () => {
   const a = assessVisibility(
     facts({

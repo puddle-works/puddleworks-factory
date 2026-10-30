@@ -22,6 +22,14 @@ inputs:
       description: >-
         The app's quality percentage, from
         swamp extension quality manifest.yaml --json (.percentage).
+    provisionalQuality:
+      type: integer
+      description: >-
+        The quality once the registry awards the provisional points it gives
+        only at push, such as a verified public repository
+        (.ifProvisionalEarned.percentage). Public needs this or quality at
+        100%. Leave it at 0 when nothing is provisional.
+      default: 0
     repoVisibility:
       type: string
       enum: [public, private]
@@ -60,5 +68,6 @@ jobs:
           inputs:
             name: ${{ inputs.name }}
             quality: ${{ inputs.quality }}
+            provisionalQuality: ${{ inputs.provisionalQuality }}
             repoVisibility: ${{ inputs.repoVisibility }}
             targetDir: ${{ inputs.targetDir }}

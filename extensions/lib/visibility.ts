@@ -63,6 +63,11 @@ export interface RepoFacts {
   files: Array<{ path: string; text: string }>;
   /** `swamp extension quality --json` percentage. */
   quality: number;
+  /**
+   * The percentage once the registry awards the provisional points it gives
+   * only at push (`.ifProvisionalEarned.percentage`); 0 or absent when none.
+   */
+  provisionalQuality?: number;
   /** The repo's visibility on GitHub. */
   repoVisibility: Visibility;
   /** What the scan skipped and why, e.g. `data/big.json (over 512 KB)`. */
@@ -235,6 +240,7 @@ export function assessVisibility(facts: RepoFacts): Assessment {
   const audience = findings.filter((f) => f.kind === "audience");
 
   const licence = field("license");
+  const atPush = facts.provisionalQuality ?? 0;
   const repository = field("repository");
   const repositoryProblem = repository === ""
     ? null
@@ -268,10 +274,15 @@ export function assessVisibility(facts: RepoFacts): Assessment {
     {
       id: "quality",
       role: "required",
-      ok: facts.quality >= 100,
+      ok: facts.quality >= 100 || atPush >= 100,
       detail: facts.quality >= 100
         ? "quality 100%"
-        : `quality ${facts.quality}%: below 100%`,
+        : atPush >= 100
+        ? `quality ${facts.quality}% here, 100% once the registry awards its provisional points at push`
+        : `quality ${facts.quality}%: below 100%` +
+          (atPush > facts.quality
+            ? `, and ${atPush}% with the registry's provisional points`
+            : ""),
     },
     {
       id: "secrets",

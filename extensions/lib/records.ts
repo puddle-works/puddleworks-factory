@@ -69,6 +69,8 @@ export const VisibilitySchema = z.object({
    * are then. Not in records written before 2026.10.30.1.
    */
   quality: z.number().optional(),
+  /** The quality with the registry's provisional points; 0 when none were given. */
+  provisionalQuality: z.number().optional(),
   checks: z.array(z.object({
     id: z.string(),
     role: z.enum(["required", "signal", "info"]),

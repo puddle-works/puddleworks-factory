@@ -181,3 +181,29 @@ Deno.test("visibility: quality is a percentage", () => {
     assertEquals(parsed.success, false, String(quality));
   }
 });
+
+Deno.test("visibility: records the quality once the registry gives its points", async () => {
+  await withDraft(async (_dir, ctx) => {
+    await model.methods.visibility.execute(
+      args({ quality: 87, provisionalQuality: 100 }),
+      ctx,
+    );
+    const data = ctx.store.get(`visibility-${NAME}`)!;
+    assertEquals(data.quality, 87);
+    assertEquals(data.provisionalQuality, 100);
+    assertEquals(data.canBePublic, true, JSON.stringify(data.checks));
+  });
+});
+
+Deno.test("visibility: the quality with the registry's points is a percentage, 0 when not given", () => {
+  assertEquals(args().provisionalQuality, 0);
+  for (const provisionalQuality of [-1, 101, 99.5]) {
+    const parsed = model.methods.visibility.arguments.safeParse({
+      name: NAME,
+      quality: 87,
+      provisionalQuality,
+      repoVisibility: "private",
+    });
+    assertEquals(parsed.success, false, String(provisionalQuality));
+  }
+});
