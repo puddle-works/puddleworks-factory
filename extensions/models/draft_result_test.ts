@@ -214,6 +214,28 @@ Deno.test("result: a repository with a login in it writes nothing", async () => 
   });
 });
 
+Deno.test("result: a pull request with a login or query writes nothing", async () => {
+  await withDraft(async (_dir, ctx) => {
+    const before = ctx.writes.length;
+    for (
+      const pullRequest of [
+        "https://bot:pw@github.com/acme/app/pull/1",
+        "https://github.com/acme/app/pull/1?token=SEKRET_PR",
+      ]
+    ) {
+      const err = await assertRejects(
+        () => model.methods.result.execute(resultArgs({ pullRequest }), ctx),
+        Error,
+        "pullRequest",
+      );
+      for (const s of ["bot:pw", "SEKRET_PR"]) {
+        assertEquals(err.message.includes(s), false, err.message);
+      }
+    }
+    assertEquals(ctx.writes.length, before);
+  });
+});
+
 Deno.test("result: carries where the spec was agreed into the build result", async () => {
   const source = {
     url: "http://localhost:3001/requests/8f0c6a52",

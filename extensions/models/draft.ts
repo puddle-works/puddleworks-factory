@@ -44,6 +44,7 @@ import {
 import {
   loadAppSpec,
   loadOutcomeSpec,
+  sourceLabel,
   type SpecIo,
 } from "../lib/spec_source.ts";
 import { prefillAppSpec } from "../lib/prefill.ts";
@@ -52,8 +53,8 @@ import {
   reservedPrefix,
   RESOURCE_PREFIX,
 } from "../lib/names.ts";
-import { assessVisibility, hideSecrets } from "../lib/visibility.ts";
-import { hasLogin, withoutLogin } from "../lib/urls.ts";
+import { assessVisibility } from "../lib/visibility.ts";
+import { linkProblem, safeText } from "../lib/redact.ts";
 import { assessReadiness } from "../lib/readiness.ts";
 import {
   DraftSchema,
@@ -516,13 +517,22 @@ workflows:
 `;
 }
 
-/** A repository URL with a user or token in it would be written into the manifest and published. */
-const loginInRepository = (repository: string) =>
-  new Error(
-    `repository ${
-      withoutLogin(repository)
-    } has a login in it. Pass the plain https URL and let git find the credentials.`,
+/**
+ * Refuse a link that is not a plain https URL. A login or query in it would
+ * be written into the manifest, a resource or the viewer, and published.
+ */
+function checkLink(arg: string, url: string, example: string): void {
+  const problem = linkProblem(url) ??
+    (/^https:\/\/[^/]+\/./.test(url) ? null : "has no path");
+  if (problem === null) return;
+  throw new Error(
+    `${arg} "${safeText(url)}" ${problem}. Pass the plain https URL, e.g. ` +
+      `${example}, and let git find any credentials.`,
   );
+}
+
+const REPO_EXAMPLE = "https://github.com/<owner>/<name>";
+const PR_EXAMPLE = "https://github.com/<owner>/<name>/pull/<number>";
 
 /** The MIT licence, held by the repository's owner (its first path part). */
 function renderLicense(repository: string, now: Date): string {
@@ -750,15 +760,7 @@ export function renderDraft(
         `name the workflow file and carry the package's collective.`,
     );
   }
-  if (!/^https:\/\/[^/]+\/./.test(opts.repository)) {
-    throw new Error(
-      `repository "${
-        hideSecrets(opts.repository)
-      }" must be the https URL of the app's repo, ` +
-        "e.g. https://github.com/<owner>/<name>.",
-    );
-  }
-  if (hasLogin(opts.repository)) throw loginInRepository(opts.repository);
+  checkLink("repository", opts.repository, REPO_EXAMPLE);
   const problems = specificationProblems(input.specification);
   if (problems.length > 0) {
     throw new Error(
@@ -1063,12 +1065,17 @@ export const model = {
         "visibility findings hold only what matched, never the line, so no secret is " +
         "repeated, and an email is kept as its domain; user:password@host, with or " +
         "without a scheme, sk-ant- keys and labelled AWS secret keys count as secrets; " +
+        "a password with no user, and a token as a URL's user, count as secrets; " +
         "check details hide any secret they copy; the repository check fails, and " +
-        "render and result refuse, a repository URL with a login in it; the secrets " +
-        "check says which files and symlinks it did not read. prefill and render " +
-        "follow a spec URL's redirects themselves, refusing a hop off https before it " +
-        "is requested, more than 5 hops, over 30 seconds or over 1 MB, and record, log " +
-        "and show the URL without its login or query. No data migration required.",
+        "render and result refuse, a repository that is not a plain https URL (a " +
+        "login, query or fragment in it); result and readiness refuse such a " +
+        "pullRequest; the secrets check says which files and symlinks it did not " +
+        "read. prefill and render follow a spec URL's redirects themselves, refusing " +
+        "a hop off https before it is requested, more than 5 hops, or over 30 " +
+        "seconds (body included) or 1 MB, and record, log and show the URL without " +
+        "its login or query. Every method logs what it starts on. The viewer hides " +
+        "secrets and URL logins and queries in records written before this version, " +
+        "and says when it cannot read the records. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -1119,6 +1126,9 @@ export const model = {
         "prefill resource. Refuses to replace out unless overwrite=true.",
       arguments: PrefillArgsSchema,
       execute: async (args: PrefillArgs, context: MethodContext) => {
+        context.logger.info("Reading the outcome spec from {source}", {
+          source: sourceLabel(args.outcomeSpec),
+        });
         const { spec: outcome, source } = await loadOutcomeSpec(
           args.outcomeSpec,
           io,
@@ -1168,6 +1178,9 @@ export const model = {
           );
         }
 
+        context.logger.info("Reading the app spec from {source}", {
+          source: sourceLabel(args.spec),
+        });
         const { spec, source } = await loadAppSpec(args.spec, io);
         const files = renderDraft(spec, {
           now: new Date(),
@@ -1242,6 +1255,9 @@ export const model = {
         "Records it as a resource and, with out, as a JSON file.",
       arguments: ResultArgsSchema,
       execute: async (args: ResultArgs, context: MethodContext) => {
+        context.logger.info("Recording the build result for {name}", {
+          name: args.name,
+        });
         const raw = context.readResource
           ? await context.readResource(args.name)
           : null;
@@ -1263,7 +1279,10 @@ export const model = {
             `The draft of "${args.name}" records no repository. Pass repository.`,
           );
         }
-        if (hasLogin(repository)) throw loginInRepository(repository);
+        checkLink("repository", repository, REPO_EXAMPLE);
+        if (args.pullRequest) {
+          checkLink("pullRequest", args.pullRequest, PR_EXAMPLE);
+        }
         const manifest = draft.data.files.find((f) =>
           f.endsWith("/manifest.yaml")
         );
@@ -1326,6 +1345,9 @@ export const model = {
         "Records the visibility resource.",
       arguments: VisibilityArgsSchema,
       execute: async (args: VisibilityArgs, context: MethodContext) => {
+        context.logger.info("Checking whether {name} can be public", {
+          name: args.name,
+        });
         const raw = context.readResource
           ? await context.readResource(args.name)
           : null;
@@ -1374,6 +1396,12 @@ export const model = {
         "Records the readiness resource with a one-screen summary.",
       arguments: ReadinessArgsSchema,
       execute: async (args: ReadinessArgs, context: MethodContext) => {
+        context.logger.info("Checking whether {name} is ready to publish", {
+          name: args.name,
+        });
+        if (args.pullRequest) {
+          checkLink("pullRequest", args.pullRequest, PR_EXAMPLE);
+        }
         const raw = context.readResource
           ? await context.readResource(args.name)
           : null;

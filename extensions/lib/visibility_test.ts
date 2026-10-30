@@ -8,7 +8,13 @@
  * @module
  */
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
-import { assessVisibility, type RepoFacts, scanFile } from "./visibility.ts";
+import {
+  assessVisibility,
+  type FindingKind,
+  findingText,
+  type RepoFacts,
+  scanFile,
+} from "./visibility.ts";
 
 const MANIFEST = `manifestVersion: 1
 name: "@puddleworks/obsidian-puddle-scanner"
@@ -412,5 +418,67 @@ Deno.test("visibility: a repository with a login in it is refused", () => {
       repo.detail,
       "https://github.com/puddle-works/obsidian-puddle-scanner",
     );
+  }
+});
+
+Deno.test("scan: a password with no user, and a token as the user, are secrets", () => {
+  const token = ["abcdef", "TOKEN", "1234567890xyz"].join("");
+  const text = [
+    "REDIS_URL=redis://:s3cretpass@cache.prod.acme.io:6379",
+    `git clone https://${token}@dev.azure.com/org/p/_git/r`,
+    "ssh://git@github.com/acme/app and https://alice@github.com/acme/app",
+  ].join("\n");
+  const findings = scanFile("x.env", text);
+  const stored = JSON.stringify(findings);
+  assertEquals(stored.includes("s3cretpass"), false);
+  assertEquals(stored.includes(token), false);
+  assertEquals(
+    findings.filter((f) => f.kind === "secret").map((f) => f.line),
+    [1, 2],
+  );
+});
+
+Deno.test("visibility: a repository with a query, or that does not parse, is refused", () => {
+  for (
+    const repository of [
+      "https://github.com/acme/app?access_token=SEKRET_Q1",
+      "https://deploy:hunter2@github.com:abc/acme/app",
+    ]
+  ) {
+    const manifest = MANIFEST.replace(
+      "https://github.com/puddle-works/obsidian-puddle-scanner",
+      repository,
+    );
+    const a = assessVisibility(
+      facts({ files: replace("manifest.yaml", manifest) }),
+    );
+    const repo = check(a, "repository");
+    assertEquals(repo.ok, false, repository);
+    for (const s of ["SEKRET_Q1", "hunter2"]) {
+      assertEquals(repo.detail.includes(s), false, repo.detail);
+    }
+  }
+});
+
+Deno.test("visibility: a finding as it may be shown, also for records written before", () => {
+  const cases: Array<[FindingKind, string, string]> = [
+    ["secret", "ghp_whatever", "(hidden)"],
+    [
+      "email",
+      "DB=postgres://app:hunter2@db.corp.internal/x bob@acme.io",
+      "…@acme.io",
+    ],
+    [
+      "internal-host",
+      "DB=postgres://app:hunter2@db.corp.internal/x",
+      "db.corp.internal",
+    ],
+    ["private-ip", "token=abc host 10.0.0.5", "10.0.0.5"],
+    ["home-path", "key=abc in /Users/alice/x", "/Users/alice/"],
+    ["audience", "Only for our team, password abc", "our team"],
+    ["email", "no address here, password abc", "(hidden)"],
+  ];
+  for (const [kind, text, shown] of cases) {
+    assertEquals(findingText(kind, text), shown, `${kind}: ${text}`);
   }
 });

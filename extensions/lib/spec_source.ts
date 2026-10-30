@@ -7,11 +7,14 @@
  * | -------------------- | -------------------------------- |
  * | `{`                  | inline JSON                      |
  * | `https://`           | fetched; JSON or YAML            |
- * | `http://`            | refused                          |
+ * | any other `scheme://`| refused                          |
  * | anything else        | a file path; JSON or YAML        |
  *
- * A URL is stored, logged and shown without its login or query, where a
- * token may be.
+ * The scheme is read whatever its case, after leading space. A URL is
+ * stored, logged and shown without its login or query, where a token may be.
+ * The method arguments are not marked sensitive: swamp would then write `***`
+ * over every copy of the value in the Factory's records, and it still keeps
+ * workflow inputs as given.
  *
  * @module
  */
@@ -26,7 +29,7 @@ import {
   type OutcomeSpec,
   parseOutcomeSpec,
 } from "../contracts/outcome_spec_v1.ts";
-import { shownUrl, withShownUrls } from "./urls.ts";
+import { safeText, shownUrl } from "./redact.ts";
 
 /** The file system and network, passed in so tests need neither. */
 export interface SpecIo {
@@ -37,6 +40,9 @@ export interface SpecIo {
 const FETCH_SECONDS = 30;
 const MAX_BYTES = 1_000_000;
 const MAX_REDIRECTS = 5;
+
+const timedOut = (source: string) =>
+  new Error(`${source} did not answer within ${FETCH_SECONDS} seconds.`);
 
 const httpsOnly = (source: string, to: string) =>
   new Error(
@@ -60,13 +66,9 @@ async function fetchHttps(
     try {
       res = await io.fetch(url, { redirect: "manual", signal });
     } catch (e) {
-      if ((e as Error).name === "TimeoutError") {
-        throw new Error(
-          `${source} did not answer within ${FETCH_SECONDS} seconds.`,
-        );
-      }
+      if ((e as Error).name === "TimeoutError") throw timedOut(source);
       throw new Error(
-        `Could not fetch ${source}: ${withShownUrls((e as Error).message)}`,
+        `Could not fetch ${source}: ${safeText((e as Error).message)}`,
       );
     }
     const location = res.headers.get("location");
@@ -122,24 +124,34 @@ export interface LoadedSpec {
   source: string;
 }
 
+/** Where a spec is read from, as it may be logged: never the inline spec itself. */
+export const sourceLabel = (source: string) =>
+  source.trimStart().startsWith("{") ? "inline JSON" : safeText(source.trim());
+
 async function readText(
-  source: string,
+  given: string,
   io: SpecIo,
 ): Promise<{ text: string; from: string }> {
-  if (source.trimStart().startsWith("{")) {
-    return { text: source, from: "inline" };
-  }
-  if (source.startsWith("http://")) {
+  const source = given.trim();
+  if (source.startsWith("{")) return { text: given, from: "inline" };
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(source)?.[1].toLowerCase();
+  if (scheme !== undefined && scheme !== "https") {
     throw new Error(
       `Refusing to fetch ${
-        shownUrl(source)
+        safeText(shownUrl(source))
       }: specs are only fetched over https.`,
     );
   }
-  if (source.startsWith("https://")) {
-    const shown = shownUrl(source);
+  if (scheme === "https") {
+    const shown = safeText(shownUrl(source));
+    let start: string;
+    try {
+      start = new URL(source).href;
+    } catch {
+      throw new Error(`${shown} is not a URL.`);
+    }
     const res = await fetchHttps(
-      source,
+      start,
       shown,
       io,
       AbortSignal.timeout(FETCH_SECONDS * 1000),
@@ -148,12 +160,21 @@ async function readText(
       await res.body?.cancel();
       throw new Error(`${shown} returned ${res.status}.`);
     }
-    return { text: await cappedText(res, shown), from: shown };
+    try {
+      return { text: await cappedText(res, shown), from: shown };
+    } catch (e) {
+      // The time limit also covers reading the body.
+      if ((e as Error).name === "TimeoutError") throw timedOut(shown);
+      throw e;
+    }
   }
+  const path = safeText(source);
   try {
-    return { text: await io.readTextFile(source), from: source };
+    return { text: await io.readTextFile(source), from: path };
   } catch (e) {
-    throw new Error(`Could not read ${source}: ${(e as Error).message}`);
+    throw new Error(
+      `Could not read ${path}: ${safeText((e as Error).message)}`,
+    );
   }
 }
 

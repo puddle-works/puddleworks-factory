@@ -195,3 +195,20 @@ Deno.test("readiness: with no draft for the name it says what to run", async () 
   assertStringIncludes(err.message, "@puddleworks/puddleworks-factory-build");
   assertEquals(ctx.writes.length, 0);
 });
+
+Deno.test("readiness: a pull request with a login or query writes nothing", async () => {
+  await withReviewedDraft(async (_dir, ctx) => {
+    const before = ctx.writes.length;
+    const err = await assertRejects(
+      () =>
+        model.methods.readiness.execute(
+          args({ pullRequest: `${REPO}/pull/1?token=SEKRET_PR2` }),
+          ctx,
+        ),
+      Error,
+      "pullRequest",
+    );
+    assertEquals(err.message.includes("SEKRET_PR2"), false, err.message);
+    assertEquals(ctx.writes.length, before);
+  });
+});

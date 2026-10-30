@@ -95,3 +95,36 @@ Deno.test("viewer serve: serves the pages and says when the data changed", async
   abort.abort();
   assertEquals(await running, { dataHandles: [] });
 });
+
+Deno.test("viewer serve: says when the records keep failing to read, and when they read again", async () => {
+  let failing = false;
+  const abort = new AbortController();
+  const logged: string[] = [];
+  const recovered = Promise.withResolvers<void>();
+  const failed = Promise.withResolvers<void>();
+  const running = serveViewer({
+    queryData: () =>
+      failing
+        ? Promise.reject(new Error("datastore locked"))
+        : Promise.resolve([]),
+    logger: {
+      info: (msg, props) => {
+        logged.push(props?.error ? `${msg} ${props.error}` : msg);
+        if (/could not read/i.test(msg)) failed.resolve();
+        if (/read again/i.test(msg)) recovered.resolve();
+      },
+    },
+    signal: abort.signal,
+  }, { port: 0, draft: "puddleworks-factory", pollSeconds: 0.01 });
+  failing = true;
+  await failed.promise;
+  // Failing again is not logged again.
+  await new Promise((r) => setTimeout(r, 60));
+  failing = false;
+  await recovered.promise;
+  abort.abort();
+  await running;
+  const about = logged.filter((m) => /read/i.test(m));
+  assertEquals(about.length, 2, JSON.stringify(logged));
+  assertStringIncludes(about[0], "datastore locked");
+});

@@ -362,3 +362,59 @@ Deno.test("spec source: a fetch error that quotes the URL does not repeat its qu
   );
   assertEquals(err.message.includes("s3cret"), false, err.message);
 });
+
+Deno.test("spec source: the scheme is read whatever its case or leading space", async () => {
+  const url = "HTTPS://user:pw@specs.example.com/a.json?token=SEKRET1";
+  const r = routes({
+    "https://user:pw@specs.example.com/a.json?token=SEKRET1": () =>
+      new Response(EXAMPLE_TEXT),
+  });
+  const { source } = await loadAppSpec(` ${url}`, io({ fetch: r.fetch }));
+  assertEquals(source, "https://specs.example.com/a.json");
+  for (const http of ["Http://h.example.com/a?token=SEKRET2", "ftp://h/a"]) {
+    const err = await assertRejects(
+      () => loadAppSpec(http, io()),
+      Error,
+      "only fetched over https",
+    );
+    assertEquals(err.message.includes("SEKRET2"), false, err.message);
+  }
+});
+
+Deno.test("spec source: a file path that cannot be read is not repeated with a secret in it", async () => {
+  const err = await assertRejects(
+    () =>
+      loadAppSpec(
+        "specs/admin:hunter2@db.acme.io/spec.json",
+        io({
+          readTextFile: (p) =>
+            Promise.reject(new Error(`No such file: readfile '${p}'`)),
+        }),
+      ),
+    Error,
+    "Could not read",
+  );
+  assertEquals(err.message.includes("hunter2"), false, err.message);
+});
+
+Deno.test("spec source: a body that stops arriving times out naming the spec", async () => {
+  const url = "https://example.com/specs/slow.json";
+  const stalled = new ReadableStream<Uint8Array>({
+    pull: () =>
+      Promise.reject(
+        new DOMException(
+          "The operation was aborted due to timeout",
+          "TimeoutError",
+        ),
+      ),
+  });
+  await assertRejects(
+    () =>
+      loadAppSpec(
+        url,
+        io({ fetch: () => Promise.resolve(new Response(stalled)) }),
+      ),
+    Error,
+    `${url} did not answer within 30 seconds.`,
+  );
+});
