@@ -58,8 +58,15 @@ export interface ReadinessFacts {
   files: Array<{ path: string; text: string }>;
   /** The review report from the publish dry run, or null when it could not be read. */
   review: { path: string; text: string } | null;
-  /** The visibility check's answer, or null when it has not run. */
-  visibility: { recommendation: Visibility; canBePublic: boolean } | null;
+  /**
+   * The visibility checks on the files as they are now, or `outdated` when the
+   * recorded check is for another checkout or by an older Factory, or null
+   * when it has not run.
+   */
+  visibility:
+    | { recommendation: Visibility; canBePublic: boolean }
+    | "outdated"
+    | null;
   pullRequest?: string;
   commit?: string;
 }
@@ -337,11 +344,17 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
   const review = checkReview(facts.review, pkg, version, blockers);
   const { criteria, outcomePath } = checkCriteria(facts.files, blockers);
 
-  if (!facts.visibility) {
+  const checked = facts.visibility === "outdated" ? null : facts.visibility;
+  if (facts.visibility === "outdated") {
+    blockers.push(
+      "The visibility check is for another checkout, or by an older Factory: " +
+        "run @puddleworks/puddleworks-factory-visibility again.",
+    );
+  } else if (!checked) {
     blockers.push(
       "The visibility check has not run: run @puddleworks/puddleworks-factory-visibility.",
     );
-  } else if (visibility === "public" && !facts.visibility.canBePublic) {
+  } else if (visibility === "public" && !checked.canBePublic) {
     blockers.push(
       "The manifest says public, but the visibility check's required checks failed.",
     );
@@ -352,7 +365,7 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
     package: pkg,
     version,
     visibility,
-    recommendation: facts.visibility?.recommendation ?? null,
+    recommendation: checked?.recommendation ?? null,
     review,
     criteria,
     blockers,

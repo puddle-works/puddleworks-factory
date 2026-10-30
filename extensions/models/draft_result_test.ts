@@ -308,3 +308,32 @@ Deno.test("result: blank published inputs record nothing published", async () =>
     assertEquals("published" in data, false);
   });
 });
+
+Deno.test("result: what it stores and logs has no URL login, query or secret", async () => {
+  await withDraft(async (dir, ctx) => {
+    const logged: string[] = [];
+    const logging = {
+      ...ctx,
+      logger: {
+        info: (msg: string, props?: Record<string, unknown>) => {
+          logged.push(`${msg} ${JSON.stringify(props ?? {})}`);
+        },
+      },
+    };
+    const out = `${dir}/build-result.json`;
+    await model.methods.result.execute(
+      resultArgs({ buildRef: "https://u:pw1@x.acme.io/b?t=SEKRET1", out }),
+      logging,
+    );
+    const stored = JSON.stringify(
+      ctx.store.get("build-result-obsidian-puddle-scanner"),
+    );
+    const file = await Deno.readTextFile(out);
+    for (const text of [stored, file, ...logged]) {
+      for (const s of ["pw1", "SEKRET1"]) {
+        assertEquals(text.includes(s), false, text);
+      }
+    }
+    assertStringIncludes(stored, "https://x.acme.io/b");
+  });
+});

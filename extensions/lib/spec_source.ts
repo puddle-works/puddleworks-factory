@@ -11,7 +11,8 @@
  * | anything else        | a file path; JSON or YAML        |
  *
  * The scheme is read whatever its case, after leading space. A URL is
- * stored, logged and shown without its login or query, where a token may be.
+ * stored, logged and shown without its login or query, where a token may be,
+ * and so is the spec's own link back to where it was agreed.
  * The method arguments are not marked sensitive: swamp would then write `***`
  * over every copy of the value in the Factory's records, and it still keeps
  * workflow inputs as given.
@@ -209,7 +210,14 @@ export async function loadAppSpec(
       }`,
     );
   }
-  return { spec: parsed.spec, source: from };
+  const { spec } = parsed;
+  // The link back is copied into the app's README and the Factory's records.
+  return {
+    spec: spec.source
+      ? { ...spec, source: { ...spec.source, url: shownUrl(spec.source.url) } }
+      : spec,
+    source: from,
+  };
 }
 
 /** Read and check an outcome spec, from the same places as an app spec. */
@@ -226,5 +234,12 @@ export async function loadOutcomeSpec(
       }`,
     );
   }
-  return { spec: parsed.spec, source: from };
+  const { spec } = parsed;
+  return {
+    spec: {
+      ...spec,
+      request: { ...spec.request, url: shownUrl(spec.request.url) },
+    },
+    source: from,
+  };
 }

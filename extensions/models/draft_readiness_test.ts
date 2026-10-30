@@ -212,3 +212,46 @@ Deno.test("readiness: a pull request with a login or query writes nothing", asyn
     assertEquals(ctx.writes.length, before);
   });
 });
+
+// The visibility record is from before the change: readiness checks the
+// files as they are now, with the quality and repo visibility it recorded.
+Deno.test("readiness: a secret added after the visibility check blocks public", async () => {
+  await withReviewedDraft(async (dir, ctx) => {
+    const manifest = await Deno.readTextFile(`${dir}/manifest.yaml`);
+    await Deno.writeTextFile(
+      `${dir}/manifest.yaml`,
+      manifest.replace(/^visibility: private$/m, "visibility: public"),
+    );
+    await Deno.writeTextFile(
+      `${dir}/extensions/models/leak.ts`,
+      `export const token = "${["ghp_", "k".repeat(36)].join("")}";\n`,
+    );
+    await model.methods.readiness.execute(args(), ctx);
+    const data = ctx.store.get(`readiness-${NAME}`)!;
+    assertEquals(data.ready, false, String(data.summary));
+    assertEquals(data.recommendation, "private");
+    assertStringIncludes(String(data.blockers), "required checks failed");
+  });
+});
+
+Deno.test("readiness: a visibility check of another checkout, or by an older Factory, is run again", async () => {
+  await withReviewedDraft(async (dir, ctx) => {
+    const name = `visibility-${NAME}`;
+    const { quality: _q, ...older } = ctx.store.get(name)!;
+    for (
+      const record of [older, {
+        ...ctx.store.get(name)!,
+        targetDir: "/elsewhere",
+      }]
+    ) {
+      ctx.store.set(name, record);
+      await model.methods.readiness.execute(args({ targetDir: dir }), ctx);
+      const data = ctx.store.get(`readiness-${NAME}`)!;
+      assertEquals(data.ready, false, String(data.summary));
+      assertStringIncludes(
+        String(data.blockers),
+        "run @puddleworks/puddleworks-factory-visibility again",
+      );
+    }
+  });
+});

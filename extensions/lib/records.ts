@@ -64,6 +64,11 @@ export const VisibilitySchema = z.object({
   canBePublic: z.boolean(),
   manifestVisibility: z.enum(["public", "private"]).nullable(),
   repoVisibility: z.enum(["public", "private"]),
+  /**
+   * The quality it was given, so readiness can check the files again as they
+   * are then. Not in records written before 2026.10.30.1.
+   */
+  quality: z.number().optional(),
   checks: z.array(z.object({
     id: z.string(),
     role: z.enum(["required", "signal", "info"]),

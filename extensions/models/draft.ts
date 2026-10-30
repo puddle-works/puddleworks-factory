@@ -54,7 +54,7 @@ import {
   RESOURCE_PREFIX,
 } from "../lib/names.ts";
 import { assessVisibility } from "../lib/visibility.ts";
-import { linkProblem, safeText } from "../lib/redact.ts";
+import { linkProblem, safeData, safeText } from "../lib/redact.ts";
 import { assessReadiness } from "../lib/readiness.ts";
 import {
   DraftSchema,
@@ -115,6 +115,7 @@ export const CLAUDE_END = "<!-- END puddleworks-factory app section -->";
 /**
  * Put a marked section into a file's text: replace the section if the text
  * has one, add it at the end if not, or use it alone when there is no file.
+ * A begin marker with no end marker after it is refused.
  * `replaced` says whether an earlier section was replaced.
  */
 export function placeSection(
@@ -124,6 +125,14 @@ export function placeSection(
   if (existing === null) return { text: section, replaced: false };
   const start = existing.indexOf(CLAUDE_BEGIN);
   const end = existing.indexOf(CLAUDE_END, start);
+  if (start >= 0 && end < 0) {
+    // Appending would leave two sections, and a later render would replace
+    // everything from the first to the new end: the builder's text between.
+    throw new Error(
+      `CLAUDE.md has ${CLAUDE_BEGIN} but no ${CLAUDE_END} after it: put the end ` +
+        "marker back where the Factory's section ends, then render again.",
+    );
+  }
   if (start >= 0 && end >= 0) {
     const after = existing.slice(end + CLAUDE_END.length).replace(/^\n/, "");
     return {
@@ -900,8 +909,9 @@ type ReadinessArgs = z.infer<typeof ReadinessArgsSchema>;
 
 /** The part of a visibility resource that readiness needs. */
 const VisibilityAnswerSchema = VisibilitySchema.pick({
-  recommendation: true,
-  canBePublic: true,
+  targetDir: true,
+  repoVisibility: true,
+  quality: true,
 });
 
 /** Directories the visibility check does not read: git, swamp runtime data, swamp-managed skills, dependencies. */
@@ -965,6 +975,22 @@ interface MethodContext {
     instanceName: string,
     version?: number,
   ) => Promise<Record<string, unknown> | null>;
+}
+
+/**
+ * The context as a method uses it: every log line and resource as `safeText`
+ * gives it, so a token in an argument, a spec or a file is never kept.
+ */
+function guarded(context: MethodContext): MethodContext {
+  return {
+    ...context,
+    logger: {
+      info: (msg, props) =>
+        context.logger.info(safeText(msg), props && safeData(props)),
+    },
+    writeResource: (specName, name, data) =>
+      context.writeResource(specName, name, safeData(data)),
+  };
 }
 
 /** Write text to path, creating its directory first when it names one. */
@@ -1075,7 +1101,16 @@ export const model = {
         "seconds (body included) or 1 MB, and record, log and show the URL without " +
         "its login or query. Every method logs what it starts on. The viewer hides " +
         "secrets and URL logins and queries in records written before this version, " +
-        "and says when it cannot read the records. No data migration required.",
+        "and says when it cannot read the records. Every log line and resource, the " +
+        "build result file, and a spec's link back to where it was agreed, are kept " +
+        "with URLs of any scheme stripped of their login and query, and with secrets " +
+        "hidden, now also Stripe, Google, GitLab, npm, OpenAI and Slack webhook " +
+        "tokens, JWTs, NAME_PASSWORD=… lines and user:password@localhost. readiness " +
+        "runs the visibility checks again on the files as they are, so a secret added " +
+        "after the visibility check blocks public, and asks for the check again when " +
+        "it was for another checkout or by an older Factory. render refuses a " +
+        "CLAUDE.md with the Factory's begin marker but no end marker. No data " +
+        "migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -1125,7 +1160,8 @@ export const model = {
         "where it was agreed, and blanks for the builder's decisions, which are listed in the " +
         "prefill resource. Refuses to replace out unless overwrite=true.",
       arguments: PrefillArgsSchema,
-      execute: async (args: PrefillArgs, context: MethodContext) => {
+      execute: async (args: PrefillArgs, unguarded: MethodContext) => {
+        const context = guarded(unguarded);
         context.logger.info("Reading the outcome spec from {source}", {
           source: sourceLabel(args.outcomeSpec),
         });
@@ -1169,7 +1205,8 @@ export const model = {
         "JSON, into the root of the app's own repo checkout. Private unless visibility=public. " +
         "Refuses to overwrite files unless overwrite=true.",
       arguments: RenderArgsSchema,
-      execute: async (args: RenderArgs, context: MethodContext) => {
+      execute: async (args: RenderArgs, unguarded: MethodContext) => {
+        const context = guarded(unguarded);
         const root = args.targetDir.replace(/\/+$/, "");
         if (!(await exists(`${root}/.swamp.yaml`))) {
           throw new Error(
@@ -1254,7 +1291,8 @@ export const model = {
         "its entry point, the repository, the branch or commit, and the pull request. " +
         "Records it as a resource and, with out, as a JSON file.",
       arguments: ResultArgsSchema,
-      execute: async (args: ResultArgs, context: MethodContext) => {
+      execute: async (args: ResultArgs, unguarded: MethodContext) => {
+        const context = guarded(unguarded);
         context.logger.info("Recording the build result for {name}", {
           name: args.name,
         });
@@ -1318,11 +1356,10 @@ export const model = {
           );
         }
 
+        // What the builder passed, like buildRef, may hold a token.
+        const result = safeData(parsed.result);
         if (args.out) {
-          await writeFileIn(
-            args.out,
-            JSON.stringify(parsed.result, null, 2) + "\n",
-          );
+          await writeFileIn(args.out, JSON.stringify(result, null, 2) + "\n");
         }
         context.logger.info("Build result for {name}: {buildRef}", {
           name: args.name,
@@ -1331,7 +1368,7 @@ export const model = {
         const handle = await context.writeResource(
           "buildResult",
           resultName(args.name),
-          parsed.result,
+          result,
         );
         return { dataHandles: [handle] };
       },
@@ -1344,7 +1381,8 @@ export const model = {
         "Secrets block public and are never repeated; emails are kept as their domain. " +
         "Records the visibility resource.",
       arguments: VisibilityArgsSchema,
-      execute: async (args: VisibilityArgs, context: MethodContext) => {
+      execute: async (args: VisibilityArgs, unguarded: MethodContext) => {
+        const context = guarded(unguarded);
         context.logger.info("Checking whether {name} can be public", {
           name: args.name,
         });
@@ -1380,6 +1418,7 @@ export const model = {
             name: args.name,
             targetDir: root,
             repoVisibility: args.repoVisibility,
+            quality: args.quality,
             ...assessment,
             assessedAt: new Date().toISOString(),
           },
@@ -1392,10 +1431,13 @@ export const model = {
         "After the independent review, check the app is ready to publish: the review report " +
         "matches the manifest's name and version with no issue or pending verdict, every " +
         "acceptance criterion in spec/ maps to tests that exist or a manual check " +
-        "(spec/acceptance.json), and the visibility check allows the manifest's visibility. " +
+        "(spec/acceptance.json), and the visibility checks, run again on the files as they " +
+        "are now with the quality and repo visibility last given, allow the manifest's " +
+        "visibility. " +
         "Records the readiness resource with a one-screen summary.",
       arguments: ReadinessArgsSchema,
-      execute: async (args: ReadinessArgs, context: MethodContext) => {
+      execute: async (args: ReadinessArgs, unguarded: MethodContext) => {
+        const context = guarded(unguarded);
         context.logger.info("Checking whether {name} is ready to publish", {
           name: args.name,
         });
@@ -1427,12 +1469,26 @@ export const model = {
             `${RESOURCE_PREFIX.visibility}${args.name}`,
           ),
         );
+        const { files, notRead } = await textFiles(root);
+        // The files change after the visibility check (the manifest's
+        // visibility, the review report, a late fix): check them again as
+        // they are now, with the quality and repo visibility it was given.
+        const visibility = !answer.success
+          ? null
+          : answer.data.quality === undefined || answer.data.targetDir !== root
+          ? "outdated" as const
+          : assessVisibility({
+            files,
+            notRead,
+            quality: answer.data.quality,
+            repoVisibility: answer.data.repoVisibility,
+          });
         const readiness = assessReadiness({
-          files: (await textFiles(root)).files,
+          files,
           review: reviewText === null
             ? null
             : { path: reviewFile, text: reviewText },
-          visibility: answer.success ? answer.data : null,
+          visibility,
           pullRequest: args.pullRequest,
           commit: args.commit,
         });

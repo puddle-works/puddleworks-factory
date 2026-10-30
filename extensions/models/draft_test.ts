@@ -559,6 +559,18 @@ Deno.test("placeSection: a file with the section has only that section replaced"
   });
 });
 
+// The END marker deleted by hand: replacing up to a later END would take the
+// builder's own text with it, so the file is left for them to mend.
+Deno.test("placeSection: a section with no end is refused, not appended to", () => {
+  const broken = `# Repo\n\n${CLAUDE_BEGIN}\nold\n\nMy own notes.\n`;
+  const err = assertThrows(
+    () => placeSection(broken, `${CLAUDE_BEGIN}\nnew\n${CLAUDE_END}\n`),
+    Error,
+    CLAUDE_END,
+  );
+  assertStringIncludes(err.message, "CLAUDE.md");
+});
+
 Deno.test("render: the generated test file points at the README test command", () => {
   const tests = fileMap(OBSIDIAN).get(
     "extensions/models/obsidian_puddle_scanner_test.ts",

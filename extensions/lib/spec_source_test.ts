@@ -418,3 +418,17 @@ Deno.test("spec source: a body that stops arriving times out naming the spec", a
     `${url} did not answer within 30 seconds.`,
   );
 });
+
+Deno.test("spec source: the link back to where a spec was agreed is kept without its login or query", async () => {
+  const url =
+    "https://alice:Hunter2pw@capture.acme.io/requests/1?token=SECRETTOKEN123#c2";
+  const app = await loadAppSpec(
+    JSON.stringify({ ...EXAMPLE, source: { url, version: 1 } }),
+    io(),
+  );
+  assertEquals(app.spec.source?.url, "https://capture.acme.io/requests/1");
+  const outcome = JSON.parse(OUTCOME_TEXT);
+  outcome.request.url = url;
+  const loaded = await loadOutcomeSpec(JSON.stringify(outcome), io());
+  assertEquals(loaded.spec.request.url, "https://capture.acme.io/requests/1");
+});
