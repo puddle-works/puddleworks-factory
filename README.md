@@ -43,6 +43,7 @@ flowchart LR
 | Kind     | Name                                          | What it does                                                                                                                                                                                                       |
 | -------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Model    | `@puddleworks/puddleworks-factory/draft`      | `render` reads a spec and writes the extension, its tests, a workflow, the manifest and the app docs; `visibility` recommends publishing it publicly or privately; `readiness` checks the review before publishing |
+| Model    | `@puddleworks/puddleworks-factory/web`        | `serve` shows every app by stage, and each app's records, on a read-only page on 127.0.0.1                                                                                                                         |
 | Workflow | `@puddleworks/puddleworks-factory-prefill`    | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                                                                                                                            |
 | Workflow | `@puddleworks/puddleworks-factory-build`      | Runs `render` on the `puddleworks-factory` instance                                                                                                                                                                |
 | Workflow | `@puddleworks/puddleworks-factory-visibility` | Runs `visibility`: checks the built app's repo and recommends public or private                                                                                                                                    |
@@ -161,6 +162,48 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
   --input buildRef=draft/obsidian-puddle-scanner \
   --input out=$HOME/obsidian-puddle-scanner.build-result.json
 ```
+
+## See what the Factory has done
+
+The `web` model serves a read-only page on 127.0.0.1, in the style of Capture's
+page. Create it once and run it until Ctrl-C:
+
+```bash
+swamp behavior create @puddleworks/puddleworks-factory/web factory-viewer
+swamp behavior run factory-viewer serve --input port=3003
+```
+
+Then open <http://127.0.0.1:3003/>. Leave out `port` to have it pick a free one;
+the run logs the address. It shows the draft behavior named
+`puddleworks-factory`; set `draft` on `factory-viewer` to show another.
+
+`/` lists every app under the last stage it has a record for, in Factory order,
+newest first. To decide and Blocked are marked as waiting on you:
+
+| Group              | When                                                         |
+| ------------------ | ------------------------------------------------------------ |
+| To decide          | prefilled, no draft yet                                      |
+| Drafted            | a draft, no visibility check yet                             |
+| Visibility checked | a visibility check, no readiness check yet                   |
+| Blocked            | the latest readiness check has blockers                      |
+| Ready to publish   | the latest readiness check passed, and nothing published yet |
+| Released           | the build result records what was published                  |
+
+Released means the build result has `published`, not just that there is a build
+result: `result` is first run when the draft is pushed, before it is published.
+
+`/apps/<name>` shows one app: its stages (prefill, draft, visibility, readiness,
+pull request, published), then each record in that order, with links to the
+outcome spec, the repo, the pull request and, once published, the package on the
+registry. A record not written yet shows as not started. The page reloads when
+the data changes.
+
+The page only reads. It has no forms or buttons and no JSON API: the pages are
+rendered on the server, and the event stream it reloads on says only that
+something changed. Read the records themselves with `swamp data query`, as
+above, and change them through the draft behavior's methods and the workflows.
+Like Capture's page it answers only on 127.0.0.1, only to GET, and refuses
+another Host, Origin or site, under a strict content security policy.
 
 ## Development
 

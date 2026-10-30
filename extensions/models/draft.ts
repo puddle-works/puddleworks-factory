@@ -40,7 +40,6 @@ import {
   specificationProblems,
   type SpecInput,
   type SpecSource,
-  SpecSourceSchema,
 } from "../contracts/app_spec_v1.ts";
 import {
   loadAppSpec,
@@ -55,6 +54,12 @@ import {
 } from "../lib/names.ts";
 import { assessVisibility } from "../lib/visibility.ts";
 import { assessReadiness } from "../lib/readiness.ts";
+import {
+  DraftSchema,
+  PrefillSchema,
+  ReadinessSchema,
+  VisibilitySchema,
+} from "../lib/records.ts";
 import {
   BUILD_RESULT_V1,
   type BuildResult,
@@ -797,43 +802,6 @@ const GlobalArgsSchema = z.object({
   typeScope: z.string().regex(/^@[a-z0-9-]+$/).default("@puddleworks"),
 });
 
-const DraftSchema = z.object({
-  /** The app spec's name. */
-  name: z.string(),
-  /** `inline`, or the path or URL the spec was read from. */
-  specSource: z.string(),
-  /** Where the spec was agreed, when it said. */
-  source: SpecSourceSchema.optional(),
-  targetDir: z.string(),
-  /** The app's repository, when the draft was given one. */
-  repository: z.string().optional(),
-  /** The manifest's visibility, when the draft recorded it. */
-  visibility: z.enum(["public", "private"]).optional(),
-  modelType: z.string(),
-  entryPointRef: z.string(),
-  /** Paths written, relative to targetDir. */
-  files: z.array(z.string()),
-  /** Paths that already existed and were replaced (overwrite=true only). */
-  overwrote: z.array(z.string()),
-  renderedAt: z.iso.datetime(),
-});
-
-const PrefillSchema = z.object({
-  /** The app name the starter suggests. */
-  name: z.string(),
-  /** `inline`, or the path or URL the outcome spec was read from. */
-  specSource: z.string(),
-  /** Where the starter app spec was written. */
-  out: z.string(),
-  /** Where the outcome spec was agreed. */
-  source: SpecSourceSchema,
-  /** Fields the builder must check or fill in, `<field>: <why>`. */
-  toDecide: z.array(z.string()),
-  /** Things in the outcome spec to sort out before building. */
-  warnings: z.array(z.string()),
-  prefilledAt: z.iso.datetime(),
-});
-
 const PrefillArgsSchema = z.object({
   /**
    * A puddleworks.dev/outcome-spec/v1: a file path, an https URL, or the
@@ -901,32 +869,6 @@ const VisibilityArgsSchema = z.object({
 
 type VisibilityArgs = z.infer<typeof VisibilityArgsSchema>;
 
-const FindingSchema = z.object({
-  file: z.string(),
-  line: z.number().int(),
-  kind: z.string(),
-  text: z.string(),
-});
-
-const VisibilitySchema = z.object({
-  name: z.string(),
-  targetDir: z.string(),
-  /** `public` only when every required check passes and no signal says otherwise. */
-  recommendation: z.enum(["public", "private"]),
-  /** Every required check passed, so public is allowed. */
-  canBePublic: z.boolean(),
-  manifestVisibility: z.enum(["public", "private"]).nullable(),
-  repoVisibility: z.enum(["public", "private"]),
-  checks: z.array(z.object({
-    id: z.string(),
-    role: z.enum(["required", "signal", "info"]),
-    ok: z.boolean(),
-    detail: z.string(),
-  })),
-  findings: z.array(FindingSchema),
-  assessedAt: z.iso.datetime(),
-});
-
 const ReadinessArgsSchema = z.object({
   /** The app spec's name, as drafted by `render` on this instance. */
   name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
@@ -941,44 +883,6 @@ const ReadinessArgsSchema = z.object({
 });
 
 type ReadinessArgs = z.infer<typeof ReadinessArgsSchema>;
-
-const ReadinessSchema = z.object({
-  name: z.string(),
-  targetDir: z.string(),
-  /** No blockers: the review is complete and every acceptance criterion is checked. */
-  ready: z.boolean(),
-  package: z.string().nullable(),
-  version: z.string().nullable(),
-  /** The manifest's visibility. */
-  visibility: z.enum(["public", "private"]).nullable(),
-  /** What the visibility check recommended, or null when it has not run. */
-  recommendation: z.enum(["public", "private"]).nullable(),
-  reviewFile: z.string(),
-  review: z.object({
-    file: z.string(),
-    reviewedAt: z.string(),
-    counts: z.object({
-      pass: z.number().int(),
-      na: z.number().int(),
-      issue: z.number().int(),
-      pending: z.number().int(),
-    }),
-    issues: z.array(z.object({ id: z.string(), note: z.string() })),
-  }).nullable(),
-  criteria: z.array(z.object({
-    id: z.string(),
-    text: z.string(),
-    tests: z.array(z.string()),
-    manual: z.string(),
-    ok: z.boolean(),
-  })),
-  blockers: z.array(z.string()),
-  /** One screen of plain text to confirm publishing against. */
-  summary: z.string(),
-  pullRequest: z.string().nullable(),
-  commit: z.string().nullable(),
-  assessedAt: z.iso.datetime(),
-});
 
 /** The part of a visibility resource that readiness needs. */
 const VisibilityAnswerSchema = VisibilitySchema.pick({
