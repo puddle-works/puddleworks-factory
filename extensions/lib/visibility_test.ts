@@ -151,6 +151,34 @@ Deno.test("visibility: a secret blocks public and its text is not repeated", () 
   assertEquals(a.findings[0].text.includes(key), false);
 });
 
+Deno.test("scan: no finding repeats a secret on its line", () => {
+  const token = ["ghp_", "a".repeat(36)].join("");
+  const findings = scanFile(
+    "README.md",
+    `push as alice@acme.io with ${token} from /Users/alice/ to 10.0.0.5\n`,
+  );
+  assertEquals(
+    findings.map((f) => f.kind),
+    ["email", "secret", "home-path", "private-ip"],
+  );
+  for (const f of findings) assertEquals(f.text.includes(token), false);
+});
+
+Deno.test("visibility: spec wording with a secret in it is not repeated", () => {
+  const token = ["ghp_", "b".repeat(36)].join("");
+  const internal = OUTCOME.replace(
+    "Runs on a laptop",
+    `Confidential: use ${token}`,
+  );
+  const a = assessVisibility(
+    facts({ files: replace("spec/outcome-spec.v1.json", internal) }),
+  );
+  const audience = a.findings.filter((f) => f.kind === "audience");
+  assertEquals(audience.length, 1);
+  assertEquals(audience[0].text.includes(token), false);
+  assertEquals(JSON.stringify(a).includes(token), false);
+});
+
 Deno.test("visibility: spec wording about who it is for recommends private", () => {
   const internal = OUTCOME.replace(
     "Runs on a laptop",

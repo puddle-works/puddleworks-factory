@@ -113,6 +113,74 @@ Deno.test("spec source: a failed fetch names the URL and the status", async () =
   );
 });
 
+Deno.test("spec source: an https URL that redirects to http is refused", async () => {
+  const url = "https://example.com/specs/moved.json";
+  await assertRejects(
+    () =>
+      loadAppSpec(
+        url,
+        io({
+          fetch: () => {
+            const res = new Response(EXAMPLE_TEXT);
+            Object.defineProperty(res, "url", {
+              value: "http://example.com/specs/moved.json",
+            });
+            return Promise.resolve(res);
+          },
+        }),
+      ),
+    Error,
+    "redirected to http://example.com/specs/moved.json",
+  );
+});
+
+Deno.test("spec source: the fetch has a time limit", async () => {
+  const signals: Array<AbortSignal | null | undefined> = [];
+  await loadAppSpec(
+    "https://example.com/specs/scanner.json",
+    io({
+      fetch: (_u, init) => {
+        signals.push(init?.signal);
+        return Promise.resolve(new Response(EXAMPLE_TEXT));
+      },
+    }),
+  );
+  assertEquals(signals[0] instanceof AbortSignal, true);
+});
+
+Deno.test("spec source: a fetch that times out says so", async () => {
+  const url = "https://example.com/specs/slow.json";
+  await assertRejects(
+    () =>
+      loadAppSpec(
+        url,
+        io({
+          fetch: () =>
+            Promise.reject(
+              new DOMException("Signal timed out.", "TimeoutError"),
+            ),
+        }),
+      ),
+    Error,
+    `${url} did not answer within 30 seconds`,
+  );
+});
+
+Deno.test("spec source: a fetched spec over 1 MB is refused", async () => {
+  const url = "https://example.com/specs/huge.json";
+  await assertRejects(
+    () =>
+      loadAppSpec(
+        url,
+        io({
+          fetch: () => Promise.resolve(new Response("x".repeat(1_000_001))),
+        }),
+      ),
+    Error,
+    `${url} is over 1 MB`,
+  );
+});
+
 Deno.test("spec source: plain http is refused without fetching", async () => {
   await assertRejects(
     () => loadAppSpec("http://example.com/spec.json", io()),

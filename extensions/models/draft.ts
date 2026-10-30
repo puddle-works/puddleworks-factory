@@ -918,7 +918,7 @@ const resultName = (name: string) => `${RESOURCE_PREFIX.buildResult}${name}`;
 /** Where specs are read from. Tests swap these to avoid the network. */
 export const io: SpecIo = {
   readTextFile: (path) => Deno.readTextFile(path),
-  fetch: (url) => fetch(url),
+  fetch: (url, init) => fetch(url, init),
 };
 
 interface MethodContext {
@@ -961,7 +961,7 @@ async function exists(path: string): Promise<boolean> {
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.10.27.2",
+  version: "2026.10.30.1",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -1025,6 +1025,14 @@ export const model = {
         "render refuses app names that start with prefill-, build-result-, visibility- " +
         "or readiness-, which would share an instance name with another app's resource, " +
         "and prefill flags a suggested name that does. No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.10.30.1",
+      description:
+        "visibility no longer repeats a secret in any finding on the same line, nor in " +
+        "spec wording, and prefill and render refuse a spec URL that redirects off https, " +
+        "takes over 30 seconds or is over 1 MB. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],

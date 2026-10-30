@@ -96,7 +96,12 @@ function harmlessEmail(address: string): boolean {
     domain === "users.noreply.github.com";
 }
 
+const holdsSecret = (s: string) =>
+  PATTERNS.some(({ kind, re }) => kind === "secret" && s.match(re) !== null);
+
+/** The text to show for a line, hidden when the line holds a secret. */
 const clip = (s: string) => {
+  if (holdsSecret(s)) return "(hidden)";
   const t = s.trim();
   return t.length > 120 ? `${t.slice(0, 117)}...` : t;
 };
@@ -112,7 +117,7 @@ export function scanFile(path: string, text: string): Finding[] {
           file: path,
           line: i + 1,
           kind,
-          text: kind === "secret" ? "(hidden)" : clip(line),
+          text: clip(line),
           at: m.index ?? 0,
         });
       }

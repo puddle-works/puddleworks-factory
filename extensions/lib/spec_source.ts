@@ -27,7 +27,34 @@ import {
 /** The file system and network, passed in so tests need neither. */
 export interface SpecIo {
   readTextFile: (path: string) => Promise<string>;
-  fetch: (url: string) => Promise<Response>;
+  fetch: (url: string, init?: RequestInit) => Promise<Response>;
+}
+
+const FETCH_SECONDS = 30;
+const MAX_BYTES = 1_000_000;
+
+/** The body as text, refusing it once it passes MAX_BYTES. */
+async function cappedText(res: Response, source: string): Promise<string> {
+  const tooBig = () => new Error(`${source} is over 1 MB, too big for a spec.`);
+  if (Number(res.headers.get("content-length")) > MAX_BYTES) {
+    await res.body?.cancel();
+    throw tooBig();
+  }
+  if (!res.body) return "";
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of res.body) {
+    size += chunk.length;
+    if (size > MAX_BYTES) throw tooBig();
+    chunks.push(chunk);
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const c of chunks) {
+    all.set(c, at);
+    at += c.length;
+  }
+  return new TextDecoder().decode(all);
 }
 
 export interface LoadedSpec {
@@ -51,15 +78,29 @@ async function readText(
   if (source.startsWith("https://")) {
     let res: Response;
     try {
-      res = await io.fetch(source);
+      res = await io.fetch(source, {
+        signal: AbortSignal.timeout(FETCH_SECONDS * 1000),
+      });
     } catch (e) {
+      if ((e as Error).name === "TimeoutError") {
+        throw new Error(
+          `${source} did not answer within ${FETCH_SECONDS} seconds.`,
+        );
+      }
       throw new Error(`Could not fetch ${source}: ${(e as Error).message}`);
+    }
+    // A redirect is followed, so check where it ended up, not just where it began.
+    if (res.url && !res.url.startsWith("https://")) {
+      await res.body?.cancel();
+      throw new Error(
+        `Refusing ${source}: it redirected to ${res.url}, and specs are only fetched over https.`,
+      );
     }
     if (!res.ok) {
       await res.body?.cancel();
       throw new Error(`${source} returned ${res.status}.`);
     }
-    return { text: await res.text(), from: source };
+    return { text: await cappedText(res, source), from: source };
   }
   try {
     return { text: await io.readTextFile(source), from: source };
