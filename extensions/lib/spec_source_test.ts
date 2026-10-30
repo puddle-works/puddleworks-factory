@@ -432,3 +432,13 @@ Deno.test("spec source: the link back to where a spec was agreed is kept without
   const loaded = await loadOutcomeSpec(JSON.stringify(outcome), io());
   assertEquals(loaded.spec.request.url, "https://capture.acme.io/requests/1");
 });
+
+Deno.test("spec source: the link back keeps a query that holds no secret", async () => {
+  const outcome = JSON.parse(OUTCOME_TEXT);
+  outcome.request.url = "https://capture.acme.io/requests?id=42";
+  const loaded = await loadOutcomeSpec(JSON.stringify(outcome), io());
+  assertEquals(
+    loaded.spec.request.url,
+    "https://capture.acme.io/requests?id=42",
+  );
+});

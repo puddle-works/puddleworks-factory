@@ -322,7 +322,7 @@ Deno.test("result: what it stores and logs has no URL login, query or secret", a
     };
     const out = `${dir}/build-result.json`;
     await model.methods.result.execute(
-      resultArgs({ buildRef: "https://u:pw1@x.acme.io/b?t=SEKRET1", out }),
+      resultArgs({ buildRef: "https://u:pw1@x.acme.io/b?token=SEKRET1", out }),
       logging,
     );
     const stored = JSON.stringify(
