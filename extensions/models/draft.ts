@@ -1048,8 +1048,9 @@ export const model = {
         "visibility findings hold only what matched, never the line, so no secret is " +
         "repeated; URL passwords, sk-ant- keys and labelled AWS secret keys count as " +
         "secrets; the secrets check says which files it did not read. prefill and render " +
-        "refuse a spec URL that redirects off https, takes over 30 seconds or is over " +
-        "1 MB. No data migration required.",
+        "follow a spec URL's redirects themselves, refusing a hop off https before it " +
+        "is requested, more than 5 hops, over 30 seconds or over 1 MB. No data " +
+        "migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],

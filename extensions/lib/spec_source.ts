@@ -32,6 +32,48 @@ export interface SpecIo {
 
 const FETCH_SECONDS = 30;
 const MAX_BYTES = 1_000_000;
+const MAX_REDIRECTS = 5;
+
+const httpsOnly = (source: string, to: string) =>
+  new Error(
+    `Refusing ${source}: it redirected to ${to}, and specs are only fetched over https.`,
+  );
+
+/**
+ * Fetch over https only, following redirects here rather than in fetch, so a
+ * hop to http is refused before anything is sent to it.
+ */
+async function fetchHttps(
+  source: string,
+  io: SpecIo,
+  signal: AbortSignal,
+): Promise<Response> {
+  let url = source;
+  for (let hop = 0;; hop++) {
+    let res: Response;
+    try {
+      res = await io.fetch(url, { redirect: "manual", signal });
+    } catch (e) {
+      if ((e as Error).name === "TimeoutError") {
+        throw new Error(
+          `${source} did not answer within ${FETCH_SECONDS} seconds.`,
+        );
+      }
+      throw new Error(`Could not fetch ${source}: ${(e as Error).message}`);
+    }
+    const location = res.headers.get("location");
+    if (res.status < 300 || res.status > 399 || location === null) return res;
+    await res.body?.cancel();
+    if (hop === MAX_REDIRECTS) {
+      throw new Error(
+        `${source} redirected more than ${MAX_REDIRECTS} times.`,
+      );
+    }
+    const next = new URL(location, url).href;
+    if (!next.startsWith("https://")) throw httpsOnly(source, next);
+    url = next;
+  }
+}
 
 /** The body as text, refusing it once it passes MAX_BYTES. */
 async function cappedText(res: Response, source: string): Promise<string> {
@@ -76,26 +118,11 @@ async function readText(
     );
   }
   if (source.startsWith("https://")) {
-    let res: Response;
-    try {
-      res = await io.fetch(source, {
-        signal: AbortSignal.timeout(FETCH_SECONDS * 1000),
-      });
-    } catch (e) {
-      if ((e as Error).name === "TimeoutError") {
-        throw new Error(
-          `${source} did not answer within ${FETCH_SECONDS} seconds.`,
-        );
-      }
-      throw new Error(`Could not fetch ${source}: ${(e as Error).message}`);
-    }
-    // A redirect is followed, so check where it ended up, not just where it began.
-    if (res.url && !res.url.startsWith("https://")) {
-      await res.body?.cancel();
-      throw new Error(
-        `Refusing ${source}: it redirected to ${res.url}, and specs are only fetched over https.`,
-      );
-    }
+    const res = await fetchHttps(
+      source,
+      io,
+      AbortSignal.timeout(FETCH_SECONDS * 1000),
+    );
     if (!res.ok) {
       await res.body?.cancel();
       throw new Error(`${source} returned ${res.status}.`);

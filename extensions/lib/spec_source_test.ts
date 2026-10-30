@@ -113,25 +113,79 @@ Deno.test("spec source: a failed fetch names the URL and the status", async () =
   );
 });
 
-Deno.test("spec source: an https URL that redirects to http is refused", async () => {
+/** A fetch that answers each URL from a table, and records what it was asked. */
+function routes(table: Record<string, () => Response>) {
+  const fetched: string[] = [];
+  const inits: Array<RequestInit | undefined> = [];
+  return {
+    fetched,
+    inits,
+    fetch: (u: string, init?: RequestInit) => {
+      fetched.push(u);
+      inits.push(init);
+      const answer = table[u];
+      return answer
+        ? Promise.resolve(answer())
+        : Promise.reject(new Error(`unexpected fetch of ${u}`));
+    },
+  };
+}
+
+const redirect = (location: string, status = 302) => () =>
+  new Response(null, { status, headers: { location } });
+
+Deno.test("spec source: a redirect to http is refused before it is requested", async () => {
   const url = "https://example.com/specs/moved.json";
+  const r = routes({ [url]: redirect("http://example.com/specs/moved.json") });
   await assertRejects(
-    () =>
-      loadAppSpec(
-        url,
-        io({
-          fetch: () => {
-            const res = new Response(EXAMPLE_TEXT);
-            Object.defineProperty(res, "url", {
-              value: "http://example.com/specs/moved.json",
-            });
-            return Promise.resolve(res);
-          },
-        }),
-      ),
+    () => loadAppSpec(url, io({ fetch: r.fetch })),
     Error,
     "redirected to http://example.com/specs/moved.json",
   );
+  assertEquals(r.fetched, [url]);
+});
+
+Deno.test("spec source: redirects are not followed by fetch itself", async () => {
+  const url = "https://example.com/specs/scanner.json";
+  const r = routes({ [url]: () => new Response(EXAMPLE_TEXT) });
+  await loadAppSpec(url, io({ fetch: r.fetch }));
+  assertEquals(r.inits[0]?.redirect, "manual");
+});
+
+Deno.test("spec source: an https redirect is followed, relative or not", async () => {
+  const url = "https://example.com/specs/old.json";
+  const r = routes({
+    [url]: redirect("/specs/v2.json", 301),
+    "https://example.com/specs/v2.json": redirect(
+      "https://cdn.example.org/v2.json",
+      307,
+    ),
+    "https://cdn.example.org/v2.json": () => new Response(EXAMPLE_TEXT),
+  });
+  const { spec, source } = await loadAppSpec(url, io({ fetch: r.fetch }));
+  assertEquals(r.fetched, [
+    url,
+    "https://example.com/specs/v2.json",
+    "https://cdn.example.org/v2.json",
+  ]);
+  assertEquals(spec, EXAMPLE);
+  assertEquals(source, url);
+});
+
+Deno.test("spec source: more than 5 redirects are refused", async () => {
+  const table: Record<string, () => Response> = {};
+  for (let i = 0; i < 10; i++) {
+    table[`https://example.com/${i}`] = redirect(
+      `https://example.com/${i + 1}`,
+    );
+  }
+  const r = routes(table);
+  await assertRejects(
+    () => loadAppSpec("https://example.com/0", io({ fetch: r.fetch })),
+    Error,
+    "redirected more than 5 times",
+  );
+  assertEquals(r.fetched.length, 6);
 });
 
 Deno.test("spec source: the fetch has a time limit", async () => {
