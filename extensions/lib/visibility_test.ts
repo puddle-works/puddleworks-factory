@@ -134,7 +134,7 @@ Deno.test("visibility: an internal detail recommends private but allows public",
     file: "extensions/models/obsidian_puddle_scanner.ts",
     line: 1,
     kind: "home-path",
-    text: 'const where = "/Users/alice/vault";',
+    text: "/Users/alice/",
   }]);
 });
 
@@ -177,6 +177,86 @@ Deno.test("visibility: spec wording with a secret in it is not repeated", () => 
   assertEquals(audience.length, 1);
   assertEquals(audience[0].text.includes(token), false);
   assertEquals(JSON.stringify(a).includes(token), false);
+});
+
+Deno.test("scan: a finding stores what it found, not the line", () => {
+  const findings = scanFile(
+    "README.md",
+    "push as bob@acme.io from /Users/alice/ to 10.0.0.5 on nas.internal\n",
+  );
+  assertEquals(
+    findings.map((f) => [f.kind, f.text]),
+    [
+      ["email", "bob@acme.io"],
+      ["home-path", "/Users/alice/"],
+      ["private-ip", "10.0.0.5"],
+      ["internal-host", "nas.internal"],
+    ],
+  );
+});
+
+Deno.test("scan: secrets it has no pattern for are not stored either", () => {
+  const password = "S3cretPassw0rd";
+  const text = [
+    `export KEY=${"wJalrXUtnFEMI" + "K7MDENGbPxRfiCY"} # from /Users/alice/`,
+    `postgres://admin:${password}@db.internal:5432`,
+  ].join("\n");
+  const stored = JSON.stringify(scanFile("x.env", text));
+  assertEquals(stored.includes("wJalrXUtnFEMI"), false);
+  assertEquals(stored.includes(password), false);
+});
+
+Deno.test("scan: a password in a URL is a secret, not an email", () => {
+  const text = [
+    "postgres://admin:S3cretPassw0rd@db.internal:5432",
+    "https://deploy:pw@10.1.2.3/",
+    "see https://user:pass@example.com/ in the docs",
+  ].join("\n");
+  assertEquals(
+    scanFile("x.md", text).map((f) => [f.line, f.kind, f.text]),
+    [
+      [1, "secret", "(hidden)"],
+      [1, "internal-host", "db.internal"],
+      [2, "secret", "(hidden)"],
+      [2, "private-ip", "10.1.2.3"],
+    ],
+  );
+});
+
+Deno.test("scan: more key shapes are secrets", () => {
+  const text = [
+    ["sk-ant-", "api03-", "c".repeat(40)].join(""),
+    ["ghp_", "d".repeat(36), "_x"].join(""),
+    ["AKIA", "R".repeat(16), "_x"].join(""),
+    ["aws_secret_access_key", " = ", "e".repeat(40)].join(""),
+  ].join("\n");
+  assertEquals(
+    scanFile("x.md", text).map((f) => [f.line, f.kind]),
+    [[1, "secret"], [2, "secret"], [3, "secret"], [4, "secret"]],
+  );
+});
+
+Deno.test("visibility: spec wording stores the words that matched, not the sentence", () => {
+  const internal = OUTCOME.replace(
+    "Runs on a laptop",
+    "Only for our team; ask Sam on 07700 900123",
+  );
+  const a = assessVisibility(
+    facts({ files: replace("spec/outcome-spec.v1.json", internal) }),
+  );
+  const found = a.findings.filter((f) => f.kind === "audience");
+  assertEquals(found.map((f) => f.text), ["our team"]);
+});
+
+Deno.test("visibility: the secrets check names what it did not read", () => {
+  const a = assessVisibility(
+    facts({ notRead: [".claude/skills/", "data/big.json (over 512 KB)"] }),
+  );
+  assertEquals(check(a, "secrets").ok, true);
+  assertStringIncludes(
+    check(a, "secrets").detail,
+    "not read: .claude/skills/, data/big.json (over 512 KB)",
+  );
 });
 
 Deno.test("visibility: spec wording about who it is for recommends private", () => {

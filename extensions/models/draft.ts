@@ -893,23 +893,38 @@ const VisibilityAnswerSchema = VisibilitySchema.pick({
 /** Directories the visibility check does not read: git, swamp runtime data, swamp-managed skills, dependencies. */
 const UNREAD = new Set([".git", ".swamp", ".claude/skills", "node_modules"]);
 
-/** Text files under root, relative paths, skipping UNREAD, large files and binaries. */
+/**
+ * Text files under root, relative paths, skipping UNREAD, large files and
+ * binaries. `notRead` says what was skipped and why, except git, swamp runtime
+ * data and dependencies, which hold nothing the app ships.
+ */
 async function textFiles(
   root: string,
   dir = "",
-): Promise<Array<{ path: string; text: string }>> {
-  const out: Array<{ path: string; text: string }> = [];
+  notRead: string[] = [],
+): Promise<
+  { files: Array<{ path: string; text: string }>; notRead: string[] }
+> {
+  const files: Array<{ path: string; text: string }> = [];
   for await (const e of Deno.readDir(dir ? `${root}/${dir}` : root)) {
     const path = dir ? `${dir}/${e.name}` : e.name;
-    if (UNREAD.has(path)) continue;
-    if (e.isDirectory) out.push(...await textFiles(root, path));
-    else if (e.isFile) {
+    if (UNREAD.has(path)) {
+      if (path === ".claude/skills") notRead.push(`${path}/`);
+      continue;
+    }
+    if (e.isDirectory) {
+      files.push(...(await textFiles(root, path, notRead)).files);
+    } else if (e.isFile) {
       const bytes = await Deno.readFile(`${root}/${path}`);
-      if (bytes.length > 512 * 1024 || bytes.includes(0)) continue;
-      out.push({ path, text: new TextDecoder().decode(bytes) });
+      if (bytes.length > 512 * 1024) notRead.push(`${path} (over 512 KB)`);
+      else if (bytes.includes(0)) notRead.push(`${path} (binary)`);
+      else files.push({ path, text: new TextDecoder().decode(bytes) });
     }
   }
-  return out.sort((a, b) => a.path.localeCompare(b.path));
+  return {
+    files: files.sort((a, b) => a.path.localeCompare(b.path)),
+    notRead: notRead.sort(),
+  };
 }
 
 /** Name of the build result resource for an app spec. */
@@ -1030,9 +1045,11 @@ export const model = {
     {
       toVersion: "2026.10.30.1",
       description:
-        "visibility no longer repeats a secret in any finding on the same line, nor in " +
-        "spec wording, and prefill and render refuse a spec URL that redirects off https, " +
-        "takes over 30 seconds or is over 1 MB. No data migration required.",
+        "visibility findings hold only what matched, never the line, so no secret is " +
+        "repeated; URL passwords, sk-ant- keys and labelled AWS secret keys count as " +
+        "secrets; the secrets check says which files it did not read. prefill and render " +
+        "refuse a spec URL that redirects off https, takes over 30 seconds or is over " +
+        "1 MB. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -1302,8 +1319,10 @@ export const model = {
           /\/+$/,
           "",
         );
+        const { files, notRead } = await textFiles(root);
         const assessment = assessVisibility({
-          files: await textFiles(root),
+          files,
+          notRead,
           quality: args.quality,
           repoVisibility: args.repoVisibility,
         });
@@ -1360,7 +1379,7 @@ export const model = {
           ),
         );
         const readiness = assessReadiness({
-          files: await textFiles(root),
+          files: (await textFiles(root)).files,
           review: reviewText === null
             ? null
             : { path: reviewFile, text: reviewText },

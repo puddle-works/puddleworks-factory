@@ -23,7 +23,7 @@ export type FindingKind =
   | "email"
   | "audience";
 
-/** One line that looks internal. A secret's text is never repeated. */
+/** One thing that looks internal, and only that: never its line. A secret's text is never repeated. */
 export interface Finding {
   file: string;
   line: number;
@@ -61,14 +61,27 @@ export interface RepoFacts {
   quality: number;
   /** The repo's visibility on GitHub. */
   repoVisibility: Visibility;
+  /** What the scan skipped and why, e.g. `data/big.json (over 512 KB)`. */
+  notRead?: string[];
 }
 
 const PATTERNS: Array<{ kind: FindingKind; re: RegExp }> = [
-  { kind: "secret", re: /\bAKIA[0-9A-Z]{16}\b/g },
-  { kind: "secret", re: /\bgh[pousr]_[A-Za-z0-9]{36,}\b/g },
-  { kind: "secret", re: /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g },
-  { kind: "secret", re: /\bxox[abpr]-[A-Za-z0-9-]{10,}\b/g },
+  // No closing \b: a key followed by `_x` is still a key.
+  { kind: "secret", re: /\bAKIA[0-9A-Z]{16}/g },
+  { kind: "secret", re: /\bgh[pousr]_[A-Za-z0-9]{36,}/g },
+  { kind: "secret", re: /\bgithub_pat_[A-Za-z0-9_]{20,}/g },
+  { kind: "secret", re: /\bxox[abpr]-[A-Za-z0-9-]{10,}/g },
+  { kind: "secret", re: /\bsk-ant-[A-Za-z0-9_-]{20,}/g },
+  {
+    kind: "secret",
+    re: /\baws_secret_access_key\s*[=:]\s*["']?[A-Za-z0-9/+]{40}/gi,
+  },
   { kind: "secret", re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
+  // A password in a URL; the host must come next, so it is the last @.
+  {
+    kind: "secret",
+    re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@(?=[A-Za-z0-9.-]+)/gi,
+  },
   {
     kind: "internal-host",
     re:
@@ -86,22 +99,28 @@ const PATTERNS: Array<{ kind: FindingKind; re: RegExp }> = [
   { kind: "email", re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
 ];
 
+/** Documentation domains: an address or URL there names nobody real. */
+const exampleDomain = (domain: string) =>
+  /(^|\.)example\.(com|org|net)$|\.example$|\.invalid$|\.test$/.test(
+    domain.toLowerCase(),
+  );
+
 /** Addresses that name nobody: documentation domains and no-reply senders. */
 function harmlessEmail(address: string): boolean {
   const [local, domain] = address.toLowerCase().split("@");
-  return /^no-?reply\b/.test(local) ||
-    /(^|\.)example\.(com|org|net)$|\.example$|\.invalid$|\.test$/.test(
-      domain,
-    ) ||
+  return /^no-?reply\b/.test(local) || exampleDomain(domain) ||
     domain === "users.noreply.github.com";
 }
 
-const holdsSecret = (s: string) =>
-  PATTERNS.some(({ kind, re }) => kind === "secret" && s.match(re) !== null);
+/** A URL password for a documentation domain, like `https://user:pass@example.com/`. */
+function harmlessUrlPassword(line: string, end: number): boolean {
+  const host = /^[A-Za-z0-9.-]+/.exec(line.slice(end))?.[0] ?? "";
+  return exampleDomain(host);
+}
 
-/** The text to show for a line, hidden when the line holds a secret. */
+const secretPatterns = PATTERNS.filter((p) => p.kind === "secret");
+
 const clip = (s: string) => {
-  if (holdsSecret(s)) return "(hidden)";
   const t = s.trim();
   return t.length > 120 ? `${t.slice(0, 117)}...` : t;
 };
@@ -110,16 +129,31 @@ const clip = (s: string) => {
 export function scanFile(path: string, text: string): Finding[] {
   const found: Array<Finding & { at: number }> = [];
   text.split("\n").forEach((line, i) => {
-    for (const { kind, re } of PATTERNS) {
+    const secrets: Array<[number, number]> = [];
+    for (const { re } of secretPatterns) {
       for (const m of line.matchAll(re)) {
-        if (kind === "email" && harmlessEmail(m[0])) continue;
+        const at = m.index ?? 0;
+        if (harmlessUrlPassword(line, at + m[0].length)) continue;
+        secrets.push([at, at + m[0].length]);
         found.push({
           file: path,
           line: i + 1,
-          kind,
-          text: clip(line),
-          at: m.index ?? 0,
+          kind: "secret",
+          text: "(hidden)",
+          at,
         });
+      }
+    }
+    for (const { kind, re } of PATTERNS) {
+      if (kind === "secret") continue;
+      for (const m of line.matchAll(re)) {
+        const at = m.index ?? 0;
+        const end = at + m[0].length;
+        // Part of a secret, like the password@host of a URL: the secret covers it.
+        if (secrets.some(([s, e]) => at < e && end > s)) continue;
+        if (kind === "email" && harmlessEmail(m[0])) continue;
+        // Only what matched, never the line, which may hold a secret no pattern knows.
+        found.push({ file: path, line: i + 1, kind, text: clip(m[0]), at });
       }
     }
   });
@@ -149,10 +183,13 @@ function audienceFindings(path: string, text: string): Finding[] {
   } catch {
     return [];
   }
-  return stringsIn(spec).filter((s) => AUDIENCE.test(s)).map((s) => {
+  return stringsIn(spec).flatMap((s) => {
+    const words = AUDIENCE.exec(s)?.[0];
+    if (words === undefined) return [];
     const at = text.indexOf(JSON.stringify(s).slice(1, -1));
     const line = at < 0 ? 0 : text.slice(0, at).split("\n").length;
-    return { file: path, line, kind: "audience" as const, text: clip(s) };
+    // The words that matched, not the sentence around them.
+    return [{ file: path, line, kind: "audience" as const, text: words }];
   });
 }
 
@@ -234,9 +271,13 @@ export function assessVisibility(facts: RepoFacts): Assessment {
       id: "secrets",
       role: "required",
       ok: secrets.length === 0,
-      detail: secrets.length === 0
-        ? "no secrets found"
-        : `remove them, and rotate them: ${summarise(secrets)}`,
+      detail:
+        (secrets.length === 0
+          ? "no secrets found"
+          : `remove them, and rotate them: ${summarise(secrets)}`) +
+        (facts.notRead?.length
+          ? `; not read: ${facts.notRead.join(", ")}`
+          : ""),
     },
     {
       id: "internal-details",

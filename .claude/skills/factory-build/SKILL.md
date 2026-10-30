@@ -354,9 +354,15 @@ workflows. The method reads every text file in `W` (not `.git`, `.swamp`,
 
 A failed `secrets` check means the secret is in git history: tell the user to
 rotate it, and remove it before anything else. Show the recommendation, every
-check that failed, and each finding (`file:line` and the line), then ask with
+check that failed, and each finding (`file:line` and its `text`, which is only
+what matched, never the line; a secret's is `(hidden)`), then ask with
 `AskUserQuestion`, the recommendation first. Offer **Public** only when
-`canBePublic` is true; otherwise say which required checks block it.
+`canBePublic` is true; otherwise say which required checks block it. If the
+`secrets` detail lists files it did not read, say so: none of them was checked
+for secrets.
+
+Never show a finding's line yourself, by opening the file: it may hold a secret
+that no pattern knows.
 
 Set the visibility **now**, before the review report: the report is bound to
 the content hash, and the manifest is part of it. Never pass `--visibility` to
