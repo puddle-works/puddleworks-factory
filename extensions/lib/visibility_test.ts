@@ -489,4 +489,8 @@ Deno.test("visibility: a type in source code is not a secret, a password in a co
     scanFile("config/app.ini", "password = Summer2024\n").map((f) => f.kind),
     ["secret"],
   );
+  assertEquals(
+    scanFile("app/settings.py", "# PASSWORD=Summer2024\n").map((f) => f.kind),
+    ["secret"],
+  );
 });

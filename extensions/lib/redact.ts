@@ -40,22 +40,33 @@ const secretLabel = (v: string) => {
     );
 };
 
-/** Whether `at` on the line is inside a quoted string. */
-function inString(line: string, at: number): boolean {
+/**
+ * Whether `at` on a line of source code is in the code itself, not in a
+ * string or a comment (`//`, `/*`, a `# ` comment or a ` * ` doc line).
+ */
+function inCode(line: string, at: number): boolean {
+  if (/^\s*\*(?:\s|$)/.test(line)) return false;
   let quote = "";
   for (let i = 0; i < at; i++) {
     const c = line[i];
     if (quote && c === "\\") i++;
-    else if (quote ? c === quote : /["'`]/.test(c)) quote = quote ? "" : c;
+    else if (quote) quote = c === quote ? "" : quote;
+    else if (/["'`]/.test(c)) quote = c;
+    else if (/^\/[/*]/.test(line.slice(i, i + 2))) return false;
+    else if (
+      c === "#" && /(?:^|\s)$/.test(line.slice(0, i)) &&
+      /^(?:\s|$)/.test(line.slice(i + 1))
+    ) return false;
   }
-  return quote !== "";
+  return quote === "";
 }
 
 /**
  * Whether the value of a `NAME=value` or `name: value` is a secret, not code,
  * a reference or a word. A value in quotes is a literal, unless it only
  * names a secret (`CSRF_TOKEN = "X-CSRF-Token"`). In source code, `code`, a
- * value without quotes outside a string is an expression, not a secret. In
+ * value without quotes outside a string or comment is an expression, not a
+ * secret. In
  * other text it must be a single word with no code in it and, under a name
  * that is not all capitals (so not an env file), have a digit or symbol in it.
  */
@@ -80,7 +91,7 @@ function assignedSecret(m: RegExpMatchArray, code: boolean): boolean {
   }
   if (secretLabel(v)) return false;
   if (q) return true;
-  if (code && !inString(m.input ?? "", m.index ?? 0)) return false;
+  if (code && inCode(m.input ?? "", m.index ?? 0)) return false;
   if (/[(){}[\];,`]/.test(v)) return false;
   // A reference like `args.password`, `secrets.GITHUB_TOKEN` or `o?.token`.
   if (/^[A-Za-z_$][\w$]*(?:\??\.[\w$]+)+$/.test(v)) return false;

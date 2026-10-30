@@ -1180,7 +1180,8 @@ export const model = {
         "hidden secret or a bracket no longer ends a URL early, and a placeholder " +
         "only excuses the password itself, not the user; placeholders, names of " +
         "secrets and references to where a secret lives are no longer taken for " +
-        "secrets, nor is a value without quotes in source code, outside a string. " +
+        "secrets, nor is a value without quotes in source code, outside a string " +
+        "or comment. " +
         "A URL " +
         "keeps a query parameter that holds no secret. An outcome spec's request " +
         "link must be http or https, and its specHash not empty. Every resource is " +

@@ -386,6 +386,11 @@ Deno.test("redact: in source code a value without quotes is code, not a secret",
       "Client(api_key=api_key_v2, timeout=30)",
       "  client_secret: client_secret_v2,",
       '{"password": hashed_pw, "user": u}',
+      "  #token = refresh_token;",
+      "this.#apiKey = api_key_v2;",
+      'const u = "http://x"; const t = { token: access_token };',
+      'const h = "#"; return { secret: client_secret_v2 };',
+      "const n = a * 2; // the token: see refresh_token",
     ]
   ) {
     assertEquals(secretSpans(t, { code: true }), [], t);
@@ -398,6 +403,15 @@ Deno.test("redact: in source code a value without quotes is code, not a secret",
       ],
       ['const password = "Summer2024";', "Summer2024"],
       ["db_url = 'postgres://app:Summer2024@db.acme.io/app'", "Summer2024"],
+      // A comment is text, not code.
+      ["// staging login, password: Summer2024", "Summer2024"],
+      ["// token: 8f3kD92mXqZ7", "8f3kD92mXqZ7"],
+      ["# api_key = Xk29vLq83mZp", "Xk29vLq83mZp"],
+      ["x = 1  # DB_PASSWORD=Summer2024", "Summer2024"],
+      ["/* api_key: Live_Prod_Key_2024 */", "Live_Prod_Key_2024"],
+      [" * token: AbcDefGhiJkl123", "AbcDefGhiJkl123"],
+      ["/** @example client.login({ password: Summer2024 }) */", "Summer2024"],
+      ['const a = "x"; // password: Summer2024', "Summer2024"],
     ]
   ) {
     const spans = secretSpans(t, { code: true });
