@@ -171,6 +171,17 @@ Deno.test("redact: placeholders and package specifiers are not secrets", () => {
       "task reset_password: :environment do",
       "const token = ++reloads;",
       "KPI_DATABASE_PASSWORD=password mvn spring-boot:run",
+      "  secretKey: Uint8Array;",
+      "const privateKey: Uint8Array = ed.utils.randomPrivateKey();",
+      "  token: Uint8Array;",
+      "  apiKey: Base64Url;",
+      "  password?: HashedPassword,",
+      "this.token = refresh_token;",
+      "user.password = hashed_password;",
+      "self.token = refresh_token",
+      'export const ACCESS_TOKEN = "access_token";',
+      'const AUTH_TOKEN = "authToken";',
+      'const CSRF_TOKEN = "X-CSRF-Token";',
     ]
   ) {
     assertEquals(hideSecrets(t), t);
@@ -228,6 +239,8 @@ Deno.test("redact: a secret's name on its own or in any case is a secret", () =>
       'githubToken: "Xk29vLq83mZp"',
       'client_secret = "Xk29vLq83mZp"',
       "  - SWAMP_API_KEY=Xk29vLq83mZp",
+      "user.password = Xk29vLq83mZp;",
+      "  token: Xk29vLq83mZp,",
     ]
   ) {
     const shown = hideSecrets(t);
@@ -330,5 +343,17 @@ Deno.test("redact: secrets assigned in code, headers and connection strings are 
     const shown = hideSecrets(t);
     assertEquals(shown.includes(secret), false, t);
     assertEquals(shown.includes("(hidden)"), true, t);
+  }
+});
+
+Deno.test("redact: a weak password is still a secret", () => {
+  for (
+    const [t, secret] of [
+      ['password: "password123"', "password123"],
+      ["PASSWORD=Summer2024", "Summer2024"],
+      ['const API_TOKEN = "Summer2024token";', "Summer2024token"],
+    ]
+  ) {
+    assertEquals(hideSecrets(t).includes(secret), false, t);
   }
 });

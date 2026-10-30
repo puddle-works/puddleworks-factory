@@ -28,11 +28,23 @@ interface SecretPattern {
 const PLACEHOLDER =
   /%s|\$\{|\{\{|<[^>]*>|\byour[-_ ]|[-_]here\b|\.\.\.|x{6,}|\*{3,}|replace[-_]?me|change[-_]?me|placeholder|(?<![a-z])(?:todo|tbd|fixme|fake|dummy|test)(?![a-z])/i;
 
+/** Lower-case letters and digits only, so `access_token`, `authToken` and `X-CSRF-Token` compare. */
+const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** An identifier made of words, like `Uint8Array` or `refresh_token`, not of random letters like `Xk29vLq83mZp`. */
+const madeOfWords = (v: string) =>
+  /^[A-Za-z_$][\w$]*$/.test(v) &&
+  v.split(/[_$]+|(?<=[a-z])(?=[A-Z])|(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])/)
+    .filter((p) => /[A-Za-z]/.test(p))
+    .every((p) => p.length >= 3);
+
 /**
  * Whether the value of a `NAME=value` or `name: value` is a secret, not code,
- * a reference or a word. A value in quotes is a literal; one without quotes
- * must be a single word with no code in it, and, under a name that is not
- * all capitals (so not an env file), have a digit or symbol in it.
+ * a reference or a word. A value in quotes is a literal, unless it is the
+ * name again (`ACCESS_TOKEN = "access_token"`). One without quotes must be a
+ * single word with no code in it, not a type or variable in code
+ * (`secretKey: Uint8Array;`, `token = refresh_token`), and, under a name
+ * that is not all capitals (so not an env file), have a digit or symbol in it.
  */
 function assignedSecret(m: RegExpMatchArray): boolean {
   const { name = "", q = "", v = "" } = m.groups ?? {};
@@ -53,10 +65,17 @@ function assignedSecret(m: RegExpMatchArray): boolean {
   ) {
     return false;
   }
+  const sv = squash(v), sn = squash(name);
+  if (sv.endsWith(sn) && sv.length - sn.length <= 2) return false;
   if (q) return true;
   if (/[(){}[\];,`]/.test(v)) return false;
   // A reference like `args.password`, `secrets.GITHUB_TOKEN` or `o?.token`.
   if (/^[A-Za-z_$][\w$]*(?:\??\.[\w$]+)+$/.test(v)) return false;
+  // A type or a variable: code goes on after it, or spaces `=`.
+  const end = (m as RegExpExecArray).indices?.groups?.v?.[1] ?? 0;
+  const inCode = /^\s*[;,=)|&<[?]/.test((m.input ?? "").slice(end)) ||
+    /\s=\s/.test(m[0].slice(0, -v.length));
+  if (inCode && madeOfWords(v)) return false;
   return name === name.toUpperCase() || /[^A-Za-z]/.test(v);
 }
 
@@ -88,10 +107,10 @@ const SECRET_PATTERNS: SecretPattern[] = [
   // `const API_KEY = "…"`, `X-API-Key: …`, `;Password=…;`. The name ends in
   // the word, so `TOKEN_ENDPOINT` and `PASSWORD_FILE` are not, and a shell
   // `${token:-…}` is not an assignment. Only the value is hidden; one without
-  // quotes ends at a `;`.
+  // quotes ends at a `;` or `,`.
   {
     re:
-      /(?<![\w.$:/-]|\$\{)(?<q1>["']?)(?<name>[A-Za-z0-9_.-]*?(?:password|passwd|pwd|secret|token|api[-_]?key|apikey|(?:secret|access|private|signing|encryption|client|master|account)[-_]?key))\k<q1>\s*[=:]\s*(?<q>["']?)(?<v>(?<=["'])[^\s"'<>]+|[^\s"'<>;]+)/dgi,
+      /(?<![\w.$:/-]|\$\{)(?<q1>["']?)(?<name>[A-Za-z0-9_.-]*?(?:password|passwd|pwd|secret|token|api[-_]?key|apikey|(?:secret|access|private|signing|encryption|client|master|account)[-_]?key))\k<q1>\s*[=:]\s*(?<q>["']?)(?<v>(?<=["'])[^\s"'<>]+|[^\s"'<>;,]+)/dgi,
     hide: "v",
     check: assignedSecret,
   },
