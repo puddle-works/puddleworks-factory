@@ -19,6 +19,8 @@ import {
   updatedAt,
   waitingOnPerson,
 } from "./viewer_apps.ts";
+import { safeText } from "./redact.ts";
+import { findingText } from "./visibility.ts";
 
 /** How many apps each group shows before "Show all". */
 export const RECENT_PER_GROUP = 5;
@@ -35,9 +37,13 @@ const ESCAPES: Record<string, string> = {
   "'": "&#39;",
 };
 
-/** Text made safe for HTML content and attribute values. */
+/**
+ * Text made safe for HTML content and attribute values, without any secret.
+ * Records written before 2026.10.30.1 may hold a URL login or query, or a
+ * token, as given: they are hidden here, whatever wrote them.
+ */
 export function esc(value: unknown): string {
-  return String(value).replace(/[&<>"']/g, (c) => ESCAPES[c]);
+  return safeText(String(value)).replace(/[&<>"']/g, (c) => ESCAPES[c]);
 }
 
 function isWebUrl(value: string): boolean {
@@ -307,7 +313,9 @@ function visibilitySection(app: App): string {
     } <span class="card-meta">${esc(c.role)}</span> ${esc(c.detail)}</dd></div>`
   );
   const findings = v.findings.map((f) =>
-    `${code(`${f.file}:${f.line}`)} ${esc(f.kind)}: ${esc(f.text)}`
+    `${code(`${f.file}:${f.line}`)} ${esc(f.kind)}: ${
+      esc(findingText(f.kind, f.text))
+    }`
   );
   return section(
     "visibility",

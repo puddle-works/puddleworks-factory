@@ -104,6 +104,11 @@ swamp workflow run @puddleworks/puddleworks-factory-build \
   --input repository=https://github.com/example/obsidian-puddle-scanner
 ```
 
+A spec URL may carry a login or token: the Factory fetches with it, and stores,
+logs and shows the URL without it. Swamp itself keeps workflow inputs as given
+in its run records under `.swamp/`, so prefer a spec URL that needs no token, or
+download the spec and pass the file.
+
 `targetDir` must be a swamp repo (it has a `.swamp.yaml`), such as one made from
 `puddle-works/puddle-template`. The draft goes in its root: the extension and
 its test in `extensions/models/`, the workflow in `workflows/`, and

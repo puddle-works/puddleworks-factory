@@ -9,6 +9,7 @@ import { type App, appsFromRecords } from "./viewer_apps.ts";
 import { VIEWER_ASSETS } from "./viewer_assets.ts";
 import { appPage, overviewPage } from "./viewer_html.ts";
 import { handleViewerRequest, type ViewerDeps } from "./viewer_server.ts";
+import { safeText } from "./redact.ts";
 
 /** The behavior type whose records the viewer shows. */
 export const DRAFT_TYPE = "@puddleworks/puddleworks-factory/draft";
@@ -82,15 +83,27 @@ export async function serveViewer(
   const listeners = new Set<() => void>();
   // One poll at a time: a slow datastore skips a beat rather than piling up.
   let polling = false;
+  // Said once when reads start failing, and once when they work again: the
+  // page keeps showing what it last read, so a stuck datastore is not silent.
+  let failing = false;
   const poll = setInterval(() => {
     if (polling) return;
     polling = true;
     refresh()
       .then((changed) => {
+        if (failing) {
+          failing = false;
+          ctx.logger.info("The Factory's records read again");
+        }
         if (changed) listeners.forEach((listener) => listener());
       })
-      .catch(() => {
-        // Data mid-write; the next poll sees it whole.
+      .catch((e) => {
+        if (failing) return;
+        failing = true;
+        ctx.logger.info(
+          "Could not read the Factory's records, so the page shows what it read before: {error}",
+          { error: safeText(e instanceof Error ? e.message : String(e)) },
+        );
       })
       .finally(() => (polling = false));
   }, (options.pollSeconds ?? POLL_SECONDS) * 1000);

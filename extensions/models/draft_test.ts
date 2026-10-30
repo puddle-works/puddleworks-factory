@@ -282,6 +282,36 @@ Deno.test("render: refuses a repository that is not an https URL", () => {
   }
 });
 
+Deno.test("render: refuses a repository with a login in it, without repeating it", () => {
+  for (const login of ["x-access-token:s3cret", "alice"]) {
+    const repository = `https://${login}@github.com/example/x`;
+    const err = assertThrows(
+      () => renderDraft(OBSIDIAN, { ...FIXED, repository }),
+      Error,
+      "login",
+    );
+    assertEquals(err.message.includes(login), false, err.message);
+  }
+});
+
+Deno.test("render: refuses a repository with a query, or that does not parse, without repeating it", () => {
+  for (
+    const repository of [
+      "https://github.com/acme/app?access_token=SEKRET_Q1",
+      "https://deploy:hunter2@github.com:abc/acme/app",
+    ]
+  ) {
+    const err = assertThrows(
+      () => renderDraft(OBSIDIAN, { ...FIXED, repository }),
+      Error,
+      "repository",
+    );
+    for (const s of ["SEKRET_Q1", "hunter2"]) {
+      assertEquals(err.message.includes(s), false, err.message);
+    }
+  }
+});
+
 // The draft starts private and stays so until someone decides to share it.
 Deno.test("render: the manifest is private by default", () => {
   assertEquals(manifestOf().visibility, "private");
@@ -527,6 +557,18 @@ Deno.test("placeSection: a file with the section has only that section replaced"
     text: `# Repo\n\n${CLAUDE_BEGIN}\nnew\n${CLAUDE_END}\n\nAfter.\n`,
     replaced: true,
   });
+});
+
+// The END marker deleted by hand: replacing up to a later END would take the
+// builder's own text with it, so the file is left for them to mend.
+Deno.test("placeSection: a section with no end is refused, not appended to", () => {
+  const broken = `# Repo\n\n${CLAUDE_BEGIN}\nold\n\nMy own notes.\n`;
+  const err = assertThrows(
+    () => placeSection(broken, `${CLAUDE_BEGIN}\nnew\n${CLAUDE_END}\n`),
+    Error,
+    CLAUDE_END,
+  );
+  assertStringIncludes(err.message, "CLAUDE.md");
 });
 
 Deno.test("render: the generated test file points at the README test command", () => {
@@ -1028,6 +1070,34 @@ Deno.test("method: the draft resource records where the spec was agreed", async 
       model.resources.draft.schema.safeParse(ctx.writes[0].data).success,
       true,
     );
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("method: render says where it reads the spec from first, without any secret", async () => {
+  const dir = await appRepo();
+  try {
+    const logged: string[] = [];
+    const ctx = {
+      ...makeContext(),
+      logger: {
+        info: (msg: string, props?: Record<string, unknown>) =>
+          logged.push(`${msg} ${JSON.stringify(props ?? {})}`),
+      },
+    };
+    const spec = `${dir}/admin:hunter2@db.acme.io/spec.json`;
+    const err = await assertRejects(() =>
+      model.methods.render.execute(
+        model.methods.render.arguments.parse(
+          renderArgs(dir, false, "public", spec),
+        ),
+        ctx,
+      )
+    );
+    assertEquals(logged.length, 1, JSON.stringify(logged));
+    assertEquals(logged[0].includes("hunter2"), false, logged[0]);
+    assertEquals((err as Error).message.includes("hunter2"), false);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }

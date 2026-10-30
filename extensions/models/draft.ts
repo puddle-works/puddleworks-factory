@@ -44,6 +44,7 @@ import {
 import {
   loadAppSpec,
   loadOutcomeSpec,
+  sourceLabel,
   type SpecIo,
 } from "../lib/spec_source.ts";
 import { prefillAppSpec } from "../lib/prefill.ts";
@@ -53,6 +54,7 @@ import {
   RESOURCE_PREFIX,
 } from "../lib/names.ts";
 import { assessVisibility } from "../lib/visibility.ts";
+import { linkProblem, safeData, safeText } from "../lib/redact.ts";
 import { assessReadiness } from "../lib/readiness.ts";
 import {
   DraftSchema,
@@ -113,6 +115,7 @@ export const CLAUDE_END = "<!-- END puddleworks-factory app section -->";
 /**
  * Put a marked section into a file's text: replace the section if the text
  * has one, add it at the end if not, or use it alone when there is no file.
+ * A begin marker with no end marker after it is refused.
  * `replaced` says whether an earlier section was replaced.
  */
 export function placeSection(
@@ -122,6 +125,14 @@ export function placeSection(
   if (existing === null) return { text: section, replaced: false };
   const start = existing.indexOf(CLAUDE_BEGIN);
   const end = existing.indexOf(CLAUDE_END, start);
+  if (start >= 0 && end < 0) {
+    // Appending would leave two sections, and a later render would replace
+    // everything from the first to the new end: the builder's text between.
+    throw new Error(
+      `CLAUDE.md has ${CLAUDE_BEGIN} but no ${CLAUDE_END} after it: put the end ` +
+        "marker back where the Factory's section ends, then render again.",
+    );
+  }
   if (start >= 0 && end >= 0) {
     const after = existing.slice(end + CLAUDE_END.length).replace(/^\n/, "");
     return {
@@ -515,6 +526,23 @@ workflows:
 `;
 }
 
+/**
+ * Refuse a link that is not a plain https URL. A login or query in it would
+ * be written into the manifest, a resource or the viewer, and published.
+ */
+function checkLink(arg: string, url: string, example: string): void {
+  const problem = linkProblem(url) ??
+    (/^https:\/\/[^/]+\/./.test(url) ? null : "has no path");
+  if (problem === null) return;
+  throw new Error(
+    `${arg} "${safeText(url)}" ${problem}. Pass the plain https URL, e.g. ` +
+      `${example}, and let git find any credentials.`,
+  );
+}
+
+const REPO_EXAMPLE = "https://github.com/<owner>/<name>";
+const PR_EXAMPLE = "https://github.com/<owner>/<name>/pull/<number>";
+
 /** The MIT licence, held by the repository's owner (its first path part). */
 function renderLicense(repository: string, now: Date): string {
   const owner = new URL(repository).pathname.split("/").filter(Boolean)[0] ??
@@ -741,12 +769,7 @@ export function renderDraft(
         `name the workflow file and carry the package's collective.`,
     );
   }
-  if (!/^https:\/\/[^/]+\/./.test(opts.repository)) {
-    throw new Error(
-      `repository "${opts.repository}" must be the https URL of the app's repo, ` +
-        "e.g. https://github.com/<owner>/<name>.",
-    );
-  }
+  checkLink("repository", opts.repository, REPO_EXAMPLE);
   const problems = specificationProblems(input.specification);
   if (problems.length > 0) {
     throw new Error(
@@ -886,30 +909,49 @@ type ReadinessArgs = z.infer<typeof ReadinessArgsSchema>;
 
 /** The part of a visibility resource that readiness needs. */
 const VisibilityAnswerSchema = VisibilitySchema.pick({
-  recommendation: true,
-  canBePublic: true,
+  targetDir: true,
+  repoVisibility: true,
+  quality: true,
 });
 
 /** Directories the visibility check does not read: git, swamp runtime data, swamp-managed skills, dependencies. */
 const UNREAD = new Set([".git", ".swamp", ".claude/skills", "node_modules"]);
 
-/** Text files under root, relative paths, skipping UNREAD, large files and binaries. */
+/**
+ * Text files under root, relative paths, skipping UNREAD, symlinks, large
+ * files and binaries. `notRead` says what was skipped and why, except git, swamp runtime
+ * data and dependencies, which hold nothing the app ships.
+ */
 async function textFiles(
   root: string,
   dir = "",
-): Promise<Array<{ path: string; text: string }>> {
-  const out: Array<{ path: string; text: string }> = [];
+  notRead: string[] = [],
+): Promise<
+  { files: Array<{ path: string; text: string }>; notRead: string[] }
+> {
+  const files: Array<{ path: string; text: string }> = [];
   for await (const e of Deno.readDir(dir ? `${root}/${dir}` : root)) {
     const path = dir ? `${dir}/${e.name}` : e.name;
-    if (UNREAD.has(path)) continue;
-    if (e.isDirectory) out.push(...await textFiles(root, path));
-    else if (e.isFile) {
+    if (UNREAD.has(path)) {
+      if (path === ".claude/skills") notRead.push(`${path}/`);
+      continue;
+    }
+    if (e.isDirectory) {
+      files.push(...(await textFiles(root, path, notRead)).files);
+    } else if (e.isSymlink) {
+      // Not followed: it may point outside the repo, or at a file it lists twice.
+      notRead.push(`${path} (symlink)`);
+    } else if (e.isFile) {
       const bytes = await Deno.readFile(`${root}/${path}`);
-      if (bytes.length > 512 * 1024 || bytes.includes(0)) continue;
-      out.push({ path, text: new TextDecoder().decode(bytes) });
+      if (bytes.length > 512 * 1024) notRead.push(`${path} (over 512 KB)`);
+      else if (bytes.includes(0)) notRead.push(`${path} (binary)`);
+      else files.push({ path, text: new TextDecoder().decode(bytes) });
     }
   }
-  return out.sort((a, b) => a.path.localeCompare(b.path));
+  return {
+    files: files.sort((a, b) => a.path.localeCompare(b.path)),
+    notRead: notRead.sort(),
+  };
 }
 
 /** Name of the build result resource for an app spec. */
@@ -918,7 +960,7 @@ const resultName = (name: string) => `${RESOURCE_PREFIX.buildResult}${name}`;
 /** Where specs are read from. Tests swap these to avoid the network. */
 export const io: SpecIo = {
   readTextFile: (path) => Deno.readTextFile(path),
-  fetch: (url) => fetch(url),
+  fetch: (url, init) => fetch(url, init),
 };
 
 interface MethodContext {
@@ -933,6 +975,22 @@ interface MethodContext {
     instanceName: string,
     version?: number,
   ) => Promise<Record<string, unknown> | null>;
+}
+
+/**
+ * The context as a method uses it: every log line and resource as `safeText`
+ * gives it, so a token in an argument, a spec or a file is never kept.
+ */
+function guarded(context: MethodContext): MethodContext {
+  return {
+    ...context,
+    logger: {
+      info: (msg, props) =>
+        context.logger.info(safeText(msg), props && safeData(props)),
+    },
+    writeResource: (specName, name, data) =>
+      context.writeResource(specName, name, safeData(data)),
+  };
 }
 
 /** Write text to path, creating its directory first when it names one. */
@@ -961,7 +1019,7 @@ async function exists(path: string): Promise<boolean> {
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.10.27.2",
+  version: "2026.10.30.1",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -1027,6 +1085,34 @@ export const model = {
         "and prefill flags a suggested name that does. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
+    {
+      toVersion: "2026.10.30.1",
+      description:
+        "visibility findings hold only what matched, never the line, so no secret is " +
+        "repeated, and an email is kept as its domain; user:password@host, with or " +
+        "without a scheme, sk-ant- keys and labelled AWS secret keys count as secrets; " +
+        "a password with no user, and a token as a URL's user, count as secrets; " +
+        "check details hide any secret they copy; the repository check fails, and " +
+        "render and result refuse, a repository that is not a plain https URL (a " +
+        "login, query or fragment in it); result and readiness refuse such a " +
+        "pullRequest; the secrets check says which files and symlinks it did not " +
+        "read. prefill and render follow a spec URL's redirects themselves, refusing " +
+        "a hop off https before it is requested, more than 5 hops, or over 30 " +
+        "seconds (body included) or 1 MB, and record, log and show the URL without " +
+        "its login or query. Every method logs what it starts on. The viewer hides " +
+        "secrets and URL logins and queries in records written before this version, " +
+        "and says when it cannot read the records. Every log line and resource, the " +
+        "build result file, and a spec's link back to where it was agreed, are kept " +
+        "with URLs of any scheme stripped of their login and query, and with secrets " +
+        "hidden, now also Stripe, Google, GitLab, npm, OpenAI and Slack webhook " +
+        "tokens, JWTs, NAME_PASSWORD=… lines and user:password@localhost. readiness " +
+        "runs the visibility checks again on the files as they are, so a secret added " +
+        "after the visibility check blocks public, and asks for the check again when " +
+        "it was for another checkout or by an older Factory. render refuses a " +
+        "CLAUDE.md with the Factory's begin marker but no end marker. No data " +
+        "migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
   ],
   globalArguments: GlobalArgsSchema,
   resources: {
@@ -1074,7 +1160,11 @@ export const model = {
         "where it was agreed, and blanks for the builder's decisions, which are listed in the " +
         "prefill resource. Refuses to replace out unless overwrite=true.",
       arguments: PrefillArgsSchema,
-      execute: async (args: PrefillArgs, context: MethodContext) => {
+      execute: async (args: PrefillArgs, unguarded: MethodContext) => {
+        const context = guarded(unguarded);
+        context.logger.info("Reading the outcome spec from {source}", {
+          source: sourceLabel(args.outcomeSpec),
+        });
         const { spec: outcome, source } = await loadOutcomeSpec(
           args.outcomeSpec,
           io,
@@ -1115,7 +1205,8 @@ export const model = {
         "JSON, into the root of the app's own repo checkout. Private unless visibility=public. " +
         "Refuses to overwrite files unless overwrite=true.",
       arguments: RenderArgsSchema,
-      execute: async (args: RenderArgs, context: MethodContext) => {
+      execute: async (args: RenderArgs, unguarded: MethodContext) => {
+        const context = guarded(unguarded);
         const root = args.targetDir.replace(/\/+$/, "");
         if (!(await exists(`${root}/.swamp.yaml`))) {
           throw new Error(
@@ -1124,6 +1215,9 @@ export const model = {
           );
         }
 
+        context.logger.info("Reading the app spec from {source}", {
+          source: sourceLabel(args.spec),
+        });
         const { spec, source } = await loadAppSpec(args.spec, io);
         const files = renderDraft(spec, {
           now: new Date(),
@@ -1197,7 +1291,11 @@ export const model = {
         "its entry point, the repository, the branch or commit, and the pull request. " +
         "Records it as a resource and, with out, as a JSON file.",
       arguments: ResultArgsSchema,
-      execute: async (args: ResultArgs, context: MethodContext) => {
+      execute: async (args: ResultArgs, unguarded: MethodContext) => {
+        const context = guarded(unguarded);
+        context.logger.info("Recording the build result for {name}", {
+          name: args.name,
+        });
         const raw = context.readResource
           ? await context.readResource(args.name)
           : null;
@@ -1218,6 +1316,10 @@ export const model = {
           throw new Error(
             `The draft of "${args.name}" records no repository. Pass repository.`,
           );
+        }
+        checkLink("repository", repository, REPO_EXAMPLE);
+        if (args.pullRequest) {
+          checkLink("pullRequest", args.pullRequest, PR_EXAMPLE);
         }
         const manifest = draft.data.files.find((f) =>
           f.endsWith("/manifest.yaml")
@@ -1254,11 +1356,10 @@ export const model = {
           );
         }
 
+        // What the builder passed, like buildRef, may hold a token.
+        const result = safeData(parsed.result);
         if (args.out) {
-          await writeFileIn(
-            args.out,
-            JSON.stringify(parsed.result, null, 2) + "\n",
-          );
+          await writeFileIn(args.out, JSON.stringify(result, null, 2) + "\n");
         }
         context.logger.info("Build result for {name}: {buildRef}", {
           name: args.name,
@@ -1267,7 +1368,7 @@ export const model = {
         const handle = await context.writeResource(
           "buildResult",
           resultName(args.name),
-          parsed.result,
+          result,
         );
         return { dataHandles: [handle] };
       },
@@ -1277,9 +1378,14 @@ export const model = {
         "Check the app's repo before publishing and recommend public or private: licence, " +
         "repository and quality must pass to go public; paths, hosts, addresses and emails " +
         "that look internal, or spec wording about who the app is for, recommend private. " +
-        "Secrets block public and are never repeated. Records the visibility resource.",
+        "Secrets block public and are never repeated; emails are kept as their domain. " +
+        "Records the visibility resource.",
       arguments: VisibilityArgsSchema,
-      execute: async (args: VisibilityArgs, context: MethodContext) => {
+      execute: async (args: VisibilityArgs, unguarded: MethodContext) => {
+        const context = guarded(unguarded);
+        context.logger.info("Checking whether {name} can be public", {
+          name: args.name,
+        });
         const raw = context.readResource
           ? await context.readResource(args.name)
           : null;
@@ -1294,8 +1400,10 @@ export const model = {
           /\/+$/,
           "",
         );
+        const { files, notRead } = await textFiles(root);
         const assessment = assessVisibility({
-          files: await textFiles(root),
+          files,
+          notRead,
           quality: args.quality,
           repoVisibility: args.repoVisibility,
         });
@@ -1310,6 +1418,7 @@ export const model = {
             name: args.name,
             targetDir: root,
             repoVisibility: args.repoVisibility,
+            quality: args.quality,
             ...assessment,
             assessedAt: new Date().toISOString(),
           },
@@ -1322,10 +1431,19 @@ export const model = {
         "After the independent review, check the app is ready to publish: the review report " +
         "matches the manifest's name and version with no issue or pending verdict, every " +
         "acceptance criterion in spec/ maps to tests that exist or a manual check " +
-        "(spec/acceptance.json), and the visibility check allows the manifest's visibility. " +
+        "(spec/acceptance.json), and the visibility checks, run again on the files as they " +
+        "are now with the quality and repo visibility last given, allow the manifest's " +
+        "visibility. " +
         "Records the readiness resource with a one-screen summary.",
       arguments: ReadinessArgsSchema,
-      execute: async (args: ReadinessArgs, context: MethodContext) => {
+      execute: async (args: ReadinessArgs, unguarded: MethodContext) => {
+        const context = guarded(unguarded);
+        context.logger.info("Checking whether {name} is ready to publish", {
+          name: args.name,
+        });
+        if (args.pullRequest) {
+          checkLink("pullRequest", args.pullRequest, PR_EXAMPLE);
+        }
         const raw = context.readResource
           ? await context.readResource(args.name)
           : null;
@@ -1351,12 +1469,26 @@ export const model = {
             `${RESOURCE_PREFIX.visibility}${args.name}`,
           ),
         );
+        const { files, notRead } = await textFiles(root);
+        // The files change after the visibility check (the manifest's
+        // visibility, the review report, a late fix): check them again as
+        // they are now, with the quality and repo visibility it was given.
+        const visibility = !answer.success
+          ? null
+          : answer.data.quality === undefined || answer.data.targetDir !== root
+          ? "outdated" as const
+          : assessVisibility({
+            files,
+            notRead,
+            quality: answer.data.quality,
+            repoVisibility: answer.data.repoVisibility,
+          });
         const readiness = assessReadiness({
-          files: await textFiles(root),
+          files,
           review: reviewText === null
             ? null
             : { path: reviewFile, text: reviewText },
-          visibility: answer.success ? answer.data : null,
+          visibility,
           pullRequest: args.pullRequest,
           commit: args.commit,
         });

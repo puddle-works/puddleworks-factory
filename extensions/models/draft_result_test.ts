@@ -195,6 +195,47 @@ Deno.test("result: a link that is not https writes nothing", async () => {
   });
 });
 
+Deno.test("result: a repository with a login in it writes nothing", async () => {
+  await withDraft(async (_dir, ctx) => {
+    const before = ctx.writes.length;
+    const err = await assertRejects(
+      () =>
+        model.methods.result.execute(
+          resultArgs({
+            repository: "https://x-access-token:s3cret@github.com/example/x",
+          }),
+          ctx,
+        ),
+      Error,
+      "login",
+    );
+    assertEquals(err.message.includes("s3cret"), false, err.message);
+    assertEquals(ctx.writes.length, before);
+  });
+});
+
+Deno.test("result: a pull request with a login or query writes nothing", async () => {
+  await withDraft(async (_dir, ctx) => {
+    const before = ctx.writes.length;
+    for (
+      const pullRequest of [
+        "https://bot:pw@github.com/acme/app/pull/1",
+        "https://github.com/acme/app/pull/1?token=SEKRET_PR",
+      ]
+    ) {
+      const err = await assertRejects(
+        () => model.methods.result.execute(resultArgs({ pullRequest }), ctx),
+        Error,
+        "pullRequest",
+      );
+      for (const s of ["bot:pw", "SEKRET_PR"]) {
+        assertEquals(err.message.includes(s), false, err.message);
+      }
+    }
+    assertEquals(ctx.writes.length, before);
+  });
+});
+
 Deno.test("result: carries where the spec was agreed into the build result", async () => {
   const source = {
     url: "http://localhost:3001/requests/8f0c6a52",
@@ -265,5 +306,34 @@ Deno.test("result: blank published inputs record nothing published", async () =>
     );
     const data = ctx.store.get("build-result-obsidian-puddle-scanner")!;
     assertEquals("published" in data, false);
+  });
+});
+
+Deno.test("result: what it stores and logs has no URL login, query or secret", async () => {
+  await withDraft(async (dir, ctx) => {
+    const logged: string[] = [];
+    const logging = {
+      ...ctx,
+      logger: {
+        info: (msg: string, props?: Record<string, unknown>) => {
+          logged.push(`${msg} ${JSON.stringify(props ?? {})}`);
+        },
+      },
+    };
+    const out = `${dir}/build-result.json`;
+    await model.methods.result.execute(
+      resultArgs({ buildRef: "https://u:pw1@x.acme.io/b?t=SEKRET1", out }),
+      logging,
+    );
+    const stored = JSON.stringify(
+      ctx.store.get("build-result-obsidian-puddle-scanner"),
+    );
+    const file = await Deno.readTextFile(out);
+    for (const text of [stored, file, ...logged]) {
+      for (const s of ["pw1", "SEKRET1"]) {
+        assertEquals(text.includes(s), false, text);
+      }
+    }
+    assertStringIncludes(stored, "https://x.acme.io/b");
   });
 });

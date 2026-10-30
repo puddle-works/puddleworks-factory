@@ -114,6 +114,37 @@ Deno.test("visibility: reads the repo's files, not .git or .swamp", async () => 
   });
 });
 
+Deno.test("visibility: says which files it did not read", async () => {
+  await withDraft(async (dir, ctx) => {
+    await Deno.mkdir(`${dir}/.claude/skills/app`, { recursive: true });
+    await Deno.writeTextFile(`${dir}/.claude/skills/app/SKILL.md`, "# app\n");
+    await Deno.mkdir(`${dir}/data`);
+    await Deno.writeTextFile(`${dir}/data/big.json`, "x".repeat(600 * 1024));
+    await Deno.writeFile(`${dir}/data/logo.png`, new Uint8Array([137, 0, 1]));
+    await model.methods.visibility.execute(args(), ctx);
+    const data = ctx.store.get(`visibility-${NAME}`)!;
+    const secrets = (data.checks as Array<{ id: string; detail: string }>)
+      .find((c) => c.id === "secrets")!;
+    assertStringIncludes(
+      secrets.detail,
+      "not read: .claude/skills/, data/big.json (over 512 KB), data/logo.png (binary)",
+    );
+  });
+});
+
+Deno.test("visibility: lists symlinks it did not follow", async () => {
+  await withDraft(async (dir, ctx) => {
+    await Deno.writeTextFile(`${dir}/outside.env`, "PW=x\n");
+    await Deno.mkdir(`${dir}/config`);
+    await Deno.symlink(`${dir}/outside.env`, `${dir}/config/prod.env`);
+    await model.methods.visibility.execute(args(), ctx);
+    const data = ctx.store.get(`visibility-${NAME}`)!;
+    const secrets = (data.checks as Array<{ id: string; detail: string }>)
+      .find((c) => c.id === "secrets")!;
+    assertStringIncludes(secrets.detail, "config/prod.env (symlink)");
+  });
+});
+
 Deno.test("visibility: targetDir overrides where the draft was written", async () => {
   await withDraft(async (_dir, ctx) => {
     const other = await Deno.makeTempDir({ prefix: "factory-visibility-" });

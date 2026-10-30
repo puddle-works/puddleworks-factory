@@ -8,7 +8,13 @@
  * @module
  */
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
-import { assessVisibility, type RepoFacts, scanFile } from "./visibility.ts";
+import {
+  assessVisibility,
+  type FindingKind,
+  findingText,
+  type RepoFacts,
+  scanFile,
+} from "./visibility.ts";
 
 const MANIFEST = `manifestVersion: 1
 name: "@puddleworks/obsidian-puddle-scanner"
@@ -134,7 +140,7 @@ Deno.test("visibility: an internal detail recommends private but allows public",
     file: "extensions/models/obsidian_puddle_scanner.ts",
     line: 1,
     kind: "home-path",
-    text: 'const where = "/Users/alice/vault";',
+    text: "/Users/alice/",
   }]);
 });
 
@@ -149,6 +155,114 @@ Deno.test("visibility: a secret blocks public and its text is not repeated", () 
   assertEquals(a.findings[0].kind, "secret");
   assertEquals(a.findings[0].line, 3);
   assertEquals(a.findings[0].text.includes(key), false);
+});
+
+Deno.test("scan: no finding repeats a secret on its line", () => {
+  const token = ["ghp_", "a".repeat(36)].join("");
+  const findings = scanFile(
+    "README.md",
+    `push as alice@acme.io with ${token} from /Users/alice/ to 10.0.0.5\n`,
+  );
+  assertEquals(
+    findings.map((f) => f.kind),
+    ["email", "secret", "home-path", "private-ip"],
+  );
+  for (const f of findings) assertEquals(f.text.includes(token), false);
+});
+
+Deno.test("visibility: spec wording with a secret in it is not repeated", () => {
+  const token = ["ghp_", "b".repeat(36)].join("");
+  const internal = OUTCOME.replace(
+    "Runs on a laptop",
+    `Confidential: use ${token}`,
+  );
+  const a = assessVisibility(
+    facts({ files: replace("spec/outcome-spec.v1.json", internal) }),
+  );
+  const audience = a.findings.filter((f) => f.kind === "audience");
+  assertEquals(audience.length, 1);
+  assertEquals(audience[0].text.includes(token), false);
+  assertEquals(JSON.stringify(a).includes(token), false);
+});
+
+Deno.test("scan: a finding stores what it found, not the line", () => {
+  const findings = scanFile(
+    "README.md",
+    "push as bob@acme.io from /Users/alice/ to 10.0.0.5 on nas.internal\n",
+  );
+  assertEquals(
+    findings.map((f) => [f.kind, f.text]),
+    [
+      ["email", "…@acme.io"],
+      ["home-path", "/Users/alice/"],
+      ["private-ip", "10.0.0.5"],
+      ["internal-host", "nas.internal"],
+    ],
+  );
+});
+
+Deno.test("scan: secrets it has no pattern for are not stored either", () => {
+  const password = "S3cretPassw0rd";
+  const text = [
+    `export KEY=${"wJalrXUtnFEMI" + "K7MDENGbPxRfiCY"} # from /Users/alice/`,
+    `postgres://admin:${password}@db.internal:5432`,
+  ].join("\n");
+  const stored = JSON.stringify(scanFile("x.env", text));
+  assertEquals(stored.includes("wJalrXUtnFEMI"), false);
+  assertEquals(stored.includes(password), false);
+});
+
+Deno.test("scan: a password in a URL is a secret, not an email", () => {
+  const text = [
+    "postgres://admin:S3cretPassw0rd@db.internal:5432",
+    "https://deploy:pw@10.1.2.3/",
+    "see https://user:pass@example.com/ in the docs",
+  ].join("\n");
+  assertEquals(
+    scanFile("x.md", text).map((f) => [f.line, f.kind, f.text]),
+    [
+      [1, "secret", "(hidden)"],
+      [1, "internal-host", "db.internal"],
+      [2, "secret", "(hidden)"],
+      [2, "private-ip", "10.1.2.3"],
+    ],
+  );
+});
+
+Deno.test("scan: more key shapes are secrets", () => {
+  const text = [
+    ["sk-ant-", "api03-", "c".repeat(40)].join(""),
+    ["ghp_", "d".repeat(36), "_x"].join(""),
+    ["AKIA", "R".repeat(16), "_x"].join(""),
+    ["aws_secret_access_key", " = ", "e".repeat(40)].join(""),
+  ].join("\n");
+  assertEquals(
+    scanFile("x.md", text).map((f) => [f.line, f.kind]),
+    [[1, "secret"], [2, "secret"], [3, "secret"], [4, "secret"]],
+  );
+});
+
+Deno.test("visibility: spec wording stores the words that matched, not the sentence", () => {
+  const internal = OUTCOME.replace(
+    "Runs on a laptop",
+    "Only for our team; ask Sam on 07700 900123",
+  );
+  const a = assessVisibility(
+    facts({ files: replace("spec/outcome-spec.v1.json", internal) }),
+  );
+  const found = a.findings.filter((f) => f.kind === "audience");
+  assertEquals(found.map((f) => f.text), ["our team"]);
+});
+
+Deno.test("visibility: the secrets check names what it did not read", () => {
+  const a = assessVisibility(
+    facts({ notRead: [".claude/skills/", "data/big.json (over 512 KB)"] }),
+  );
+  assertEquals(check(a, "secrets").ok, true);
+  assertStringIncludes(
+    check(a, "secrets").detail,
+    "not read: .claude/skills/, data/big.json (over 512 KB)",
+  );
 });
 
 Deno.test("visibility: spec wording about who it is for recommends private", () => {
@@ -217,4 +331,154 @@ Deno.test("scan: a file name like settings.local.json is not a host", () => {
     scanFile(".gitignore", text).map((f) => [f.line, f.kind]),
     [[3, "internal-host"], [4, "internal-host"]],
   );
+});
+
+Deno.test("scan: an email is stored as its domain only", () => {
+  const stored = JSON.stringify(
+    scanFile("x.md", "mail bob.smith@acme.io or priya@shop.acme.co.uk\n"),
+  );
+  assertEquals(stored.includes("bob.smith"), false);
+  assertEquals(stored.includes("priya"), false);
+  assertEquals(
+    scanFile("x.md", "mail bob.smith@acme.io\n").map((f) => f.text),
+    ["…@acme.io"],
+  );
+});
+
+Deno.test("scan: a password with @ in it is hidden up to the last @", () => {
+  const findings = scanFile(
+    "x.env",
+    "postgres://admin:P@ssw0rd@db.acme.io:5432/app\n",
+  );
+  const stored = JSON.stringify(findings);
+  assertEquals(stored.includes("ssw0rd"), false);
+  assertEquals(findings.map((f) => f.kind), ["secret"]);
+});
+
+Deno.test("scan: a user:password@host with no scheme is a secret", () => {
+  const text = [
+    "REDIS=default:pw@redis.prod.com:6379",
+    "cache admin:hunter2@10.0.0.9",
+  ].join("\n");
+  const findings = scanFile("x.env", text);
+  const stored = JSON.stringify(findings);
+  for (const s of ["default:pw", "hunter2", "pw@redis"]) {
+    assertEquals(stored.includes(s), false, s);
+  }
+  assertEquals(
+    findings.map((f) => [f.line, f.kind]),
+    [[1, "secret"], [2, "secret"], [2, "private-ip"]],
+  );
+});
+
+Deno.test("scan: package specifiers and mailto links are not passwords", () => {
+  const text = [
+    'import _ from "npm:lodash-es@4.17.21";',
+    'import { z } from "npm:zod@4";',
+    'import { parse } from "jsr:@std/yaml@1.0.12";',
+    "[mail](mailto:help@example.com)",
+  ].join("\n");
+  assertEquals(scanFile("x.ts", text), []);
+});
+
+Deno.test("visibility: no check detail repeats a secret from the manifest", () => {
+  const token = ["ghp_", "f".repeat(36)].join("");
+  const manifest = MANIFEST.replace(
+    "https://github.com/puddle-works/obsidian-puddle-scanner",
+    `https://x-access-token:${token}@github.com/puddle-works/obsidian-puddle-scanner`,
+  ).replace("license: MIT", "license: MIT admin:hunter2@db.acme.io");
+  const a = assessVisibility(
+    facts({
+      files: replace("manifest.yaml", manifest),
+      notRead: [`data/${token}.bin (binary)`],
+    }),
+  );
+  const shown = JSON.stringify(a.checks);
+  assertEquals(shown.includes(token), false);
+  assertEquals(shown.includes("hunter2"), false);
+  assertEquals(shown.includes("x-access-token"), false);
+});
+
+Deno.test("visibility: a repository with a login in it is refused", () => {
+  for (
+    const login of ["x-access-token:tok", "alice", "alice:pw"]
+  ) {
+    const manifest = MANIFEST.replace(
+      "https://github.com/",
+      `https://${login}@github.com/`,
+    );
+    const a = assessVisibility(
+      facts({ files: replace("manifest.yaml", manifest) }),
+    );
+    const repo = check(a, "repository");
+    assertEquals(repo.ok, false, login);
+    assertEquals(a.canBePublic, false);
+    assertEquals(repo.detail.includes(login), false, repo.detail);
+    assertStringIncludes(
+      repo.detail,
+      "https://github.com/puddle-works/obsidian-puddle-scanner",
+    );
+  }
+});
+
+Deno.test("scan: a password with no user, and a token as the user, are secrets", () => {
+  const token = ["abcdef", "TOKEN", "1234567890xyz"].join("");
+  const text = [
+    "REDIS_URL=redis://:s3cretpass@cache.prod.acme.io:6379",
+    `git clone https://${token}@dev.azure.com/org/p/_git/r`,
+    "ssh://git@github.com/acme/app and https://alice@github.com/acme/app",
+  ].join("\n");
+  const findings = scanFile("x.env", text);
+  const stored = JSON.stringify(findings);
+  assertEquals(stored.includes("s3cretpass"), false);
+  assertEquals(stored.includes(token), false);
+  assertEquals(
+    findings.filter((f) => f.kind === "secret").map((f) => f.line),
+    [1, 2],
+  );
+});
+
+Deno.test("visibility: a repository with a query, or that does not parse, is refused", () => {
+  for (
+    const repository of [
+      "https://github.com/acme/app?access_token=SEKRET_Q1",
+      "https://deploy:hunter2@github.com:abc/acme/app",
+    ]
+  ) {
+    const manifest = MANIFEST.replace(
+      "https://github.com/puddle-works/obsidian-puddle-scanner",
+      repository,
+    );
+    const a = assessVisibility(
+      facts({ files: replace("manifest.yaml", manifest) }),
+    );
+    const repo = check(a, "repository");
+    assertEquals(repo.ok, false, repository);
+    for (const s of ["SEKRET_Q1", "hunter2"]) {
+      assertEquals(repo.detail.includes(s), false, repo.detail);
+    }
+  }
+});
+
+Deno.test("visibility: a finding as it may be shown, also for records written before", () => {
+  const cases: Array<[FindingKind, string, string]> = [
+    ["secret", "ghp_whatever", "(hidden)"],
+    [
+      "email",
+      "DB=postgres://app:hunter2@db.corp.internal/x bob@acme.io",
+      "…@acme.io",
+    ],
+    [
+      "internal-host",
+      "DB=postgres://app:hunter2@db.corp.internal/x",
+      "db.corp.internal",
+    ],
+    ["private-ip", "token=abc host 10.0.0.5", "10.0.0.5"],
+    ["home-path", "key=abc in /Users/alice/x", "/Users/alice/"],
+    ["audience", "Only for our team, password abc", "our team"],
+    ["email", "no address here, password abc", "(hidden)"],
+  ];
+  for (const [kind, text, shown] of cases) {
+    assertEquals(findingText(kind, text), shown, `${kind}: ${text}`);
+  }
 });

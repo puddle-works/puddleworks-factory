@@ -195,3 +195,63 @@ Deno.test("readiness: with no draft for the name it says what to run", async () 
   assertStringIncludes(err.message, "@puddleworks/puddleworks-factory-build");
   assertEquals(ctx.writes.length, 0);
 });
+
+Deno.test("readiness: a pull request with a login or query writes nothing", async () => {
+  await withReviewedDraft(async (_dir, ctx) => {
+    const before = ctx.writes.length;
+    const err = await assertRejects(
+      () =>
+        model.methods.readiness.execute(
+          args({ pullRequest: `${REPO}/pull/1?token=SEKRET_PR2` }),
+          ctx,
+        ),
+      Error,
+      "pullRequest",
+    );
+    assertEquals(err.message.includes("SEKRET_PR2"), false, err.message);
+    assertEquals(ctx.writes.length, before);
+  });
+});
+
+// The visibility record is from before the change: readiness checks the
+// files as they are now, with the quality and repo visibility it recorded.
+Deno.test("readiness: a secret added after the visibility check blocks public", async () => {
+  await withReviewedDraft(async (dir, ctx) => {
+    const manifest = await Deno.readTextFile(`${dir}/manifest.yaml`);
+    await Deno.writeTextFile(
+      `${dir}/manifest.yaml`,
+      manifest.replace(/^visibility: private$/m, "visibility: public"),
+    );
+    await Deno.writeTextFile(
+      `${dir}/extensions/models/leak.ts`,
+      `export const token = "${["ghp_", "k".repeat(36)].join("")}";\n`,
+    );
+    await model.methods.readiness.execute(args(), ctx);
+    const data = ctx.store.get(`readiness-${NAME}`)!;
+    assertEquals(data.ready, false, String(data.summary));
+    assertEquals(data.recommendation, "private");
+    assertStringIncludes(String(data.blockers), "required checks failed");
+  });
+});
+
+Deno.test("readiness: a visibility check of another checkout, or by an older Factory, is run again", async () => {
+  await withReviewedDraft(async (dir, ctx) => {
+    const name = `visibility-${NAME}`;
+    const { quality: _q, ...older } = ctx.store.get(name)!;
+    for (
+      const record of [older, {
+        ...ctx.store.get(name)!,
+        targetDir: "/elsewhere",
+      }]
+    ) {
+      ctx.store.set(name, record);
+      await model.methods.readiness.execute(args({ targetDir: dir }), ctx);
+      const data = ctx.store.get(`readiness-${NAME}`)!;
+      assertEquals(data.ready, false, String(data.summary));
+      assertStringIncludes(
+        String(data.blockers),
+        "run @puddleworks/puddleworks-factory-visibility again",
+      );
+    }
+  });
+});

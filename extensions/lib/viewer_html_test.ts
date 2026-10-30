@@ -21,6 +21,7 @@ import {
   prefill,
   readiness,
   record,
+  visibility,
 } from "./viewer_fixtures.ts";
 
 const READ_AT = "2026-10-29T12:00:00.000Z";
@@ -238,4 +239,59 @@ Deno.test("viewer html: not found links back to every app", () => {
   assertReadOnly(html);
   assertStringIncludes(html, "<h1>Not found</h1>");
   assertStringIncludes(html, 'href="/"');
+});
+
+// Records written before 2026.10.30.1 may hold whole lines and URLs as passed.
+Deno.test("viewer html: secrets in older records are not shown", () => {
+  const token = ["ghp_", "h".repeat(36)].join("");
+  const one = app([
+    record(
+      "prefill",
+      `prefill-${NAME}`,
+      prefill(NAME, {
+        specSource: "https://bot:pw1@specs.acme.io/a.json?token=SEKRET_S",
+      }),
+    ),
+    record(
+      "draft",
+      NAME,
+      draft(NAME, {
+        repository: "https://x-access-token:pw2@github.com/acme/app",
+      }),
+    ),
+    record(
+      "visibility",
+      `visibility-${NAME}`,
+      visibility(NAME, {
+        checks: [{
+          id: "repository",
+          role: "required",
+          ok: true,
+          detail: `repository: https://x:${token}@github.com/acme/app`,
+        }],
+        findings: [{
+          file: "x.env",
+          line: 1,
+          kind: "email",
+          text: "DB=postgres://app:pw3@db.corp.internal/x bob@acme.io",
+        }],
+      }),
+    ),
+    record(
+      "readiness",
+      `readiness-${NAME}`,
+      readiness(NAME, {
+        pullRequest: "https://github.com/acme/app/pull/1?token=SEKRET_R",
+        summary: "PR: https://github.com/acme/app/pull/1?token=SEKRET_R",
+      }),
+    ),
+  ]);
+  const html = appPage(one, READ_AT);
+  for (
+    const s of ["pw1", "SEKRET_S", "pw2", token, "pw3", "SEKRET_R", "bob@"]
+  ) {
+    assertEquals(html.includes(s), false, s);
+  }
+  assertStringIncludes(html, "https://specs.acme.io/a.json");
+  assertStringIncludes(html, "…@acme.io");
 });
