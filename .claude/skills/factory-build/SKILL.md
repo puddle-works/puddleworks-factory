@@ -64,8 +64,9 @@ jq -r '.format // .apiVersion' SPEC_FILE   # or: curl -fsSL SPEC_URL | jq -r '.f
   (`docs/contracts/app-spec.md`). Its `name` is the app name. Skip step 1a.
 
 Below, `NAME` is the app name, `SPEC` is the app spec to build from, `REPO` is
-the app repo's https URL (`https://github.com/puddle-works/NAME`), `W` is
-`APP-draft-NAME`, a worktree beside `APP`, and `SP` is the scratchpad directory.
+the app repo's https URL (`https://github.com/puddle-works/NAME`), `W` is the
+Orca worktree step 2 makes for the build (`~/orca/workspaces/NAME/draft-NAME`),
+and `SP` is the scratchpad directory.
 The contracts are in `docs/contracts/` in the puddleworks-factory repo.
 
 ## Step 1: Make sure the factory model exists
@@ -184,24 +185,34 @@ come back empty while GitHub copies the template: if `git -C APP log` says
 `does not have any commits yet`, wait a few seconds, delete `APP` and clone
 again.
 
-Make the branch:
+Every app is an Orca project, and every build happens in an Orca worktree, so
+the user can see and open it from Orca. Add the checkout to Orca (this is safe
+to repeat: an app already added gives back the same id) and make the branch in
+a new Orca worktree:
 
 ```bash
+ORCA_ID=$(orca repo add --path APP --json | jq -r .result.repo.id)
 git -C APP fetch origin --quiet
-git -C APP worktree add W -b draft/NAME origin/main
+orca worktree create --repo id:$ORCA_ID --name draft-NAME --branch draft/NAME \
+  --base-branch origin/main --no-parent --setup skip --activate --json \
+  | jq -r '.result.worktree.path'
 ```
 
-Expect `HEAD is now at …`. If the branch already exists, this is a re-draft:
-reuse the existing worktree, skip the clean-up below, and pass `overwrite=true`
-in step 3 only if the user agrees to replace the files. This is a plain git
-worktree: do not link it to any other worktree.
+The path it prints is `W`. Orca names the project after the remote
+(`github:puddle-works/NAME`); `orca project list --json` shows it. Always pass
+`--no-parent`: the build is not linked to any other worktree, and Orca would
+otherwise pick a parent from where it was run. If the branch already exists,
+this is a re-draft: find its worktree with
+`orca worktree list --repo id:$ORCA_ID --json | jq -r '.result.worktrees[] | select(.branch == "refs/heads/draft/NAME") | .path'`
+and reuse it as `W`, skip the clean-up below, and pass `overwrite=true` in
+step 3 only if the user agrees to replace the files.
 
 On a new branch, remove the template's placeholders so the draft replaces them,
 and give the repo its own swamp `repoId`:
 
 ```bash
 git -C W rm -q --ignore-unmatch manifest.yaml README.md extensions/models/example.ts \
-  extensions/models/example_test.ts workflows/example.yaml 'swamp-extension-review/_puddleworks_puddle-template-*.json'
+  extensions/models/example_test.ts workflows/workflow-example.yaml 'swamp-extension-review/_puddleworks_puddle-template-*.json'
 { head -1 W/contracts.ts; printf '\n// Maps each model instance a workflow reads with data.latest(...) to its type and the data names it writes.\nexport const CONTRACTS: Contracts = {};\n'; } > SP/contracts.ts
 mv SP/contracts.ts W/contracts.ts
 (cd W && swamp repo init --force --tool claude >/dev/null)
