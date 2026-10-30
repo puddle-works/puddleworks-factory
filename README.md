@@ -120,11 +120,16 @@ private; whether it goes public is decided once it is built (below).
 
 Once it is built and passes its checks, ask for a recommendation. `quality` is
 `swamp extension quality manifest.yaml --json | jq .percentage` in the app repo,
-and `repoVisibility` is the GitHub repo's (`public` or `private`):
+`provisionalQuality` is `.ifProvisionalEarned.percentage` from the same output
+(0 when nothing is provisional), and `repoVisibility` is the GitHub repo's
+(`public` or `private`). Some quality points, such as a verified public
+repository, are provisional: only the registry awards them, at push. The quality
+check passes when either percentage is 100.
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-visibility \
-  --input name=obsidian-puddle-scanner --input quality=100 --input repoVisibility=private
+  --input name=obsidian-puddle-scanner --input quality=87 --input provisionalQuality=100 \
+  --input repoVisibility=private
 swamp data query 'behavior("puddleworks-factory") && name == "visibility-obsidian-puddle-scanner"' \
   --select content --json | jq '.results[0] | {recommendation, canBePublic, checks, findings}'
 ```

@@ -255,3 +255,26 @@ Deno.test("readiness: a visibility check of another checkout, or by an older Fac
     }
   });
 });
+
+Deno.test("readiness: public quality short only by the registry's points is checked again with them", async () => {
+  await withReviewedDraft(async (dir, ctx) => {
+    await model.methods.visibility.execute(
+      model.methods.visibility.arguments.parse({
+        name: NAME,
+        quality: 87,
+        provisionalQuality: 100,
+        repoVisibility: "public",
+      }),
+      ctx,
+    );
+    const manifest = await Deno.readTextFile(`${dir}/manifest.yaml`);
+    await Deno.writeTextFile(
+      `${dir}/manifest.yaml`,
+      manifest.replace(/^visibility: private$/m, "visibility: public"),
+    );
+    await model.methods.readiness.execute(args(), ctx);
+    const data = ctx.store.get(`readiness-${NAME}`)!;
+    assertEquals(data.ready, true, String(data.summary));
+    assertEquals(data.visibility, "public");
+  });
+});

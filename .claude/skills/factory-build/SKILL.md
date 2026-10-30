@@ -328,23 +328,28 @@ make test
 make contracts-check
 make guardrails-check
 swamp workflow validate ENTRY_POINT_REF
-swamp extension quality manifest.yaml --json | jq '{percentage, gateFailures}'
+swamp extension quality manifest.yaml --json \
+  | jq '{percentage, gateFailures, provisional: [.factors[] | select(.status == "provisional") | .id]}'
 ```
 
 `ENTRY_POINT_REF` is the full `@<collective>/<slug>` name from `W/README.md`;
 the `model not found` warning from `validate` is expected in a fresh worktree.
-Each must pass, and quality must be `100` with no `gateFailures`: fix the code
-(JSDoc on exports, a README, the licence) until it is. The draft is not
+Each must pass, with no `gateFailures` and every factor earned except the
+`provisional` ones: fix the code (JSDoc on exports, a README, the licence)
+until it is. A provisional factor, such as `repository-verified`, is awarded
+only by the registry at push, so the local percentage stays below 100 (87%
+with that one) however good the code is. The draft is not
 formatted as generated, so `fmt` changes files the first time. Commit what
 changed, as in step 5, with the message `Get NAME ready to publish`.
 
 ## Step 7: Recommend public or private, and ask
 
 ```bash
-Q=$(cd W && swamp extension quality manifest.yaml --json | jq .percentage)
+QJ=$(cd W && swamp extension quality manifest.yaml --json)
+Q=$(jq .percentage <<<"$QJ"); PQ=$(jq '.ifProvisionalEarned.percentage // 0' <<<"$QJ")
 RV=$(gh repo view puddle-works/NAME --json visibility -q .visibility | tr A-Z a-z)
 swamp workflow run @puddleworks/puddleworks-factory-visibility --input name=NAME \
-  --input quality=$Q --input repoVisibility=$RV --json | jq -r .status
+  --input quality=$Q --input provisionalQuality=$PQ --input repoVisibility=$RV --json | jq -r .status
 swamp data query 'behavior("puddleworks-factory") && name == "visibility-NAME"' \
   --select content --json | jq '.results[0] | {recommendation, canBePublic, checks, findings}'
 ```
@@ -357,7 +362,7 @@ workflows. The method reads every text file in `W` (not `.git`, `.swamp`,
 | ------------------ | -------- | ---------------------------------------------------------------------------- |
 | `licence`          | required | No `license:` in the manifest, or no `LICENSE` file                          |
 | `repository`       | required | No `https://` `repository:` in the manifest                                  |
-| `quality`          | required | Quality below 100%                                                           |
+| `quality`          | required | Quality below 100%, even with the registry's provisional points              |
 | `secrets`          | required | A key or token is in the files (its text is never shown)                     |
 | `internal-details` | signal   | Home paths, internal hosts, private IPs or real email addresses              |
 | `audience`         | signal   | The spec's `specification` says it is internal, confidential, for "our team" |
@@ -367,8 +372,17 @@ A failed `secrets` check means the secret is in git history: tell the user to
 rotate it, and remove it before anything else. Show the recommendation, every
 check that failed, and each finding (`file:line` and its `text`, which is only
 what matched, never the line; a secret's is `(hidden)`), then ask with
-`AskUserQuestion`, the recommendation first. Offer **Public** only when
-`canBePublic` is true; otherwise say which required checks block it. If the
+`AskUserQuestion`, the recommendation first.
+
+**Always ask, every build, before step 8's dry run and the first publish.**
+Visibility is permanent once pushed, so never decide it yourself, not even when
+only one answer looks possible or the user has chosen before. Always offer both
+**Public** and **Private**. When `canBePublic` is false, still offer Public, and
+say in its description which required checks block it and what fixing them
+takes; if the user picks it, fix them the way step 5 does, run step 6's checks,
+and run this step again before changing the manifest. The `quality` check
+counts the registry's provisional points (`provisionalQuality`), because the
+repo is made public in step 10, before the push that awards them. If the
 `secrets` detail lists files it did not read, say so: none of them was checked
 for secrets.
 

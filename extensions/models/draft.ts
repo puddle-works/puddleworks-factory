@@ -884,6 +884,11 @@ const VisibilityArgsSchema = z.object({
   name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   /** `swamp extension quality --json` percentage for the app's manifest. */
   quality: z.number().int().min(0).max(100),
+  /**
+   * The percentage once the registry awards the provisional points it gives
+   * only at push (`.ifProvisionalEarned.percentage`); 0 when there are none.
+   */
+  provisionalQuality: z.number().int().min(0).max(100).default(0),
   /** The app repo's visibility on GitHub. */
   repoVisibility: z.enum(["public", "private"]),
   /** The app repo checkout to check. Defaults to where the draft was written. */
@@ -912,6 +917,7 @@ const VisibilityAnswerSchema = VisibilitySchema.pick({
   targetDir: true,
   repoVisibility: true,
   quality: true,
+  provisionalQuality: true,
 });
 
 /** Directories the visibility check does not read: git, swamp runtime data, swamp-managed skills, dependencies. */
@@ -1405,6 +1411,7 @@ export const model = {
           files,
           notRead,
           quality: args.quality,
+          provisionalQuality: args.provisionalQuality,
           repoVisibility: args.repoVisibility,
         });
         context.logger.info("Visibility for {name}: {recommendation}", {
@@ -1419,6 +1426,7 @@ export const model = {
             targetDir: root,
             repoVisibility: args.repoVisibility,
             quality: args.quality,
+            provisionalQuality: args.provisionalQuality,
             ...assessment,
             assessedAt: new Date().toISOString(),
           },
@@ -1481,6 +1489,7 @@ export const model = {
             files,
             notRead,
             quality: answer.data.quality,
+            provisionalQuality: answer.data.provisionalQuality,
             repoVisibility: answer.data.repoVisibility,
           });
         const readiness = assessReadiness({

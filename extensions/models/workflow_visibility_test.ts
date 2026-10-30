@@ -48,6 +48,12 @@ Deno.test("visibility workflow: needs the name, quality and repo visibility", ()
   assertEquals(workflow.inputs.properties.targetDir.default, "");
 });
 
+Deno.test("visibility workflow: the quality with the registry's points is optional", () => {
+  const input = workflow.inputs.properties.provisionalQuality;
+  assertEquals(input.type, "integer");
+  assertEquals(input.default, 0);
+});
+
 Deno.test("visibility workflow: one step passes every input to visibility", () => {
   assertEquals(steps.length, 1);
   const [step] = steps;
