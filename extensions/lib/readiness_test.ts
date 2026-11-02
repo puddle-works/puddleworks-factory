@@ -302,6 +302,21 @@ Deno.test("readiness: public when the required checks failed blocks", () => {
   assertStringIncludes(chosen.summary, "against a private recommendation");
 });
 
+// The registry publishes a manifest with no `visibility:` line as public.
+Deno.test("readiness: no visibility line is public, and blocks when the required checks failed", () => {
+  const files = replace(
+    "manifest.yaml",
+    MANIFEST.replace("visibility: private\n", ""),
+  );
+  const r = assessReadiness(facts({
+    files,
+    visibility: { recommendation: "private", canBePublic: false },
+  }));
+  assertEquals(r.visibility, "public");
+  assertEquals(r.ready, false);
+  assertStringIncludes(r.blockers.join("\n"), "no visibility: line");
+});
+
 Deno.test("readiness: no readable manifest blocks", () => {
   const r = assessReadiness(facts({ files: replace("manifest.yaml", ":\n") }));
   assertEquals(r.ready, false);

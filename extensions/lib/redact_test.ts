@@ -149,7 +149,7 @@ Deno.test("redact: placeholders and package specifiers are not secrets", () => {
       "POSTGRES_PASSWORD_FILE=/run/secrets/db_password",
       'member: "serviceAccount:deploy@acme-prod.iam.gserviceaccount.com"',
       "user:alice@acme.io",
-      'git.push("https://mesgme:%s@github.com/acme/app.git")',
+      'git.push("https://deploy:%s@github.com/acme/app.git")',
       "OAUTH_TOKEN_ENDPOINT: https://login.microsoftonline.com/common/oauth2/v2.0/token",
       "DB_PASSWORD_SECRET_ARN: arn:aws:secretsmanager:eu-west-1:123456789012:secret:db-AbCdEf",
       "API_TOKEN=xxxxxxxxxxxxxxxx",

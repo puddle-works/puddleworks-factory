@@ -227,8 +227,9 @@ export function assessVisibility(facts: RepoFacts): Assessment {
   const field = (k: string) =>
     typeof manifest?.[k] === "string" ? (manifest[k] as string) : "";
   const declared = field("visibility");
+  // The registry publishes a manifest with no `visibility:` line as public.
   const manifestVisibility: Visibility | null = manifest
-    ? (declared === "public" ? "public" : "private")
+    ? (declared === "private" ? "private" : "public")
     : null;
   const noManifest = "there is no readable manifest.yaml";
 
@@ -323,7 +324,7 @@ export function assessVisibility(facts: RepoFacts): Assessment {
       ok: facts.repoVisibility === manifestVisibility,
       detail: `the repo is ${facts.repoVisibility}; the manifest says ${
         manifestVisibility ?? "nothing"
-      }`,
+      }${manifest && declared === "" ? " (it has no visibility: line)" : ""}`,
     },
   ];
 

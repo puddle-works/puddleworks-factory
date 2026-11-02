@@ -251,7 +251,7 @@ message says in plain words and stop:
 | `has no swamp workflow to draft`                        | Delivery is `external_app` or `manual_process` | Nothing to draft; this skill does not apply             |
 | `Refusing to overwrite files that already exist`        | A draft is already on this branch              | Re-run with `--input overwrite=true` if the user agrees |
 | `does not look like an app repo checkout`               | `targetDir` has no `.swamp.yaml`               | Point it at the app repo worktree from step 2           |
-| `must be the https URL of the app's repo`               | `repository` is not an `https://` URL          | Pass `REPO`, e.g. `https://github.com/puddle-works/NAME` |
+| `repository "…" … Pass the plain https URL` | `repository` is not https, has a login, a query or fragment, or no path | Pass `REPO`, e.g. `https://github.com/puddle-works/NAME` |
 
 Then commit the skeleton untouched (with `spec/` when it came from an outcome
 spec), so review can tell generated code from written code:

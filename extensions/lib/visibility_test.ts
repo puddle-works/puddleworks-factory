@@ -86,6 +86,18 @@ Deno.test("visibility: a clean app is recommended public", () => {
   );
 });
 
+// The registry publishes a manifest with no `visibility:` line as public.
+Deno.test("visibility: a manifest with no visibility line is public", () => {
+  const bare = MANIFEST.replace("visibility: private\n", "");
+  const a = assessVisibility(facts({ files: replace("manifest.yaml", bare) }));
+  assertEquals(a.manifestVisibility, "public");
+  assertEquals(check(a, "repo-visibility").ok, false);
+  assertStringIncludes(
+    check(a, "repo-visibility").detail,
+    "the manifest says public (it has no visibility: line)",
+  );
+});
+
 Deno.test("visibility: no LICENSE file means it cannot be public", () => {
   const a = assessVisibility(
     facts({ files: facts().files.filter((f) => f.path !== "LICENSE") }),
