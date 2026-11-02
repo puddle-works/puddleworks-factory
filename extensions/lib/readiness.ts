@@ -415,8 +415,9 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
       "There is no readable manifest.yaml with a name and version.",
     );
   }
+  // The registry publishes a manifest with no `visibility:` line as public.
   const visibility: Visibility | null = manifest
-    ? (manifest.visibility === "public" ? "public" : "private")
+    ? (manifest.visibility === "private" ? "private" : "public")
     : null;
 
   const review = checkReview(facts.review, pkg, version, blockers);
@@ -434,7 +435,9 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
     );
   } else if (visibility === "public" && !checked.canBePublic) {
     blockers.push(
-      "The manifest says public, but the visibility check's required checks failed.",
+      manifest?.visibility === undefined
+        ? "The manifest has no visibility: line, so it publishes public, but the visibility check's required checks failed."
+        : "The manifest says public, but the visibility check's required checks failed.",
     );
   }
 
