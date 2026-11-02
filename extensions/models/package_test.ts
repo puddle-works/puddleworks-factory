@@ -75,3 +75,35 @@ Deno.test("package: the skill says it is Puddleworks' own procedure, and runs on
   assertEquals(/Puddleworks' own/.test(intro), true, intro);
   assertEquals(skill.includes("sed -i ''"), false, "BSD-only sed -i ''");
 });
+
+Deno.test("package: every model create sets typeScope, since it names the app's collective", async () => {
+  const readme = await Deno.readTextFile(new URL("README.md", ROOT));
+  const skill = await Deno.readTextFile(
+    new URL(".claude/skills/factory-build/SKILL.md", ROOT),
+  );
+  const creates = (text: string) =>
+    text.split("\n").filter((l) => l.includes("swamp model create"));
+  const readmeCreates = creates(readme);
+  assertEquals(readmeCreates.length > 0, true);
+  for (const line of readmeCreates) {
+    assertEquals(
+      line.includes("--global-arg typeScope=@YOUR-COLLECTIVE"),
+      true,
+      `README: ${line}`,
+    );
+  }
+  assertEquals(
+    readme.includes("collective") && readme.includes("defaults to"),
+    true,
+    "README says what typeScope is and what it defaults to",
+  );
+  const skillCreates = creates(skill);
+  assertEquals(skillCreates.length > 0, true);
+  for (const line of skillCreates) {
+    assertEquals(
+      line.includes("--global-arg typeScope=@puddleworks"),
+      true,
+      `SKILL.md: ${line}`,
+    );
+  }
+});

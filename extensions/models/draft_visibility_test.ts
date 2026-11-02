@@ -127,8 +127,38 @@ Deno.test("visibility: says which files it did not read", async () => {
       .find((c) => c.id === "secrets")!;
     assertStringIncludes(
       secrets.detail,
-      "not read: .claude/skills/, data/big.json (over 512 KB), data/logo.png (binary)",
+      "not read: .claude/skills/app/ (not shipped), data/big.json (over 512 KB), data/logo.png (binary)",
     );
+  });
+});
+
+Deno.test("visibility: reads the skills the manifest ships", async () => {
+  await withDraft(async (dir, ctx) => {
+    const token = ["ghp_", "c".repeat(36)].join("");
+    await Deno.writeTextFile(
+      `${dir}/manifest.yaml`,
+      (await Deno.readTextFile(`${dir}/manifest.yaml`)) + "skills:\n  - app\n",
+    );
+    for (const skill of ["app", "local"]) {
+      await Deno.mkdir(`${dir}/.claude/skills/${skill}`, { recursive: true });
+      await Deno.writeTextFile(
+        `${dir}/.claude/skills/${skill}/SKILL.md`,
+        `# ${skill}\n\ntoken: ${token}\n`,
+      );
+    }
+    await model.methods.visibility.execute(args(), ctx);
+    const data = ctx.store.get(`visibility-${NAME}`)!;
+    assertEquals(data.canBePublic, false);
+    const files = (data.findings as Array<{ file: string }>).map((f) => f.file);
+    assertEquals(
+      files.includes(".claude/skills/app/SKILL.md"),
+      true,
+      files.join(),
+    );
+    assertEquals(files.includes(".claude/skills/local/SKILL.md"), false);
+    const secrets = (data.checks as Array<{ id: string; detail: string }>)
+      .find((c) => c.id === "secrets")!;
+    assertStringIncludes(secrets.detail, ".claude/skills/local/ (not shipped)");
   });
 });
 
