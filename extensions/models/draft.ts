@@ -1241,7 +1241,9 @@ export const model = {
         "with no visibility: line as public, since the registry publishes it so. " +
         "A draft-rendered pre-flight check (label " +
         "policy) stops result, visibility and readiness on an instance with no " +
-        "draft. No data migration required.",
+        "draft. render writes every file beside its target first and moves them " +
+        "into place only when all are written, so a failed write changes no file. " +
+        "result logs where it wrote its out file. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -1455,8 +1457,45 @@ export const model = {
           );
         }
 
-        for (const { path, text } of writes) {
-          if (text !== null) await writeFileIn(path, text);
+        // Each file is written beside its target first and moved into place
+        // only once every one is written, so a write that fails part way
+        // leaves the checkout as it was.
+        const staged: Array<{ tmp: string; path: string }> = [];
+        const stamp = crypto.randomUUID();
+        try {
+          for (const { path, text } of writes) {
+            if (text === null) continue;
+            const tmp = `${path}.factory-${stamp}.tmp`;
+            staged.push({ tmp, path });
+            await writeFileIn(tmp, text);
+          }
+        } catch (e) {
+          await Promise.all(
+            staged.map(({ tmp }) => Deno.remove(tmp).catch(() => {})),
+          );
+          throw new Error(
+            `Could not write the draft, so no file was changed: ${
+              e instanceof Error ? e.message : String(e)
+            }`,
+          );
+        }
+        const moved: string[] = [];
+        for (const { tmp, path } of staged) {
+          try {
+            await Deno.rename(tmp, path);
+          } catch (e) {
+            await Promise.all(
+              staged.map(({ tmp }) => Deno.remove(tmp).catch(() => {})),
+            );
+            throw new Error(
+              `Could not move ${path.slice(root.length + 1)} into place: ${
+                e instanceof Error ? e.message : String(e)
+              }. Already written: ${
+                moved.join(", ") || "nothing"
+              }. Nothing was recorded.`,
+            );
+          }
+          moved.push(path.slice(root.length + 1));
         }
 
         context.logger.info("Drafted {name} from {source} into {targetDir}", {
@@ -1503,9 +1542,6 @@ export const model = {
         if (args.pullRequest) {
           checkLink("pullRequest", args.pullRequest, PR_EXAMPLE);
         }
-        const manifest = draft.data.files.find((f) =>
-          f.endsWith("/manifest.yaml")
-        );
         const candidate: BuildResult = {
           apiVersion: BUILD_RESULT_V1,
           kind: "BuildResult",
@@ -1513,9 +1549,6 @@ export const model = {
           extension: draft.data.modelType,
           entryPointRef: draft.data.entryPointRef,
           repository,
-          ...(manifest
-            ? { path: manifest.slice(0, manifest.lastIndexOf("/")) }
-            : {}),
           buildRef: args.buildRef,
           ...(args.pullRequest ? { pullRequest: args.pullRequest } : {}),
           ...(draft.data.source ? { source: draft.data.source } : {}),
@@ -1542,6 +1575,10 @@ export const model = {
         const result = checkedResource("buildResult", parsed.result);
         if (args.out) {
           await writeFileIn(args.out, JSON.stringify(result, null, 2) + "\n");
+          context.logger.info("Wrote the build result for {name} to {out}", {
+            name: args.name,
+            out: args.out,
+          });
         }
         context.logger.info("Build result for {name}: {buildRef}", {
           name: args.name,

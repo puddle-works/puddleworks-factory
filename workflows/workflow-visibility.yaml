@@ -35,7 +35,8 @@ inputs:
       enum: [public, private]
       description: >-
         The app repo's visibility on GitHub, from
-        gh repo view --json visibility (lower case).
+        gh repo view --json visibility in lower case. Pass private for an
+        INTERNAL repo: only members of its organisation can see it.
     targetDir:
       type: string
       description: >-

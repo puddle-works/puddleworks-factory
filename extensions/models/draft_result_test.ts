@@ -128,6 +128,23 @@ Deno.test("result: out writes the same build result to a file", async () => {
   });
 });
 
+Deno.test("result: says where it wrote the out file", async () => {
+  await withDraft(async (dir, ctx) => {
+    const out = `${dir}/out/build-result.json`;
+    const logged: string[] = [];
+    await model.methods.result.execute(resultArgs({ out }), {
+      ...ctx,
+      logger: {
+        info: (msg: string, props?: Record<string, unknown>) =>
+          logged.push(`${msg} ${JSON.stringify(props ?? {})}`),
+        warning: () => {},
+      },
+    });
+    const line = logged.find((l) => l.includes("{out}"));
+    assertEquals(line?.includes(JSON.stringify(out)), true, logged.join("\n"));
+  });
+});
+
 Deno.test("result: an out with no directory writes only that file", async () => {
   await withDraft(async (_dir, ctx) => {
     const cwd = await Deno.makeTempDir({ prefix: "factory-result-" });

@@ -65,16 +65,19 @@ swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory
 
 ### From an outcome spec
 
-Run `/factory-build <path to the outcome spec>` in Claude Code. The skill
+Run `/factory-build <path to the outcome spec>` in Claude Code. The skill is
+Puddleworks' own build procedure: it needs access to the `puddle-works` GitHub
+organisation and Orca. Without them, run the workflows below yourself. The skill
 prefills an app spec, asks you to confirm the name, inputs, output, settings and
 delivery, makes the app's own repo from `puddle-works/puddle-template` if it
-does not exist yet (asking first), adds it to Orca as a project, makes the
-`draft/NAME` branch in a new Orca worktree, writes both specs to `spec/` there,
-and generates the draft. It then builds the behaviour test-first, gets it
-through the checks (tests, contracts, guardrails, quality 100%), recommends
-public or private and asks you, has a fresh agent that has not seen the build
-review it against the spec, opens a PR to the app repo and publishes once you
-confirm a one-screen summary. Aim for about an hour. To prefill by hand instead:
+does not exist yet (asking first), adds it to Orca (the worktree manager
+Puddleworks builds in) as a project, makes the `draft/NAME` branch in a new Orca
+worktree, writes both specs to `spec/` there, and generates the draft. It then
+builds the behaviour test-first, gets it through the checks (tests, contracts,
+guardrails, quality 100%), recommends public or private and asks you, has a
+fresh agent that has not seen the build review it against the spec, opens a PR
+to the app repo and publishes once you confirm a one-screen summary. Aim for
+about an hour. To prefill by hand instead:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-prefill \
@@ -180,8 +183,8 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
 
 ## See what the Factory has done
 
-The `web` model serves a read-only page on 127.0.0.1, in the style of Capture's
-page. Create it once and run it until Ctrl-C:
+The `web` model serves a read-only page on 127.0.0.1. Create it once and run it
+until Ctrl-C:
 
 ```bash
 swamp behavior create @puddleworks/puddleworks-factory/web factory-viewer
@@ -217,8 +220,8 @@ The page only reads. It has no forms or buttons and no JSON API: the pages are
 rendered on the server, and the event stream it reloads on says only that
 something changed. Read the records themselves with `swamp data query`, as
 above, and change them through the draft behavior's methods and the workflows.
-Like Capture's page it answers only on 127.0.0.1, only to GET, and refuses
-another Host, Origin or site, under a strict content security policy.
+It answers only on 127.0.0.1, only to GET, and refuses another Host, Origin or
+site, under a strict content security policy.
 
 ## Development
 
