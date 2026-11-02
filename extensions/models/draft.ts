@@ -1237,7 +1237,9 @@ export const model = {
         "and render checks its record before it writes any file. visibility and " +
         "readiness log what they did not read as a warning, and the viewer logs a " +
         "failed read as one. readiness says when a manifest's visibility: is empty " +
-        "or neither private nor public. A draft-rendered pre-flight check (label " +
+        "or neither private nor public. visibility and readiness take a manifest " +
+        "with no visibility: line as public, since the registry publishes it so. " +
+        "A draft-rendered pre-flight check (label " +
         "policy) stops result, visibility and readiness on an instance with no " +
         "draft. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
