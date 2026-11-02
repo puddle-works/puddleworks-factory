@@ -45,7 +45,10 @@ function fingerprint(records: unknown[]): string {
 /** The part of swamp's method context serve uses. */
 export interface ViewerContext {
   queryData?: QueryData;
-  logger: { info: (message: string, props?: Record<string, unknown>) => void };
+  logger: {
+    info: (message: string, props?: Record<string, unknown>) => void;
+    warning: (message: string, props?: Record<string, unknown>) => void;
+  };
   signal?: AbortSignal;
 }
 
@@ -100,7 +103,7 @@ export async function serveViewer(
       .catch((e) => {
         if (failing) return;
         failing = true;
-        ctx.logger.info(
+        ctx.logger.warning(
           "Could not read the Factory's records, so the page shows what it read before: {error}",
           { error: safeText(e instanceof Error ? e.message : String(e)) },
         );

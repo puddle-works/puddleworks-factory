@@ -52,6 +52,7 @@ Deno.test("web model: serve reads the draft behavior it is set to, until aborted
     logger: {
       info: (_msg: string, props?: Record<string, unknown>) =>
         listening.resolve(props?.port as number),
+      warning: () => {},
     },
     signal: abort.signal,
   });

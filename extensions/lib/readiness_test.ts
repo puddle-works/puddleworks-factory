@@ -317,6 +317,28 @@ Deno.test("readiness: no visibility line is public, and blocks when the required
   assertStringIncludes(r.blockers.join("\n"), "no visibility: line");
 });
 
+Deno.test("readiness: an empty or unknown visibility is public, and the blocker says why", () => {
+  for (
+    const [line, says] of [
+      ["visibility:\n", "empty visibility:"],
+      ['visibility: ""\n', "empty visibility:"],
+      ["visibility: Private\n", 'not "private"'],
+    ]
+  ) {
+    const files = replace(
+      "manifest.yaml",
+      MANIFEST.replace("visibility: private\n", line),
+    );
+    const r = assessReadiness(facts({
+      files,
+      visibility: { recommendation: "private", canBePublic: false },
+    }));
+    assertEquals(r.visibility, "public", line);
+    assertEquals(r.ready, false, line);
+    assertStringIncludes(r.blockers.join("\n"), says);
+  }
+});
+
 Deno.test("readiness: no readable manifest blocks", () => {
   const r = assessReadiness(facts({ files: replace("manifest.yaml", ":\n") }));
   assertEquals(r.ready, false);

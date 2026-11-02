@@ -423,6 +423,7 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
   const review = checkReview(facts.review, pkg, version, blockers);
   const { criteria, outcomePath } = checkCriteria(facts.files, blockers);
 
+  const given = manifest?.visibility;
   const checked = facts.visibility === "outdated" ? null : facts.visibility;
   if (facts.visibility === "outdated") {
     blockers.push(
@@ -435,9 +436,23 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
     );
   } else if (visibility === "public" && !checked.canBePublic) {
     blockers.push(
-      manifest?.visibility === undefined
+      given === undefined
         ? "The manifest has no visibility: line, so it publishes public, but the visibility check's required checks failed."
-        : "The manifest says public, but the visibility check's required checks failed.",
+        : given === null || given === ""
+        ? "The manifest has an empty visibility:, so it publishes public, but the visibility check's required checks failed."
+        : given === "public"
+        ? "The manifest says public, but the visibility check's required checks failed."
+        : "The visibility check's required checks failed, so it can't be public.",
+    );
+  }
+  if (
+    given !== undefined && given !== null && given !== "" &&
+    given !== "public" && given !== "private"
+  ) {
+    blockers.push(
+      `The manifest's visibility: is ${
+        JSON.stringify(given)
+      }, not "private" or "public": set one of them.`,
     );
   }
 

@@ -13,8 +13,7 @@ export interface ViewerAsset {
   text: string;
 }
 
-const WEB_CSS =
-  `/* Capture's web.css: the palette mirrors puddleworks_website/src/index.css. */
+const WEB_CSS = `/* The Factory viewer's palette and layout. */
 
 :root {
   --color-bg: #0f1219;

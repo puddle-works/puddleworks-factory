@@ -629,6 +629,31 @@ Deno.test("render: a name that only contains a reserved word is fine", () => {
   }
 });
 
+// Slugs that start like an API token: every record hides them as "(hidden)".
+const TOKEN_LIKE = [
+  "sk-weekly-calendar-reminder-for-teams",
+  "xoxb-team-reminders",
+  "glpat-weekly-report-builder",
+];
+
+Deno.test("render: refuses an app name that reads as a secret", () => {
+  for (const name of TOKEN_LIKE) {
+    assertThrows(
+      () => renderDraft({ ...OBSIDIAN, name }, FIXED),
+      Error,
+      "reads as a secret",
+    );
+  }
+});
+
+Deno.test("render: refuses an entry point that reads as a secret", () => {
+  for (const ref of TOKEN_LIKE) {
+    const spec = structuredClone(OBSIDIAN);
+    spec.delivery.entryPointRef = ref;
+    assertThrows(() => renderDraft(spec, FIXED), Error, "reads as a secret");
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Acceptance — the rendered draft passes deno check and its own tests
 // ---------------------------------------------------------------------------
@@ -721,11 +746,73 @@ Deno.test("guarded: log lines and resources keep no secret", async () => {
     logger: {
       info: (msg: string, props?: Record<string, unknown>) =>
         lines.push(msg + JSON.stringify(props)),
+      warning: () => {},
     },
   };
   const token = "ghp_" + "a".repeat(36);
   guarded(ctx).logger.info(`x ${token}`, { a: { b: [token] } });
   assertEquals(lines.join("").includes(token), false, lines.join(""));
+});
+
+Deno.test("guarded: warnings are logged as warnings, and keep no secret", () => {
+  const lines: string[] = [];
+  const ctx = {
+    ...makeContext(),
+    logger: {
+      info: (msg: string) => lines.push(`info ${msg}`),
+      warning: (msg: string, props?: Record<string, unknown>) =>
+        lines.push(`warning ${msg}${JSON.stringify(props)}`),
+    },
+  };
+  const token = "ghp_" + "a".repeat(36);
+  guarded(ctx).logger.warning(`x ${token}`, { a: [token] });
+  assertEquals(lines.length, 1);
+  assertStringIncludes(lines[0], "warning x ");
+  assertEquals(lines[0].includes(token), false, lines[0]);
+});
+
+Deno.test("method: a checkout path that reads as a secret writes no file and no resource", async () => {
+  const parent = await Deno.makeTempDir({ prefix: "app-parent-" });
+  const dir = `${parent}/sk-${"a".repeat(32)}`;
+  await Deno.mkdir(dir);
+  await Deno.writeTextFile(`${dir}/.swamp.yaml`, "tools:\n  - claude\n");
+  try {
+    const ctx = makeContext();
+    await assertRejects(
+      () => model.methods.render.execute(renderArgs(dir), ctx),
+      Error,
+      "reads as a secret",
+    );
+    assertEquals(ctx.writes, []);
+    const names = [];
+    for await (const e of Deno.readDir(dir)) names.push(e.name);
+    assertEquals(names, [".swamp.yaml"]);
+  } finally {
+    await Deno.remove(parent, { recursive: true });
+  }
+});
+
+Deno.test("method: an app name that reads as a secret writes no file and no resource", async () => {
+  const dir = await appRepo();
+  try {
+    const ctx = makeContext();
+    const spec = JSON.stringify({ ...OBSIDIAN, name: TOKEN_LIKE[0] });
+    await assertRejects(
+      () =>
+        model.methods.render.execute(
+          renderArgs(dir, false, "public", spec),
+          ctx,
+        ),
+      Error,
+      "reads as a secret",
+    );
+    assertEquals(ctx.writes, []);
+    const names = [];
+    for await (const e of Deno.readDir(dir)) names.push(e.name);
+    assertEquals(names, [".swamp.yaml"]);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
 });
 
 Deno.test("method: an error never repeats a secret from the spec", async () => {
@@ -759,7 +846,7 @@ function makeContext() {
   > = [];
   return {
     globalArgs: { typeScope: "@puddleworks" },
-    logger: { info: () => {} },
+    logger: { info: () => {}, warning: () => {} },
     writeResource(
       specName: string,
       name: string,
@@ -1134,6 +1221,8 @@ Deno.test("method: render says where it reads the spec from first, without any s
       logger: {
         info: (msg: string, props?: Record<string, unknown>) =>
           logged.push(`${msg} ${JSON.stringify(props ?? {})}`),
+        warning: (msg: string, props?: Record<string, unknown>) =>
+          logged.push(`${msg} ${JSON.stringify(props ?? {})}`),
       },
     };
     const spec = `${dir}/admin:hunter2@db.acme.io/spec.json`;
@@ -1151,4 +1240,64 @@ Deno.test("method: render says where it reads the spec from first, without any s
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Pre-flight check — result, visibility and readiness need a rendered draft
+// ---------------------------------------------------------------------------
+
+function checkContext(names: string[] | Error, methodName = "readiness") {
+  return {
+    globalArgs: { typeScope: "@puddleworks" },
+    methodName,
+    modelType: "@puddleworks/puddleworks-factory",
+    modelId: "factory-id",
+    dataRepository: {
+      findAllForModel: (type: string, id: string) => {
+        assertEquals([type, id], [
+          "@puddleworks/puddleworks-factory",
+          "factory-id",
+        ]);
+        return names instanceof Error
+          ? Promise.reject(names)
+          : Promise.resolve(names.map((name) => ({ name })));
+      },
+    },
+  };
+}
+
+Deno.test("check draft-rendered: a policy check before result, visibility and readiness", () => {
+  const check = model.checks["draft-rendered"];
+  assertEquals(check.labels, ["policy"]);
+  assertEquals(check.appliesTo, ["result", "visibility", "readiness"]);
+});
+
+Deno.test("check draft-rendered: passes once a draft has been rendered", async () => {
+  const check = model.checks["draft-rendered"];
+  assertEquals(
+    await check.execute(
+      checkContext(["prefill-weekly-report", "weekly-report"]),
+    ),
+    { pass: true },
+  );
+});
+
+Deno.test("check draft-rendered: fails with what to run when only prefixed records exist", async () => {
+  const check = model.checks["draft-rendered"];
+  for (const names of [[], ["prefill-weekly-report", "visibility-other"]]) {
+    const r = await check.execute(checkContext(names));
+    assertEquals(r.pass, false);
+    assertStringIncludes(
+      r.errors!.join("\n"),
+      "@puddleworks/puddleworks-factory-build",
+    );
+  }
+});
+
+Deno.test("check draft-rendered: passes when the records can't be read, so the method says why", async () => {
+  const check = model.checks["draft-rendered"];
+  assertEquals(
+    await check.execute(checkContext(new Error("datastore locked"))),
+    { pass: true },
+  );
 });

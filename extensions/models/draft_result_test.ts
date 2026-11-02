@@ -28,7 +28,7 @@ function makeContext() {
   const writes: Array<{ specName: string; name: string }> = [];
   return {
     globalArgs: { typeScope: "@puddleworks" },
-    logger: { info: () => {} },
+    logger: { info: () => {}, warning: () => {} },
     writeResource(
       specName: string,
       name: string,
@@ -318,6 +318,7 @@ Deno.test("result: what it stores and logs has no URL login, query or secret", a
         info: (msg: string, props?: Record<string, unknown>) => {
           logged.push(`${msg} ${JSON.stringify(props ?? {})}`);
         },
+        warning: () => {},
       },
     };
     const out = `${dir}/build-result.json`;
