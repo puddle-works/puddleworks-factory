@@ -27,7 +27,10 @@ const TEXT = await Deno.readTextFile(
 const workflow = parseYaml(TEXT) as {
   name: string;
   inputs: {
-    properties: Record<string, { type?: string; default?: unknown }>;
+    properties: Record<
+      string,
+      { type?: string; default?: unknown; description?: string }
+    >;
     required: string[];
   };
   jobs: { steps: Step[] }[];
@@ -70,4 +73,9 @@ Deno.test("visibility workflow: one step passes every input to visibility", () =
 
 Deno.test("visibility workflow: reads no stored data", () => {
   assertEquals(/\bdata\.(latest|query)\(/.test(TEXT), false);
+});
+
+Deno.test("visibility workflow: says what to pass for an internal repo", () => {
+  const d = workflow.inputs.properties.repoVisibility.description ?? "";
+  assertEquals(/INTERNAL/.test(d) && /private/.test(d), true, d);
 });

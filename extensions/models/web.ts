@@ -3,8 +3,7 @@
  * Factory has done.
  *
  * `serve` shows every app of one `@puddleworks/puddleworks-factory/draft`
- * behavior on 127.0.0.1, as Capture's viewer shows Capture's requests: the
- * apps grouped by the stage they are at, and each app's prefill, draft,
+ * behavior on 127.0.0.1: the apps grouped by the stage they are at, and each app's prefill, draft,
  * visibility, readiness and build result. The pages are rendered on the
  * server, with no JSON API (extensions/lib/viewer_server.ts). It only reads;
  * every change goes through the draft behavior's methods and the Factory's

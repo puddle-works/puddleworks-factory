@@ -17,7 +17,8 @@ inputs:
       type: string
       description: >-
         The app spec: a file path, an https URL, or the spec itself as inline
-        JSON. JSON or YAML. See docs/contracts/app-spec.md.
+        JSON. JSON or YAML. See
+        https://github.com/puddle-works/puddleworks-factory/blob/main/docs/contracts/app-spec.md
     targetDir:
       type: string
       description: >-

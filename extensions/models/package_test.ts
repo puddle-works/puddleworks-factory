@@ -36,3 +36,42 @@ Deno.test("package: the README links and example inputs reach only shipped files
   }
   assertEquals(unshipped, []);
 });
+
+Deno.test("package: the shipped workflows point at docs by URL, since docs/ is not shipped", async () => {
+  const manifest = parse(
+    await Deno.readTextFile(new URL("manifest.yaml", ROOT)),
+  ) as { workflows?: string[] };
+  const bare: string[] = [];
+  for (const file of manifest.workflows ?? []) {
+    const text = await Deno.readTextFile(new URL(`workflows/${file}`, ROOT));
+    for (const m of text.matchAll(/(\S*)docs\/[\w./-]+/g)) {
+      if (!m[1].startsWith("https://")) bare.push(`${file}: ${m[0]}`);
+    }
+  }
+  assertEquals(bare, []);
+});
+
+Deno.test("package: shipped docs don't lean on Puddleworks' other tools", async () => {
+  for (const file of ["README.md", "extensions/models/web.ts"]) {
+    const text = await Deno.readTextFile(new URL(file, ROOT));
+    assertEquals(/Capture/.test(text), false, `${file} mentions Capture`);
+  }
+  const readme = await Deno.readTextFile(new URL("README.md", ROOT));
+  // Orca may be named, but only once it is said what it is.
+  const first = readme.indexOf("Orca");
+  assertEquals(
+    first === -1 || /Orca \([^)]*worktree/.test(readme.slice(first)),
+    true,
+    "the README names Orca without saying what it is",
+  );
+});
+
+Deno.test("package: the skill says it is Puddleworks' own procedure, and runs on any sed", async () => {
+  const skill = await Deno.readTextFile(
+    new URL(".claude/skills/factory-build/SKILL.md", ROOT),
+  );
+  const body = skill.slice(skill.indexOf("\n---", 3) + 4);
+  const intro = body.trimStart().split("\n\n").slice(0, 3).join("\n\n");
+  assertEquals(/Puddleworks' own/.test(intro), true, intro);
+  assertEquals(skill.includes("sed -i ''"), false, "BSD-only sed -i ''");
+});

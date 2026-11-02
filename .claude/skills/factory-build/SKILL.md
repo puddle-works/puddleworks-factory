@@ -16,6 +16,12 @@ description: >
 
 # Factory Build
 
+This is Puddleworks' own build procedure. It makes each app's repo in the
+`puddle-works` GitHub organisation from `puddle-works/puddle-template`, grants
+it that organisation's Actions secrets, and builds in an Orca worktree, so it
+needs access to that organisation and Orca. Outside Puddleworks, use the
+workflows it runs directly (see the package README).
+
 Take an app spec to a published extension, aiming for about an hour. Quality
 comes from checks that must pass, not from extra steps:
 
@@ -395,8 +401,8 @@ the content hash, and the manifest is part of it. Never pass `--visibility` to
 and `ci.yml` already say `private`. For **public**, after the user's answer:
 
 ```bash
-sed -i '' 's/^visibility: private$/visibility: public/' W/manifest.yaml
-sed -i '' 's/visibility: private # must equal/visibility: public # must equal/' W/.github/workflows/ci.yml
+perl -pi -e 's/^visibility: private$/visibility: public/' W/manifest.yaml
+perl -pi -e 's/visibility: private # must equal/visibility: public # must equal/' W/.github/workflows/ci.yml
 grep -n '^visibility:' W/manifest.yaml; grep -n 'visibility:' W/.github/workflows/ci.yml
 git -C W commit -q -am "Publish NAME publicly" --author="Claude Code <claude-code@anthropic.com>" \
   -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"

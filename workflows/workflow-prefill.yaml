@@ -17,7 +17,8 @@ inputs:
       type: string
       description: >-
         The outcome spec: a file path, an https URL, or the spec itself as
-        inline JSON. See docs/contracts/outcome-spec.md.
+        inline JSON. See
+        https://github.com/puddle-works/puddleworks-factory/blob/main/docs/contracts/outcome-spec.md
     out:
       type: string
       description: >-

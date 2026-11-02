@@ -815,6 +815,36 @@ Deno.test("method: an app name that reads as a secret writes no file and no reso
   }
 });
 
+Deno.test("method: a file that can't be written leaves the checkout as it was", async () => {
+  const dir = await appRepo();
+  // The workflow is written after the extension and its tests, so a
+  // read-only workflows/ fails part way through.
+  await Deno.mkdir(`${dir}/workflows`, { mode: 0o555 });
+  await Deno.chmod(`${dir}/workflows`, 0o555);
+  try {
+    const ctx = makeContext();
+    await assertRejects(
+      () => model.methods.render.execute(renderArgs(dir), ctx),
+      Error,
+      "no file was changed",
+    );
+    assertEquals(ctx.writes, []);
+    const left: string[] = [];
+    const walk = async (d: string, at: string) => {
+      for await (const e of Deno.readDir(d)) {
+        const rel = at ? `${at}/${e.name}` : e.name;
+        if (e.isDirectory) await walk(`${d}/${e.name}`, rel);
+        else left.push(rel);
+      }
+    };
+    await walk(dir, "");
+    assertEquals(left, [".swamp.yaml"]);
+  } finally {
+    await Deno.chmod(`${dir}/workflows`, 0o755);
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
 Deno.test("method: an error never repeats a secret from the spec", async () => {
   const dir = await appRepo();
   try {
