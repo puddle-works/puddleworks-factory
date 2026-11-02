@@ -363,6 +363,23 @@ Deno.test("scan: a file name like settings.local.json is not a host", () => {
   );
 });
 
+Deno.test("scan: a git SSH remote is not an email", () => {
+  const text = [
+    "git clone git@github.com:puddle-works/puddleworks-factory.git",
+    "url = ssh://git@gitlab.com/acme/app.git",
+    "remote git@build.corp:acme/app.git",
+    "mail git@acme.io or bob@acme.io: thanks",
+  ].join("\n");
+  assertEquals(
+    scanFile("README.md", text).map((f) => [f.line, f.kind, f.text]),
+    [
+      [3, "internal-host", "build.corp"],
+      [4, "email", "…@acme.io"],
+      [4, "email", "…@acme.io"],
+    ],
+  );
+});
+
 Deno.test("scan: an email is stored as its domain only", () => {
   const stored = JSON.stringify(
     scanFile("x.md", "mail bob.smith@acme.io or priya@shop.acme.co.uk\n"),

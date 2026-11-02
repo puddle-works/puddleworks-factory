@@ -102,6 +102,14 @@ function harmlessEmail(address: string): boolean {
     domain === "users.noreply.github.com";
 }
 
+/**
+ * The `git@host` of an SSH remote, like `git@github.com:org/repo.git` or
+ * `ssh://git@gitlab.com/org/repo.git`: a login, not anyone's address. The host
+ * is still checked as a host.
+ */
+const sshRemote = (address: string, next: string | undefined) =>
+  address.toLowerCase().startsWith("git@") && (next === ":" || next === "/");
+
 const clip = (s: string) => {
   const t = s.trim();
   return t.length > 120 ? `${t.slice(0, 117)}...` : t;
@@ -155,7 +163,10 @@ export function scanFile(path: string, text: string): Finding[] {
         const end = at + m[0].length;
         // Part of a secret, like the password@host of a URL: the secret covers it.
         if (secrets.some(([s, e]) => at < e && end > s)) continue;
-        if (kind === "email" && harmlessEmail(m[0])) continue;
+        if (
+          kind === "email" &&
+          (harmlessEmail(m[0]) || sshRemote(m[0], line[end]))
+        ) continue;
         // Only what matched, never the line, which may hold a secret no pattern knows.
         found.push({
           file: path,
