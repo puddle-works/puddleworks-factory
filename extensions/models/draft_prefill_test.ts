@@ -27,7 +27,7 @@ function makeContext() {
   > = [];
   return {
     globalArgs: { typeScope: "@puddleworks" },
-    logger: { info: () => {} },
+    logger: { info: () => {}, warning: () => {} },
     writeResource(
       specName: string,
       name: string,

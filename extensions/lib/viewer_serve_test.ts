@@ -32,7 +32,7 @@ Deno.test("viewer serve: a name that would change the query is refused", () => {
 Deno.test("viewer serve: without a data query it says why", async () => {
   await assertRejects(
     () =>
-      serveViewer({ logger: { info: () => {} } }, {
+      serveViewer({ logger: { info: () => {}, warning: () => {} } }, {
         port: 0,
         draft: "puddleworks-factory",
       }),
@@ -52,7 +52,7 @@ Deno.test("viewer serve: serves the pages and says when the data changed", async
       asked.push(p);
       return Promise.resolve(records);
     },
-    logger: { info: (msg) => logged.push(msg) },
+    logger: { info: (msg) => logged.push(msg), warning: () => {} },
     signal: abort.signal,
   }, {
     port: 0,
@@ -108,10 +108,13 @@ Deno.test("viewer serve: says when the records keep failing to read, and when th
         ? Promise.reject(new Error("datastore locked"))
         : Promise.resolve([]),
     logger: {
-      info: (msg, props) => {
-        logged.push(props?.error ? `${msg} ${props.error}` : msg);
-        if (/could not read/i.test(msg)) failed.resolve();
+      info: (msg) => {
+        logged.push(`info ${msg}`);
         if (/read again/i.test(msg)) recovered.resolve();
+      },
+      warning: (msg, props) => {
+        logged.push(`warning ${msg} ${props?.error}`);
+        if (/could not read/i.test(msg)) failed.resolve();
       },
     },
     signal: abort.signal,
@@ -126,5 +129,8 @@ Deno.test("viewer serve: says when the records keep failing to read, and when th
   await running;
   const about = logged.filter((m) => /read/i.test(m));
   assertEquals(about.length, 2, JSON.stringify(logged));
+  // Showing old records is degraded: a warning. Reading again is not.
+  assertStringIncludes(about[0], "warning Could not read");
   assertStringIncludes(about[0], "datastore locked");
+  assertStringIncludes(about[1], "info ");
 });

@@ -30,7 +30,7 @@ function makeContext() {
   const writes: Array<{ specName: string; name: string }> = [];
   return {
     globalArgs: { typeScope: "@puddleworks" },
-    logger: { info: () => {} },
+    logger: { info: () => {}, warning: () => {} },
     writeResource(
       specName: string,
       name: string,
@@ -277,5 +277,22 @@ Deno.test("readiness: public quality short only by the registry's points is chec
     const data = ctx.store.get(`readiness-${NAME}`)!;
     assertEquals(data.ready, true, String(data.summary));
     assertEquals(data.visibility, "public");
+  });
+});
+
+Deno.test("readiness: what it did not read is logged as a warning", async () => {
+  await withReviewedDraft(async (dir, ctx) => {
+    await Deno.symlink("README.md", `${dir}/linked.md`);
+    const warned: string[] = [];
+    await model.methods.readiness.execute(args(), {
+      ...ctx,
+      logger: {
+        info: () => {},
+        warning: (msg: string, props?: Record<string, unknown>) =>
+          warned.push(`${msg} ${JSON.stringify(props ?? {})}`),
+      },
+    });
+    assertEquals(warned.length, 1, JSON.stringify(warned));
+    assertStringIncludes(warned[0], "linked.md (symlink)");
   });
 });

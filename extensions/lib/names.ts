@@ -9,6 +9,8 @@
  * @module
  */
 
+import { safeText } from "./redact.ts";
+
 /** The prefix each prefixed resource's instance name starts with. */
 export const RESOURCE_PREFIX = {
   prefill: "prefill-",
@@ -26,4 +28,18 @@ export function reservedPrefix(name: string): string | undefined {
 export function reservedNameProblem(name: string, prefix: string): string {
   return `App name "${name}" starts with "${prefix}", which the Factory keeps ` +
     "for its own records; pick another name.";
+}
+
+/**
+ * Why a name can't be used because it reads as a secret, or undefined if it
+ * doesn't. Every record hides text that looks like a token as "(hidden)", so
+ * a name like `sk-…` or `xoxb-…` would be lost from every record that names it.
+ */
+export function secretNameProblem(
+  what: string,
+  name: string,
+): string | undefined {
+  if (safeText(name) === name) return undefined;
+  return `${what} reads as a secret, so every record would hide it; ` +
+    "pick another name.";
 }

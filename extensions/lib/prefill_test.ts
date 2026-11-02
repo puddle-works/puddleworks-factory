@@ -106,6 +106,16 @@ Deno.test("prefill: a suggested name with a reserved prefix is flagged to change
   }
 });
 
+Deno.test("prefill: a suggested name that reads as a secret is flagged to change", () => {
+  const outcome = structuredClone(OUTCOME);
+  outcome.request.title = "xoxb team reminders";
+  const { spec, toDecide } = prefillAppSpec(outcome);
+  assertEquals(spec.name, "xoxb-team-reminders");
+  const name = toDecide.find((t) => t.startsWith("name:"))!;
+  assertStringIncludes(name, "reads as a secret");
+  assertStringIncludes(name, "pick another name");
+});
+
 Deno.test("prefill: an ordinary suggested name is not flagged", () => {
   const { toDecide } = prefillAppSpec(OUTCOME);
   const name = toDecide.find((t) => t.startsWith("name:"))!;

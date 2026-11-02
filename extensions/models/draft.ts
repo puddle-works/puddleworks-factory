@@ -52,6 +52,7 @@ import {
   reservedNameProblem,
   reservedPrefix,
   RESOURCE_PREFIX,
+  secretNameProblem,
 } from "../lib/names.ts";
 import { assessVisibility } from "../lib/visibility.ts";
 import { linkProblem, safeData, safeText } from "../lib/redact.ts";
@@ -754,6 +755,8 @@ export function renderDraft(
   }
   const prefix = reservedPrefix(name);
   if (prefix) throw new Error(reservedNameProblem(name, prefix));
+  const secretName = secretNameProblem("The app name", name);
+  if (secretName) throw new Error(secretName);
   if (!DRAFTABLE.includes(delivery.method)) {
     throw new Error(
       `Delivery method "${delivery.method}" has no swamp workflow to draft. ` +
@@ -769,6 +772,8 @@ export function renderDraft(
         `name the workflow file and carry the package's collective.`,
     );
   }
+  const secretRef = secretNameProblem("The entryPointRef", slug);
+  if (secretRef) throw new Error(secretRef);
   checkLink("repository", opts.repository, REPO_EXAMPLE);
   const problems = specificationProblems(input.specification);
   if (problems.length > 0) {
@@ -971,7 +976,10 @@ export const io: SpecIo = {
 
 interface MethodContext {
   globalArgs: { typeScope: string };
-  logger: { info: (msg: string, props?: Record<string, unknown>) => void };
+  logger: {
+    info: (msg: string, props?: Record<string, unknown>) => void;
+    warning: (msg: string, props?: Record<string, unknown>) => void;
+  };
   writeResource: (
     specName: string,
     name: string,
@@ -981,6 +989,34 @@ interface MethodContext {
     instanceName: string,
     version?: number,
   ) => Promise<Record<string, unknown> | null>;
+}
+
+/** Log, as a warning, the files a check did not read, if there are any. */
+function warnNotRead(context: MethodContext, notRead: string[]): void {
+  if (notRead.length === 0) return;
+  context.logger.warning(
+    "Not read, so not checked: {notRead}. Check these by hand before publishing.",
+    { notRead: notRead.join(", ") },
+  );
+}
+
+/** The part of swamp's pre-flight check context the checks use. */
+interface CheckContext {
+  methodName: string;
+  modelType: string;
+  modelId: string;
+  dataRepository: {
+    findAllForModel: (
+      type: string,
+      modelId: string,
+    ) => Promise<Array<{ name: string }>>;
+  };
+}
+
+/** What a pre-flight check returns. */
+interface CheckResult {
+  pass: boolean;
+  errors?: string[];
 }
 
 /** Each resource's schema, by its spec name. */
@@ -1023,6 +1059,8 @@ export function guarded(context: MethodContext): MethodContext {
     logger: {
       info: (msg, props) =>
         context.logger.info(safeText(msg), props && safeData(props)),
+      warning: (msg, props) =>
+        context.logger.warning(safeText(msg), props && safeData(props)),
     },
     writeResource: (specName, name, data) => {
       try {
@@ -1194,7 +1232,14 @@ export const model = {
         "checked against its schema before it, or any file with it, is written, and " +
         "errors hide any secret they repeat. readiness needs a review verdict for " +
         "every dimension, and does not count a commented-out or ignored test, or a " +
-        "step inside one. No data migration required.",
+        "step inside one. render and prefill refuse or flag an app name, entry point " +
+        "or checkout path that reads as a secret, since every record would hide it, " +
+        "and render checks its record before it writes any file. visibility and " +
+        "readiness log what they did not read as a warning, and the viewer logs a " +
+        "failed read as one. readiness says when a manifest's visibility: is empty " +
+        "or neither private nor public. A draft-rendered pre-flight check (label " +
+        "policy) stops result, visibility and readiness on an instance with no " +
+        "draft. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -1234,6 +1279,38 @@ export const model = {
       schema: ReadinessSchema,
       lifetime: "infinite" as const,
       garbageCollection: 20,
+    },
+  },
+  checks: {
+    "draft-rendered": {
+      description:
+        "Before result, visibility and readiness: this instance has rendered a draft. " +
+        "Which app's draft is the method's own check, since checks get no arguments.",
+      labels: ["policy"],
+      appliesTo: ["result", "visibility", "readiness"],
+      execute: async (context: CheckContext): Promise<CheckResult> => {
+        let names: string[];
+        try {
+          names = (await context.dataRepository.findAllForModel(
+            context.modelType,
+            context.modelId,
+          )).map((d) => d.name);
+        } catch {
+          // The method reads the records too, and says what went wrong.
+          return { pass: true };
+        }
+        const prefixes = Object.values(RESOURCE_PREFIX);
+        if (names.some((n) => !prefixes.some((p) => n.startsWith(p)))) {
+          return { pass: true };
+        }
+        return {
+          pass: false,
+          errors: [
+            `No draft has been rendered by this model instance yet, so ${context.methodName} has nothing to work on. ` +
+            "Run @puddleworks/puddleworks-factory-build for the spec first.",
+          ],
+        };
+      },
     },
   },
   methods: {
@@ -1291,6 +1368,12 @@ export const model = {
       arguments: RenderArgsSchema,
       execute: method(async (args: RenderArgs, context: MethodContext) => {
         const root = args.targetDir.replace(/\/+$/, "");
+        if (safeText(root) !== root) {
+          throw new Error(
+            "The targetDir path reads as a secret, so every record would hide it. " +
+              "Use a checkout path without it.",
+          );
+        }
         if (!(await exists(`${root}/.swamp.yaml`))) {
           throw new Error(
             `${root} does not look like an app repo checkout: it has no .swamp.yaml. ` +
@@ -1339,18 +1422,10 @@ export const model = {
           );
         }
 
-        for (const { path, text } of writes) {
-          if (text !== null) await writeFileIn(path, text);
-        }
-
+        // The record is built and checked before any file is written, so a
+        // draft the Factory could not record leaves the checkout as it was.
         const workflow = files[2].path;
-        context.logger.info("Drafted {name} from {source} into {targetDir}", {
-          name: spec.name,
-          source,
-          targetDir: root,
-        });
-
-        const handle = await context.writeResource("draft", spec.name, {
+        const record = {
           name: spec.name,
           specSource: source,
           ...(spec.source ? { source: spec.source } : {}),
@@ -1364,7 +1439,30 @@ export const model = {
           files: files.map((f) => f.path),
           overwrote: present,
           renderedAt: new Date().toISOString(),
+        };
+        const checked = checkedResource("draft", record);
+        const hidden =
+          (["name", "targetDir", "modelType", "entryPointRef"] as const)
+            .filter((k) => checked[k] !== record[k]);
+        if (hidden.length > 0) {
+          throw new Error(
+            `The draft's ${
+              hidden.join(", ")
+            } would be hidden as a secret in its record, ` +
+              "so nothing was written; pick another name.",
+          );
+        }
+
+        for (const { path, text } of writes) {
+          if (text !== null) await writeFileIn(path, text);
+        }
+
+        context.logger.info("Drafted {name} from {source} into {targetDir}", {
+          name: spec.name,
+          source,
+          targetDir: root,
         });
+        const handle = await context.writeResource("draft", spec.name, checked);
         return { dataHandles: [handle] };
       }),
     },
@@ -1482,6 +1580,7 @@ export const model = {
           "",
         );
         const { files, notRead } = await textFiles(root);
+        warnNotRead(context, notRead);
         const assessment = assessVisibility({
           files,
           notRead,
@@ -1552,6 +1651,7 @@ export const model = {
           ),
         );
         const { files, notRead } = await textFiles(root);
+        warnNotRead(context, notRead);
         // The files change after the visibility check (the manifest's
         // visibility, the review report, a late fix): check them again as
         // they are now, with the quality and repo visibility it was given.

@@ -8,13 +8,16 @@ file, an https URL or inline JSON, and anyone can write one.
 | an `app-spec/v1`: what to build                    | the extension's files and a `build-result/v1` |
 | an `outcome-spec/v1`: what success looks like only | a starter `app-spec/v1` for you to finish     |
 
-The contracts, each with an example, are in `docs/contracts/`:
+The contracts, each with an example, are in
+[`docs/contracts/`](https://github.com/puddle-works/puddleworks-factory/tree/main/docs/contracts):
 
-- [outcome-spec.md](docs/contracts/outcome-spec.md): an agreed request that says
-  what success looks like and who agreed it, but not how to build it
-- [app-spec.md](docs/contracts/app-spec.md): what Factory builds from
-- [build-result.md](docs/contracts/build-result.md): what a build produced and
-  where it is
+- [outcome-spec.md](https://github.com/puddle-works/puddleworks-factory/blob/main/docs/contracts/outcome-spec.md):
+  an agreed request that says what success looks like and who agreed it, but not
+  how to build it
+- [app-spec.md](https://github.com/puddle-works/puddleworks-factory/blob/main/docs/contracts/app-spec.md):
+  what Factory builds from
+- [build-result.md](https://github.com/puddle-works/puddleworks-factory/blob/main/docs/contracts/build-result.md):
+  what a build produced and where it is
 
 ## How it works
 
@@ -75,12 +78,13 @@ confirm a one-screen summary. Aim for about an hour. To prefill by hand instead:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-prefill \
-  --input outcomeSpec=docs/contracts/outcome-spec.v1.example.json \
+  --input outcomeSpec=https://raw.githubusercontent.com/puddle-works/puddleworks-factory/main/docs/contracts/outcome-spec.v1.example.json \
   --input out=$HOME/weekly-stock-count.app-spec.json
 ```
 
 Fill in the blanks the run lists (see
-[outcome-spec.md](docs/contracts/outcome-spec.md)), then build from that file.
+[outcome-spec.md](https://github.com/puddle-works/puddleworks-factory/blob/main/docs/contracts/outcome-spec.md)),
+then build from that file.
 
 ### From an app spec
 
@@ -89,7 +93,7 @@ of the app's own repo and `repository` is its https URL:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-build \
-  --input spec=docs/contracts/app-spec.v1.example.json \
+  --input spec=https://raw.githubusercontent.com/puddle-works/puddleworks-factory/main/docs/contracts/app-spec.v1.example.json \
   --input targetDir=$HOME/dev/obsidian-puddle-scanner \
   --input repository=https://github.com/example/obsidian-puddle-scanner
 
