@@ -71,20 +71,88 @@ export interface ReadinessFacts {
   commit?: string;
 }
 
+/**
+ * The dimensions of swamp's adversarial review. A report must give each a
+ * verdict: one that leaves some out has not reviewed them.
+ */
+export const REVIEW_DIMENSIONS = [
+  "credentials-secrets",
+  "logging-quality",
+  "error-handling",
+  "testing-completeness",
+  "idempotency-resilience",
+  "api-contracts",
+  "resource-management",
+  "published-surface-hygiene",
+  "schema-strictness",
+  "lifetime-gc",
+  "crud-completeness",
+  "preflight-checks",
+  "instance-names",
+  "data-access",
+  "version-upgrades",
+];
+
 const STRING = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`[^`$\\]*`/.source;
 const TEST_CALL = new RegExp(
-  `(?:\\bDeno\\.test|\\.step)\\(\\s*(?:\\{\\s*name:\\s*)?(${STRING})`,
+  `(?:\\bDeno\\.test|\\.step)(\\.ignore)?\\(\\s*(?:\\{\\s*name:\\s*)?(${STRING})`,
   "g",
 );
+
+/** The text with its comments blanked, strings left as they are. */
+function withoutComments(text: string): string {
+  return text.replace(
+    new RegExp(`${STRING}|\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?(?:\\*\\/|$)`, "g"),
+    (m) => /^["'`]/.test(m) ? m : m.replace(/[^\n]/g, " "),
+  );
+}
 
 function unquote(literal: string): string {
   if (literal.startsWith('"')) return JSON.parse(literal);
   return literal.slice(1, -1).replace(/\\(.)/g, "$1");
 }
 
-/** Names of the `Deno.test` and `t.step` calls in a test file, in order. */
+/**
+ * Where the call whose `(` is at `open` ends, and its text with strings and
+ * everything deeper than its own arguments' brackets blanked, so
+ * `{ ignore: true }` in a test's body is not read as the test's own option.
+ */
+function callExtent(code: string, open: number): { end: number; own: string } {
+  const string = new RegExp(`^(?:${STRING})`);
+  let depth = 0;
+  let own = "";
+  for (let i = open; i < code.length; i++) {
+    const quoted = /["'`]/.test(code[i]) && string.exec(code.slice(i));
+    if (quoted) {
+      own += " ";
+      i += quoted[0].length - 1;
+      continue;
+    }
+    const c = code[i];
+    if ("([{".includes(c)) depth++;
+    if (depth <= 2) own += c;
+    if (")]}".includes(c) && --depth === 0) return { end: i, own };
+  }
+  return { end: code.length, own };
+}
+
+/**
+ * Names of the `Deno.test` and `t.step` calls in a test file that run, in
+ * order: not those in comments, ignored with `.ignore(` or an `ignore: true`
+ * option, or inside an ignored test.
+ */
 export function testNames(text: string): string[] {
-  return [...text.matchAll(TEST_CALL)].map((m) => unquote(m[1]));
+  const code = withoutComments(text);
+  const names: string[] = [];
+  let skipUntil = -1;
+  for (const m of code.matchAll(TEST_CALL)) {
+    const at = m.index ?? 0;
+    if (at < skipUntil) continue;
+    const { end, own } = callExtent(code, at + m[0].indexOf("("));
+    if (m[1] || /\bignore:\s*true\b/.test(own)) skipUntil = end;
+    else names.push(unquote(m[2]));
+  }
+  return names;
 }
 
 const record = (v: unknown): Record<string, unknown> | null =>
@@ -159,6 +227,16 @@ function checkReview(
     : [];
   if (dimensions.length === 0) {
     blockers.push("The review report has no dimensions.");
+  } else {
+    const given = new Set(dimensions.map((d) => str(d.id)));
+    const missing = REVIEW_DIMENSIONS.filter((id) => !given.has(id));
+    if (missing.length) {
+      blockers.push(
+        `The review report has no verdict for ${
+          missing.join(", ")
+        }: review those too, from the publish dry run's skeleton.`,
+      );
+    }
   }
   const counts = { pass: 0, na: 0, issue: 0, pending: 0 };
   const issues: ReviewSummary["issues"] = [];
