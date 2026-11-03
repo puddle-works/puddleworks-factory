@@ -546,6 +546,48 @@ const REPO_EXAMPLE = "https://github.com/<owner>/<name>";
 const PR_EXAMPLE = "https://github.com/<owner>/<name>/pull/<number>";
 
 /** The MIT licence, held by the repository's owner (its first path part). */
+/** The puddle-tooling tag the drafted ci.yml runs the publish dry run from. */
+const TOOLING_REF = "v0.2.1";
+
+/**
+ * CI for a repo that has none: the tests, and a publish dry run with the
+ * manifest's visibility. A repo made from puddle-template keeps its own.
+ */
+function renderCi(opts: RenderOptions): string {
+  const tests = "deno test extensions/models/";
+  return `name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: 2.9.7 # matches swamp's bundled deno
+      - run: ${tests}
+  publish:
+    uses: puddle-works/puddle-tooling/.github/workflows/publish.yml@${TOOLING_REF}
+    with:
+      visibility: ${
+    opts.visibility ?? "private"
+  } # must equal visibility: in manifest.yaml
+      dry-run: true # false pushes
+      tests: ${tests}
+      tooling-ref: ${TOOLING_REF}
+    secrets:
+      SWAMP_API_KEY: \${{ secrets.SWAMP_API_KEY }}
+      SWAMP_SIGNIN_TOKEN: \${{ secrets.SWAMP_SIGNIN_TOKEN }}
+`;
+}
+
 function renderLicense(repository: string, now: Date): string {
   const owner = new URL(repository).pathname.split("/").filter(Boolean)[0] ??
     new URL(repository).host;
@@ -677,6 +719,10 @@ DENO=$(swamp doctor extensions --json | jq -r '.denoPath')
 $DENO check extensions/models/${n.fileBase}.ts
 $DENO test extensions/models/${n.fileBase}_test.ts
 \`\`\`
+
+CI (\`.github/workflows/ci.yml\`) runs the tests and a publish dry run. The
+dry run needs two repository secrets, \`SWAMP_API_KEY\` and
+\`SWAMP_SIGNIN_TOKEN\`: \`swamp auth token create\` prints both.
 `;
 }
 
@@ -734,7 +780,7 @@ settings above do not name.
 3. If the tests need permissions (\`--allow-read\`, \`--allow-net\`, …), add the
    same flags to the "Test it" command in \`README.md\`, to the \`test\` target
    in the \`Makefile\`, and to the test commands in
-   \`.github/workflows/ci.yml\` if the repo has one.
+   \`.github/workflows/ci.yml\`.
 4. \`deno check\` and \`deno test\` must pass before review.
 ${CLAUDE_END}
 `;
@@ -818,6 +864,11 @@ export function renderDraft(
       path: "CLAUDE.md",
       content: renderClaude(input, n),
       existing: "section",
+    },
+    {
+      path: ".github/workflows/ci.yml",
+      content: renderCi(opts),
+      existing: "keep",
     },
   ];
 }
@@ -1271,8 +1322,10 @@ export const model = {
         "into place only when all are written, so a failed write changes no file, " +
         "and a failed move says which files it already moved. result logs where " +
         "it wrote its out file. visibility and readiness read the skills the " +
-        "manifest ships under skills:, and list the others as not shipped. No " +
-        "data migration required.",
+        "manifest ships under skills:, and list the others as not shipped. render " +
+        "writes .github/workflows/ci.yml (the tests and a publish dry run with the " +
+        "manifest's visibility) unless the repo already has one. No data " +
+        "migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],

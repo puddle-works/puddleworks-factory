@@ -43,16 +43,16 @@ flowchart LR
 
 ## What is in the package
 
-| Kind     | Name                                          | What it does                                                                                                                                                                                                       |
-| -------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Model    | `@puddleworks/puddleworks-factory/draft`      | `render` reads a spec and writes the extension, its tests, a workflow, the manifest and the app docs; `visibility` recommends publishing it publicly or privately; `readiness` checks the review before publishing |
-| Model    | `@puddleworks/puddleworks-factory/web`        | `serve` shows every app by stage, and each app's records, on a read-only page on 127.0.0.1                                                                                                                         |
-| Workflow | `@puddleworks/puddleworks-factory-prefill`    | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                                                                                                                            |
-| Workflow | `@puddleworks/puddleworks-factory-build`      | Runs `render` on the `puddleworks-factory` instance                                                                                                                                                                |
-| Workflow | `@puddleworks/puddleworks-factory-visibility` | Runs `visibility`: checks the built app's repo and recommends public or private                                                                                                                                    |
-| Workflow | `@puddleworks/puddleworks-factory-readiness`  | Runs `readiness`: checks the review report and that each acceptance criterion has a test, and writes a one-screen summary                                                                                          |
-| Workflow | `@puddleworks/puddleworks-factory-result`     | Runs `result`: writes a `build-result/v1` for the last draft of a spec, with what was published                                                                                                                    |
-| Skill    | `factory-build`                               | Takes a spec to a published extension: agree the spec, make the app repo, generate, build test-first, check, decide visibility, publish                                                                            |
+| Kind     | Name                                          | What it does                                                                                                                                                                                                                      |
+| -------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Model    | `@puddleworks/puddleworks-factory/draft`      | `render` reads a spec and writes the extension, its tests, a workflow, the manifest, the app docs and a CI workflow; `visibility` recommends publishing it publicly or privately; `readiness` checks the review before publishing |
+| Model    | `@puddleworks/puddleworks-factory/web`        | `serve` shows every app by stage, and each app's records, on a read-only page on 127.0.0.1                                                                                                                                        |
+| Workflow | `@puddleworks/puddleworks-factory-prefill`    | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                                                                                                                                           |
+| Workflow | `@puddleworks/puddleworks-factory-build`      | Runs `render` on the `puddleworks-factory` instance                                                                                                                                                                               |
+| Workflow | `@puddleworks/puddleworks-factory-visibility` | Runs `visibility`: checks the built app's repo and recommends public or private                                                                                                                                                   |
+| Workflow | `@puddleworks/puddleworks-factory-readiness`  | Runs `readiness`: checks the review report and that each acceptance criterion has a test, and writes a one-screen summary                                                                                                         |
+| Workflow | `@puddleworks/puddleworks-factory-result`     | Runs `result`: writes a `build-result/v1` for the last draft of a spec, with what was published                                                                                                                                   |
+| Skill    | `factory-build`                               | Takes a spec to a published extension: agree the spec, make the app repo, generate, build test-first, check, decide visibility, publish                                                                                           |
 
 ## Use
 
@@ -151,9 +151,10 @@ It can be public only when the licence, repository, quality and secrets checks
 pass (`canBePublic`). Anything that looks internal (home paths, internal hosts,
 private IPs, real email addresses) or spec wording that says it is for one team
 recommends private, and leaves the choice to you. Set `visibility:` in the
-manifest and in `.github/workflows/ci.yml` before writing the review report: the
-report is bound to the content hash, which the manifest is part of, so it is
-never passed as `--visibility`.
+manifest and in `.github/workflows/ci.yml` (`render` writes one, unless the repo
+already has its own) before writing the review report: the report is bound to
+the content hash, which the manifest is part of, so it is never passed as
+`--visibility`.
 
 Before publishing, have someone other than the builder review it: write the
 review report from the publish dry run's skeleton, and map each acceptance
