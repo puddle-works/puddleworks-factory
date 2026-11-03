@@ -34,6 +34,7 @@
  * @module
  */
 import { z } from "npm:zod@4";
+import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
 import {
   type AppSpec,
   type DeliveryMethod,
@@ -827,7 +828,11 @@ export function renderDraft(
 
 const GlobalArgsSchema = z.object({
   /** Scope for generated extension types, e.g. `@puddleworks`. */
-  typeScope: z.string().regex(/^@[a-z0-9-]+$/).default("@puddleworks"),
+  typeScope: z.string().regex(/^@[a-z0-9-]+$/).default("@puddleworks").describe(
+    "The collective each app is published under, e.g. @your-collective. It " +
+      "starts the app's model type, manifest name and workflow name; " +
+      "swamp extension push refuses one you are not a member of.",
+  ),
 });
 
 const PrefillArgsSchema = z.object({
@@ -925,30 +930,51 @@ const VisibilityAnswerSchema = VisibilitySchema.pick({
   provisionalQuality: true,
 });
 
-/** Directories the visibility check does not read: git, swamp runtime data, swamp-managed skills, dependencies. */
-const UNREAD = new Set([".git", ".swamp", ".claude/skills", "node_modules"]);
+/** Directories the visibility check does not read: git, swamp runtime data, dependencies. */
+const UNREAD = new Set([".git", ".swamp", "node_modules"]);
+
+/** Where skills live; only those the manifest ships are read. */
+const SKILLS_DIR = ".claude/skills";
+
+/** The skills a manifest.yaml at root lists under `skills:`, if any. */
+async function shippedSkills(root: string): Promise<Set<string>> {
+  try {
+    const manifest = parseYaml(
+      await Deno.readTextFile(`${root}/manifest.yaml`),
+    ) as { skills?: unknown } | null;
+    const skills = Array.isArray(manifest?.skills) ? manifest.skills : [];
+    return new Set(skills.filter((s): s is string => typeof s === "string"));
+  } catch {
+    // No manifest, or not YAML: no skill is shipped. Other checks report it.
+    return new Set();
+  }
+}
 
 /**
  * Text files under root, relative paths, skipping UNREAD, symlinks, large
- * files and binaries. `notRead` says what was skipped and why, except git, swamp runtime
- * data and dependencies, which hold nothing the app ships.
+ * files and binaries, and skills the manifest does not ship. `notRead` says
+ * what was skipped and why, except git, swamp runtime data and dependencies,
+ * which hold nothing the app ships.
  */
 async function textFiles(
   root: string,
   dir = "",
   notRead: string[] = [],
+  skills?: Set<string>,
 ): Promise<
   { files: Array<{ path: string; text: string }>; notRead: string[] }
 > {
+  skills ??= await shippedSkills(root);
   const files: Array<{ path: string; text: string }> = [];
   for await (const e of Deno.readDir(dir ? `${root}/${dir}` : root)) {
     const path = dir ? `${dir}/${e.name}` : e.name;
-    if (UNREAD.has(path)) {
-      if (path === ".claude/skills") notRead.push(`${path}/`);
+    if (UNREAD.has(path)) continue;
+    if (dir === SKILLS_DIR && !skills.has(e.name)) {
+      notRead.push(`${path}${e.isDirectory ? "/" : ""} (not shipped)`);
       continue;
     }
     if (e.isDirectory) {
-      files.push(...(await textFiles(root, path, notRead)).files);
+      files.push(...(await textFiles(root, path, notRead, skills)).files);
     } else if (e.isSymlink) {
       // Not followed: it may point outside the repo, or at a file it lists twice.
       notRead.push(`${path} (symlink)`);
@@ -1242,8 +1268,11 @@ export const model = {
         "A draft-rendered pre-flight check (label " +
         "policy) stops result, visibility and readiness on an instance with no " +
         "draft. render writes every file beside its target first and moves them " +
-        "into place only when all are written, so a failed write changes no file. " +
-        "result logs where it wrote its out file. No data migration required.",
+        "into place only when all are written, so a failed write changes no file, " +
+        "and a failed move says which files it already moved. result logs where " +
+        "it wrote its out file. visibility and readiness read the skills the " +
+        "manifest ships under skills:, and list the others as not shipped. No " +
+        "data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],

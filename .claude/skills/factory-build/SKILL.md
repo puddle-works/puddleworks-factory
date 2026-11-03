@@ -88,7 +88,7 @@ swamp model get puddleworks-factory --json 2>&1 | jq -r '.type // .error'
 `Model not found: puddleworks-factory` means create it once:
 
 ```bash
-swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory --json | jq -r .type
+swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory --global-arg typeScope=@puddleworks --json | jq -r .type
 ```
 
 ## Step 1a: Prefill an app spec from an outcome spec

@@ -56,12 +56,18 @@ flowchart LR
 
 ## Use
 
-Install the package and create the model instance once:
+Install the package and create the model instance once, with your own collective
+in place of `@YOUR-COLLECTIVE`:
 
 ```bash
 swamp extension pull @puddleworks/puddleworks-factory
-swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory
+swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory --global-arg typeScope=@YOUR-COLLECTIVE
 ```
+
+`typeScope` is the collective each app is published under: it starts the app's
+model type, manifest name and workflow name. It defaults to `@puddleworks`, and
+`swamp extension push` refuses a package named for a collective you are not a
+member of.
 
 ### From an outcome spec
 
