@@ -174,6 +174,7 @@ Deno.test("result: a blank pull request or out is left out", async () => {
     const data = ctx.store.get("build-result-obsidian-puddle-scanner")!;
     assertEquals("pullRequest" in data, false);
     assertEquals([...Deno.readDirSync(dir)].map((e) => e.name).sort(), [
+      ".github",
       ".swamp.yaml",
       "CLAUDE.md",
       "LICENSE",

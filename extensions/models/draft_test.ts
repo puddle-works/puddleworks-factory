@@ -27,6 +27,7 @@ import {
   renderDraft,
 } from "./draft.ts";
 import type { AppSpec } from "../contracts/app_spec_v1.ts";
+import { scanFile } from "../lib/visibility.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
@@ -126,6 +127,7 @@ function workflowOf(spec: AppSpec, path: string, opts: Opts = {}): any {
 // repo root, beside extensions/models/ and workflows/.
 Deno.test("render: produces the extension, its tests, the workflow and the app docs at the repo root", () => {
   assertEquals([...fileMap(OBSIDIAN).keys()].sort(), [
+    ".github/workflows/ci.yml",
     "CLAUDE.md",
     "LICENSE",
     "README.md",
@@ -263,6 +265,59 @@ Deno.test("render: the manifest names the licence and the repository, and ships 
   assertEquals(manifest.repository, REPO);
   assertEquals(manifest.license, "MIT");
   assertEquals(manifest.additionalFiles, ["README.md", "LICENSE"]);
+});
+
+// A repo not made from puddle-template has no CI, and the README tells the
+// builder to set visibility in ci.yml: the draft gives it one.
+Deno.test("render: ci.yml tests the app and dry-runs the publish with the manifest's visibility", () => {
+  for (const visibility of [undefined, "public", "private"] as const) {
+    const files = fileMap(OBSIDIAN, { visibility });
+    // deno-lint-ignore no-explicit-any
+    const ci: any = parseYaml(files.get(".github/workflows/ci.yml")!);
+    // deno-lint-ignore no-explicit-any
+    const manifest: any = parseYaml(files.get("manifest.yaml")!);
+    const publish = ci.jobs.publish;
+    assertEquals(
+      publish.uses,
+      "puddle-works/puddle-tooling/.github/workflows/publish.yml@v0.2.1",
+    );
+    assertEquals(publish.with.visibility, manifest.visibility);
+    assertEquals(publish.with["dry-run"], true);
+    assertEquals(publish.with.tests, "deno test extensions/models/");
+    assertEquals(publish.secrets, {
+      SWAMP_API_KEY: "${{ secrets.SWAMP_API_KEY }}",
+      SWAMP_SIGNIN_TOKEN: "${{ secrets.SWAMP_SIGNIN_TOKEN }}",
+    });
+    assertEquals(ci.permissions, { contents: "read" });
+    assertStringIncludes(
+      JSON.stringify(ci.jobs.test.steps),
+      "deno test extensions/models/",
+    );
+  }
+});
+
+Deno.test("render: the app README says which secrets CI's publish dry run needs", () => {
+  const readme = fileMap(OBSIDIAN).get("README.md")!;
+  assertStringIncludes(readme, ".github/workflows/ci.yml");
+  assertStringIncludes(readme, "SWAMP_API_KEY");
+  assertStringIncludes(readme, "SWAMP_SIGNIN_TOKEN");
+});
+
+// The secret names in ci.yml are references to repo secrets, not secrets: the
+// visibility check must not recommend private because of them.
+Deno.test("render: ci.yml gives the visibility check nothing to flag", () => {
+  for (const visibility of ["public", "private"] as const) {
+    const ci = fileMap(OBSIDIAN, { visibility }).get(
+      ".github/workflows/ci.yml",
+    )!;
+    assertEquals(scanFile(".github/workflows/ci.yml", ci), []);
+  }
+});
+
+// The skill switches a draft to public with this exact line.
+Deno.test("render: ci.yml's visibility line is the one the skill edits", () => {
+  const ci = fileMap(OBSIDIAN).get(".github/workflows/ci.yml")!;
+  assertStringIncludes(ci, "visibility: private # must equal");
 });
 
 Deno.test("render: the LICENSE is MIT, for the repository's owner and this year", () => {
@@ -940,7 +995,7 @@ Deno.test("method: writes every file and records them in a draft resource", asyn
     assertEquals(ctx.writes.length, 1);
     assertEquals(ctx.writes[0].specName, "draft");
     assertEquals(ctx.writes[0].name, "obsidian-puddle-scanner");
-    assertEquals((ctx.writes[0].data.files as string[]).length, 7);
+    assertEquals((ctx.writes[0].data.files as string[]).length, 8);
     assertEquals(ctx.writes[0].data.repository, REPO);
     assertEquals(ctx.writes[0].data.visibility, "public");
     assertEquals(
@@ -1008,6 +1063,37 @@ Deno.test("method: an existing LICENSE is kept and does not block the draft", as
     await model.methods.render.execute(renderArgs(dir), ctx);
     assertEquals(await Deno.readTextFile(`${dir}/LICENSE`), "theirs");
     assertEquals(ctx.writes[0].data.overwrote, []);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+// A repo made from puddle-template already has its own ci.yml: keep it.
+Deno.test("method: an existing ci.yml is kept and does not block the draft", async () => {
+  const dir = await appRepo();
+  try {
+    await Deno.mkdir(`${dir}/.github/workflows`, { recursive: true });
+    await Deno.writeTextFile(`${dir}/.github/workflows/ci.yml`, "theirs");
+    const ctx = makeContext();
+    await model.methods.render.execute(renderArgs(dir), ctx);
+    assertEquals(
+      await Deno.readTextFile(`${dir}/.github/workflows/ci.yml`),
+      "theirs",
+    );
+    assertEquals(ctx.writes[0].data.overwrote, []);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+});
+
+Deno.test("method: a repo with no ci.yml gets one", async () => {
+  const dir = await appRepo();
+  try {
+    await model.methods.render.execute(renderArgs(dir), makeContext());
+    assertStringIncludes(
+      await Deno.readTextFile(`${dir}/.github/workflows/ci.yml`),
+      "publish.yml@v0.2.1",
+    );
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
@@ -1115,7 +1201,9 @@ Deno.test("method: refuses a target that is not a swamp repo checkout", async ()
 
 Deno.test("render: nothing in the draft mentions a request", () => {
   for (const [path, content] of fileMap(AWKWARD)) {
-    assertEquals(/request/i.test(content), false, path);
+    // pull_request is GitHub's event name in ci.yml, not a request.
+    const text = content.replaceAll("pull_request:", "");
+    assertEquals(/request/i.test(text), false, path);
   }
 });
 
