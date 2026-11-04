@@ -584,6 +584,19 @@ Deno.test("render: CLAUDE.md tells the builder where test permission flags go", 
   assertStringIncludes(finishing, ".github/workflows/ci.yml");
 });
 
+// Render drafts no Makefile, so the step can't assume there is one.
+Deno.test("render: CLAUDE.md only sends the builder to a Makefile the repo has", () => {
+  const doc = fileMap(OBSIDIAN).get("CLAUDE.md")!;
+  const finishing = doc.split("## Finishing the draft")[1].replace(/\s+/g, " ");
+  assertStringIncludes(finishing, "if the repo has a `Makefile`");
+});
+
+Deno.test("method: render's description names every kind of file it writes", () => {
+  const description = model.methods.render.description.replace(/\s+/g, " ");
+  assertStringIncludes(description, "ci.yml");
+  assertStringIncludes(description, "kept");
+});
+
 // The repo's own CLAUDE.md (swamp's managed section, the repo's rules) stays;
 // the app's part sits between markers so a re-draft can find and replace it.
 Deno.test("render: CLAUDE.md is one marked section", () => {
@@ -1062,6 +1075,12 @@ Deno.test("method: an existing LICENSE is kept and does not block the draft", as
     const ctx = makeContext();
     await model.methods.render.execute(renderArgs(dir), ctx);
     assertEquals(await Deno.readTextFile(`${dir}/LICENSE`), "theirs");
+    assertEquals(
+      (ctx.writes[0].data.files as string[]).includes("LICENSE"),
+      false,
+      "the record lists the paths written, and this one was not",
+    );
+    assertEquals((ctx.writes[0].data.files as string[]).length, 7);
     assertEquals(ctx.writes[0].data.overwrote, []);
   } finally {
     await Deno.remove(dir, { recursive: true });
@@ -1081,6 +1100,14 @@ Deno.test("method: an existing ci.yml is kept and does not block the draft", asy
       "theirs",
     );
     assertEquals(ctx.writes[0].data.overwrote, []);
+    assertEquals(
+      (ctx.writes[0].data.files as string[]).includes(
+        ".github/workflows/ci.yml",
+      ),
+      false,
+      "the record lists the paths written, and this one was not",
+    );
+    assertEquals((ctx.writes[0].data.files as string[]).length, 7);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }

@@ -125,11 +125,12 @@ download the spec and pass the file.
 `targetDir` must be a swamp repo (it has a `.swamp.yaml`), such as one made from
 `puddle-works/puddle-template`. The draft goes in its root: the extension and
 its test in `extensions/models/`, the workflow in `workflows/`, and
-`manifest.yaml`, `README.md`, `LICENSE` and an app section in `CLAUDE.md`. An
-existing `LICENSE` is kept, and the rest of `CLAUDE.md` is left alone. A spec
-that breaks the contract writes nothing and lists every broken rule. Existing
-files are kept unless you pass `--input overwrite=true`. The drafted package is
-private; whether it goes public is decided once it is built (below).
+`manifest.yaml`, `README.md`, `LICENSE`, `.github/workflows/ci.yml` and an app
+section in `CLAUDE.md`. An existing `LICENSE` or `.github/workflows/ci.yml` is
+kept, and the rest of `CLAUDE.md` is left alone. A spec that breaks the contract
+writes nothing and lists every broken rule. Existing files are kept unless you
+pass `--input overwrite=true`. The drafted package is private; whether it goes
+public is decided once it is built (below).
 
 Once it is built and passes its checks, ask for a recommendation. `quality` is
 `swamp extension quality manifest.yaml --json | jq .percentage` in the app repo,
@@ -233,8 +234,8 @@ site, under a strict content security policy.
 ## Development
 
 ```bash
-~/.swamp/deno/deno fmt --check
-~/.swamp/deno/deno test -A --permit-no-files
+$(swamp doctor extensions --json | jq -r .denoPath) fmt --check
+$(swamp doctor extensions --json | jq -r .denoPath) test -A --permit-no-files
 swamp extension quality manifest.yaml
 ```
 

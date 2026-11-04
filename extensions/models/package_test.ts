@@ -76,6 +76,59 @@ Deno.test("package: the skill says it is Puddleworks' own procedure, and runs on
   assertEquals(skill.includes("sed -i ''"), false, "BSD-only sed -i ''");
 });
 
+// What the draft writes, and what the docs say it writes, must not drift apart.
+Deno.test("package: the README and skill say the draft adds a ci.yml and keeps an existing one", async () => {
+  const flat = async (path: string) =>
+    (await Deno.readTextFile(new URL(path, ROOT))).replace(/\s+/g, " ");
+  const readme = await flat("README.md");
+  const skill = await flat(".claude/skills/factory-build/SKILL.md");
+  assertEquals(
+    readme.includes(
+      "An existing `LICENSE` or `.github/workflows/ci.yml` is kept",
+    ),
+    true,
+    "README",
+  );
+  assertEquals(
+    skill.includes(
+      "`LICENSE` and `.github/workflows/ci.yml` (the template's are kept)",
+    ),
+    true,
+    "SKILL.md",
+  );
+});
+
+Deno.test("package: the README's commands find deno through swamp, not a fixed path", async () => {
+  const readme = await Deno.readTextFile(new URL("README.md", ROOT));
+  assertEquals(readme.includes("~/.swamp/deno/deno"), false);
+  assertEquals(
+    readme.includes("$(swamp doctor extensions --json | jq -r .denoPath) fmt"),
+    true,
+  );
+});
+
+// The visibility check reads the skills the manifest ships; only the others
+// are skipped.
+Deno.test("package: the skill says the check reads shipped skills, and a Makefile may be absent", async () => {
+  const skill = (await Deno.readTextFile(
+    new URL(".claude/skills/factory-build/SKILL.md", ROOT),
+  )).replace(/\s+/g, " ");
+  assertEquals(
+    skill.includes("(not `.git`, `.swamp`, `.claude/skills`, `node_modules`)"),
+    false,
+    "still says no skill is read",
+  );
+  assertEquals(
+    skill.includes("skills the manifest doesn't ship"),
+    true,
+    "says which skills are skipped",
+  );
+  assertEquals(
+    skill.includes("the `test` target of `W/Makefile` if it has one"),
+    true,
+  );
+});
+
 Deno.test("package: every model create sets typeScope, since it names the app's collective", async () => {
   const readme = await Deno.readTextFile(new URL("README.md", ROOT));
   const skill = await Deno.readTextFile(

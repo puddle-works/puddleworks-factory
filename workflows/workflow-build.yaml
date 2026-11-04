@@ -3,8 +3,8 @@ name: "@puddleworks/puddleworks-factory-build"
 description: >-
   Write a first draft of a swamp app from a puddleworks.dev/app-spec/v1 spec:
   an extension whose run method takes the spec's inputs, tests for it, a
-  workflow with the same inputs, the publish manifest, README, LICENSE and a
-  CLAUDE.md section. The spec can be a file path, an https URL or inline JSON,
+  workflow with the same inputs, the publish manifest, README, LICENSE, a
+  ci.yml and a CLAUDE.md section. The spec can be a file path, an https URL or inline JSON,
   written by a person or another tool. Files go into the root of a checkout of
   the app's own repo; nothing is committed or pushed. The factory-build skill
   drives this end to end.
