@@ -243,8 +243,9 @@ For inline JSON, quote it: `--input "spec=$(cat spec.json)"`. The draft is
 private under `@puddleworks/NAME` by default; going public is the last step,
 after the build. The skeleton goes in the root of `W`: the extension, its test
 and the workflow under `extensions/models/` and `workflows/`, plus
-`manifest.yaml`, `README.md`, `LICENSE` (the template's is kept) and a marked
-app section in `CLAUDE.md` (added, or replaced on a re-draft).
+`manifest.yaml`, `README.md`, `LICENSE` and `.github/workflows/ci.yml` (the
+template's are kept), and a marked app section in `CLAUDE.md` (added, or
+replaced on a re-draft).
 
 `succeeded` means the files are written. On `failed`, tell the user what the
 message says in plain words and stop:
@@ -310,9 +311,9 @@ guess. Otherwise carry straight on.
 Work in `W`. For each test in the plan: write it, run `make test` and see it
 fail for the right reason, then write the code that makes it pass. If the tests
 need Deno permissions (`--allow-read` and so on), add the same flags to the
-"Test it" command in `W/README.md`, the `test` target of `W/Makefile` and the
-`deno test` lines of `W/.github/workflows/ci.yml`, so all three run the same
-tests.
+"Test it" command in `W/README.md`, the `test` target of `W/Makefile` if it has
+one, and the `deno test` lines of `W/.github/workflows/ci.yml`, so they all run
+the same tests.
 
 Then run the workflow once for real, as `W/README.md` says (create the model
 instance, then `swamp workflow run <entryPointRef>`), with settings that work
@@ -362,7 +363,8 @@ swamp data query 'behavior("puddleworks-factory") && name == "visibility-NAME"' 
 
 Run this from the swamp repo from step 1, like the other Factory
 workflows. The method reads every text file in `W` (not `.git`, `.swamp`,
-`.claude/skills`, `node_modules`) and gives the same answer for the same files:
+`node_modules`, or skills the manifest doesn't ship) and gives the same answer
+for the same files:
 
 | Check              | Role     | Fails when                                                                   |
 | ------------------ | -------- | ---------------------------------------------------------------------------- |

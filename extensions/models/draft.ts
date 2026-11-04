@@ -21,6 +21,8 @@
  * - `manifest.yaml`, `README.md` and `LICENSE` — the publish manifest, with
  *   its licence and repository link, and what it ships. A LICENSE the repo
  *   already has is kept.
+ * - `.github/workflows/ci.yml` — the tests and a publish dry run. One the repo
+ *   already has is kept.
  * - `CLAUDE.md` — a marked section that states the bounded purpose and what is
  *   out of scope, added to the repo's own CLAUDE.md if it has one.
  *
@@ -545,7 +547,6 @@ function checkLink(arg: string, url: string, example: string): void {
 const REPO_EXAMPLE = "https://github.com/<owner>/<name>";
 const PR_EXAMPLE = "https://github.com/<owner>/<name>/pull/<number>";
 
-/** The MIT licence, held by the repository's owner (its first path part). */
 /** The puddle-tooling tag the drafted ci.yml runs the publish dry run from. */
 const TOOLING_REF = "v0.2.1";
 
@@ -778,9 +779,9 @@ settings above do not name.
    generated tests as they are: they stub \`run\`, so they keep passing. Tests
    of the behaviour call \`run\` directly with working settings.
 3. If the tests need permissions (\`--allow-read\`, \`--allow-net\`, …), add the
-   same flags to the "Test it" command in \`README.md\`, to the \`test\` target
-   in the \`Makefile\`, and to the test commands in
-   \`.github/workflows/ci.yml\`.
+   same flags to the "Test it" command in \`README.md\` and to the test commands
+   in \`.github/workflows/ci.yml\`, and, if the repo has a \`Makefile\`, to its
+   \`test\` target.
 4. \`deno check\` and \`deno test\` must pass before review.
 ${CLAUDE_END}
 `;
@@ -1447,10 +1448,11 @@ export const model = {
     },
     render: {
       description:
-        "Write a first draft (extension, tests, workflow, manifest, README, LICENSE and " +
-        "CLAUDE.md section) for an app spec, read from a file, an https URL or inline " +
-        "JSON, into the root of the app's own repo checkout. Private unless visibility=public. " +
-        "Refuses to overwrite files unless overwrite=true.",
+        "Write a first draft (extension, tests, workflow, manifest, README, LICENSE, " +
+        "ci.yml and CLAUDE.md section) for an app spec, read from a file, an https URL or " +
+        "inline JSON, into the root of the app's own repo checkout. Private unless " +
+        "visibility=public. An existing LICENSE or ci.yml is kept; other files are not " +
+        "overwritten unless overwrite=true.",
       arguments: RenderArgsSchema,
       execute: method(async (args: RenderArgs, context: MethodContext) => {
         const root = args.targetDir.replace(/\/+$/, "");
@@ -1480,7 +1482,9 @@ export const model = {
         });
 
         // What each file's text becomes, or null to leave it as it is.
-        const writes: Array<{ path: string; text: string | null }> = [];
+        const writes: Array<
+          { file: string; path: string; text: string | null }
+        > = [];
         const present: string[] = [];
         for (const f of files) {
           const path = `${root}/${f.path}`;
@@ -1491,12 +1495,12 @@ export const model = {
           if (mode === "section") {
             const placed = placeSection(old, f.content);
             if (placed.replaced) present.push(f.path);
-            writes.push({ path, text: placed.text });
+            writes.push({ file: f.path, path, text: placed.text });
           } else if (old !== null && mode === "keep") {
-            writes.push({ path, text: null });
+            writes.push({ file: f.path, path, text: null });
           } else {
             if (old !== null) present.push(f.path);
-            writes.push({ path, text: f.content });
+            writes.push({ file: f.path, path, text: f.content });
           }
         }
         if (present.length > 0 && !args.overwrite) {
@@ -1522,7 +1526,7 @@ export const model = {
           entryPointRef: `${context.globalArgs.typeScope}/${
             workflow.slice("workflows/workflow-".length, -".yaml".length)
           }`,
-          files: files.map((f) => f.path),
+          files: writes.filter((w) => w.text !== null).map((w) => w.file),
           overwrote: present,
           renderedAt: new Date().toISOString(),
         };

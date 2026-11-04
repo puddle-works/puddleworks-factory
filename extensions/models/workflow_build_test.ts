@@ -7,7 +7,7 @@
  *
  * @module
  */
-import { assertEquals } from "jsr:@std/assert@1.0.19";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
 import { model } from "./draft.ts";
 
@@ -26,6 +26,7 @@ const TEXT = await Deno.readTextFile(
 );
 const workflow = parseYaml(TEXT) as {
   name: string;
+  description: string;
   inputs: { properties: Record<string, unknown>; required: string[] };
   jobs: { steps: Step[] }[];
 };
@@ -33,6 +34,10 @@ const steps = workflow.jobs.flatMap((j) => j.steps);
 
 Deno.test("build workflow: is named for the package", () => {
   assertEquals(workflow.name, "@puddleworks/puddleworks-factory-build");
+});
+
+Deno.test("build workflow: the description names the ci.yml it drafts", () => {
+  assertStringIncludes(workflow.description, "ci.yml");
 });
 
 Deno.test("build workflow: takes a spec, a target and its repository, nothing else required", () => {
