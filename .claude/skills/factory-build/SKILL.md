@@ -5,7 +5,7 @@ description: >
   puddleworks.dev/app-spec/v1 spec (a file path, an https URL or inline JSON)
   to a published swamp extension in one run: for an outcome spec, prefill an
   app spec and agree the builder's decisions with the user; generate the
-  skeleton in the app's own repo (made from puddle-works/puddle-template, with
+  skeleton in the app's own repo (made from the template repo, with
   both specs kept beside it); build the behaviour test-first; get it through
   the publish checks; recommend public or private and ask; have a fresh agent
   review it against the spec; publish once the user confirms a one-screen
@@ -16,11 +16,12 @@ description: >
 
 # Factory Build
 
-This is Puddleworks' own build procedure. It makes each app's repo in the
-`puddle-works` GitHub organisation from `puddle-works/puddle-template`, grants
-it that organisation's Actions secrets, and builds in an Orca worktree, so it
-needs access to that organisation and Orca. Outside Puddleworks, use the
-workflows it runs directly (see the package README).
+It makes each app's repo in a GitHub organisation from a template repo, can
+grant the new repo some of that organisation's Actions secrets, and builds in an
+Orca worktree, or a plain `git worktree` when Orca is not installed. The
+organisation, template, secrets, collective and worktree tool are settings; the
+defaults are the
+ones Puddleworks uses (see Settings, and the package README).
 
 Take an app spec to a published extension, aiming for about an hour. Quality
 comes from checks that must pass, not from extra steps:
@@ -47,13 +48,43 @@ steps: ask before each one. Never merge the PR; the user does.
 Factory reads only the spec. Whoever wrote the spec (a person, another tool)
 has already agreed it; Factory does not check approvals.
 
+## Settings
+
+Read these once, before step 1, from `factory-build.json` at the root of the swamp
+repo you run from (a key it leaves out keeps its default). An argument to
+`/factory-build` (`org=acme`) overrides both for that run.
+
+| Key          | Default                         | What it sets                                                  |
+| ------------ | ------------------------------- | ------------------------------------------------------------- |
+| `org`        | `puddle-works`                  | GitHub organisation or user that owns each app repo           |
+| `template`   | `puddle-works/puddle-template`  | Template repo each app repo is made from                      |
+| `secrets`    | `SWAMP_API_KEY`, `SWAMP_SIGNIN_TOKEN` | Org Actions secrets granted to a new repo; `[]` grants none |
+| `collective` | `@puddleworks`                  | Collective the apps are published under (`typeScope`)         |
+| `worktrees`  | `orca`                          | `orca` or `git`; `git` is used anyway when `orca` is not installed |
+
+```bash
+D='{"org":"puddle-works","template":"puddle-works/puddle-template",
+    "secrets":["SWAMP_API_KEY","SWAMP_SIGNIN_TOKEN"],"collective":"@puddleworks",
+    "worktrees":"orca"}'
+S=$( [ -f factory-build.json ] && jq -s '.[0] * .[1]' <(echo "$D") factory-build.json || echo "$D")
+ORG=$(jq -r .org <<<"$S"); TEMPLATE=$(jq -r .template <<<"$S")
+SECRETS=$(jq -r '.secrets | join(" ")' <<<"$S"); COLLECTIVE=$(jq -r .collective <<<"$S")
+WT=$(jq -r .worktrees <<<"$S"); command -v orca >/dev/null || WT=git
+```
+
+The template must give each app a `Makefile` with `test`, `contracts-check`,
+`guardrails-check` and `publish` targets, and a `contracts.ts`.
+
+Commits use the git config of the machine, and end with whatever attribution the
+user's instructions ask for.
+
 ## Input
 
 The spec: a file path, an `https://` URL, or the JSON itself. Ask for it if the
 user did not give one.
 
-The app repo: each app gets its own repo, `puddle-works/NAME`, made from the
-template `puddle-works/puddle-template` (ADR-004). `APP` is the absolute path of
+The app repo: each app gets its own repo, `ORG/NAME`, made from the
+template `$TEMPLATE` (ADR-004). `APP` is the absolute path of
 its checkout. Step 2 creates the repo and the checkout if they do not exist
 yet. If the user names an existing checkout, use that.
 
@@ -70,8 +101,8 @@ jq -r '.format // .apiVersion' SPEC_FILE   # or: curl -fsSL SPEC_URL | jq -r '.f
   (`docs/contracts/app-spec.md`). Its `name` is the app name. Skip step 1a.
 
 Below, `NAME` is the app name, `SPEC` is the app spec to build from, `REPO` is
-the app repo's https URL (`https://github.com/puddle-works/NAME`), `W` is the
-Orca worktree step 2 makes for the build (`~/orca/workspaces/NAME/draft-NAME`),
+the app repo's https URL (`https://github.com/ORG/NAME`), `W` is the
+worktree step 2 makes for the build (with Orca, `~/orca/workspaces/NAME/draft-NAME`; with git, `NAME-draft` beside `APP`),
 and `SP` is the scratchpad directory.
 The contracts are in `docs/contracts/` in the puddleworks-factory repo.
 
@@ -88,7 +119,7 @@ swamp model get puddleworks-factory --json 2>&1 | jq -r '.type // .error'
 `Model not found: puddleworks-factory` means create it once:
 
 ```bash
-swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory --global-arg typeScope=@puddleworks --json | jq -r .type
+swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory --global-arg typeScope=$COLLECTIVE --json | jq -r .type
 ```
 
 ## Step 1a: Prefill an app spec from an outcome spec
@@ -163,27 +194,29 @@ The build checks it fully: a field left blank fails there with
 Check whether the repo exists:
 
 ```bash
-gh repo view puddle-works/NAME --json visibility -q .visibility
+gh repo view ORG/NAME --json visibility -q .visibility
 ```
 
 `PRIVATE` or `PUBLIC` means it exists: use the user's checkout as `APP`, or
-clone it (`gh repo clone puddle-works/NAME APP`). `Could not resolve to a
+clone it (`gh repo clone ORG/NAME APP`). `Could not resolve to a
 Repository` means it does not exist yet. Creating a repo is outward-facing, so
 **ask first**, naming the repo and where the checkout goes (suggest
 `$HOME/dev/NAME`). On yes:
 
 ```bash
-gh repo create puddle-works/NAME --template puddle-works/puddle-template --private --clone=false
-gh repo clone puddle-works/NAME APP
-ID=$(gh api repos/puddle-works/NAME -q .id)
-for S in SWAMP_API_KEY SWAMP_SIGNIN_TOKEN; do gh api -X PUT orgs/puddle-works/actions/secrets/$S/repositories/$ID; done
+gh repo create ORG/NAME --template $TEMPLATE --private --clone=false
+gh repo clone ORG/NAME APP
+if [ -n "$SECRETS" ]; then
+  ID=$(gh api repos/ORG/NAME -q .id)
+  for S in $SECRETS; do gh api -X PUT orgs/ORG/actions/secrets/$S/repositories/$ID; done
+fi
 ```
 
-The last two lines give the repo the org secrets its CI publish dry run needs
-(they are shared with selected repos only). They need a token with `admin:org`;
-if `gh api` answers `403`, tell the user to add the repo under **Repository
-access** at `https://github.com/organizations/puddle-works/settings/secrets/actions`
-for both secrets.
+The last lines give the repo the org secrets its CI publish dry run needs
+(they are shared with selected repos only); with `secrets` empty they are
+skipped. They need a token with `admin:org`; if `gh api` answers `403`, tell the
+user to add the repo under **Repository access** at
+`https://github.com/organizations/ORG/settings/secrets/actions` for each secret.
 
 Every app starts private. Whether it goes public is decided at the end, once the
 extension is built and checked. A clone straight after `gh repo create` can
@@ -191,10 +224,19 @@ come back empty while GitHub copies the template: if `git -C APP log` says
 `does not have any commits yet`, wait a few seconds, delete `APP` and clone
 again.
 
-Every app is an Orca project, and every build happens in an Orca worktree, so
-the user can see and open it from Orca. Add the checkout to Orca (this is safe
-to repeat: an app already added gives back the same id) and make the branch in
-a new Orca worktree:
+With `WT=git`, make the branch with a plain `git worktree add`, beside the checkout, and use
+its path as `W`; on a re-draft, `git -C APP worktree list --porcelain` shows the
+worktree on `draft/NAME`. Skip the Orca commands below.
+
+```bash
+git -C APP fetch origin --quiet
+git -C APP worktree add ../NAME-draft -b draft/NAME origin/main
+```
+
+With `WT=orca`, every app is an Orca project, and every build happens in an Orca
+worktree, so the user can see and open it from Orca. Add the checkout to Orca
+(this is safe to repeat: an app already added gives back the same id) and make
+the branch in a new Orca worktree:
 
 ```bash
 ORCA_ID=$(orca repo add --path APP --json | jq -r .result.repo.id)
@@ -205,7 +247,7 @@ orca worktree create --repo id:$ORCA_ID --name draft-NAME --branch draft/NAME \
 ```
 
 The path it prints is `W`. Orca names the project after the remote
-(`github:puddle-works/NAME`); `orca project list --json` shows it. Always pass
+(`github:ORG/NAME`); `orca project list --json` shows it. Always pass
 `--no-parent`: the build is not linked to any other worktree, and Orca would
 otherwise pick a parent from where it was run. If the branch already exists,
 this is a re-draft: find its worktree with
@@ -223,8 +265,8 @@ git -C W rm -q --ignore-unmatch manifest.yaml README.md extensions/models/exampl
 mv SP/contracts.ts W/contracts.ts
 (cd W && swamp repo init --force --tool claude >/dev/null)
 git -C W add -A
-git -C W commit -q --author="Claude Code <claude-code@anthropic.com>" \
-  -m "Remove the template placeholders" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C W commit -q \
+  -m "Remove the template placeholders"
 ```
 
 `contracts.ts` keeps the template's `Contracts` import (and so its
@@ -258,15 +300,15 @@ message says in plain words and stop:
 | `has no swamp workflow to draft`                        | Delivery is `external_app` or `manual_process` | Nothing to draft; this skill does not apply             |
 | `Refusing to overwrite files that already exist`        | A draft is already on this branch              | Re-run with `--input overwrite=true` if the user agrees |
 | `does not look like an app repo checkout`               | `targetDir` has no `.swamp.yaml`               | Point it at the app repo worktree from step 2           |
-| `repository "…" … Pass the plain https URL` | `repository` is not https, has a login, a query or fragment, or no path | Pass `REPO`, e.g. `https://github.com/puddle-works/NAME` |
+| `repository "…" … Pass the plain https URL` | `repository` is not https, has a login, a query or fragment, or no path | Pass `REPO`, e.g. `https://github.com/ORG/NAME` |
 
 Then commit the skeleton untouched (with `spec/` when it came from an outcome
 spec), so review can tell generated code from written code:
 
 ```bash
 git -C W add -A
-git -C W commit -q --author="Claude Code <claude-code@anthropic.com>" \
-  -m "draft: generated skeleton for NAME" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C W commit -q \
+  -m "draft: generated skeleton for NAME"
 git -C W push -u origin draft/NAME
 ```
 
@@ -322,8 +364,8 @@ for it or skip the run, and say which in the report.
 
 ```bash
 git -C W add -A
-git -C W commit -q --author="Claude Code <claude-code@anthropic.com>" \
-  -m "Build the NAME behaviour" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C W commit -q \
+  -m "Build the NAME behaviour"
 ```
 
 ## Step 6: Get it through the checks
@@ -354,7 +396,7 @@ changed, as in step 5, with the message `Get NAME ready to publish`.
 ```bash
 QJ=$(cd W && swamp extension quality manifest.yaml --json)
 Q=$(jq .percentage <<<"$QJ"); PQ=$(jq '.ifProvisionalEarned.percentage // 0' <<<"$QJ")
-RV=$(gh repo view puddle-works/NAME --json visibility -q .visibility | tr A-Z a-z)
+RV=$(gh repo view ORG/NAME --json visibility -q .visibility | tr A-Z a-z)
 swamp workflow run @puddleworks/puddleworks-factory-visibility --input name=NAME \
   --input quality=$Q --input provisionalQuality=$PQ --input repoVisibility=$RV --json | jq -r .status
 swamp data query 'behavior("puddleworks-factory") && name == "visibility-NAME"' \
@@ -406,8 +448,7 @@ and `ci.yml` already say `private`. For **public**, after the user's answer:
 perl -pi -e 's/^visibility: private$/visibility: public/' W/manifest.yaml
 perl -pi -e 's/visibility: private # must equal/visibility: public # must equal/' W/.github/workflows/ci.yml
 grep -n '^visibility:' W/manifest.yaml; grep -n 'visibility:' W/.github/workflows/ci.yml
-git -C W commit -q -am "Publish NAME publicly" --author="Claude Code <claude-code@anthropic.com>" \
-  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C W commit -q -am "Publish NAME publicly"
 ```
 
 Expect `visibility: public` from both greps. The GitHub repo itself is made
@@ -516,10 +557,10 @@ the app repo:
 
 ```bash
 git -C W add swamp-extension-review/ spec/
-git -C W commit -q --author="Claude Code <claude-code@anthropic.com>" \
-  -m "Review NAME for publishing" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+git -C W commit -q \
+  -m "Review NAME for publishing"
 git -C W push -u origin draft/NAME
-gh pr create --repo puddle-works/NAME --head draft/NAME --base main \
+gh pr create --repo ORG/NAME --head draft/NAME --base main \
   --title "Build NAME" --body-file SP/pr.md
 ```
 
@@ -551,7 +592,7 @@ tests. Add that it is published from that commit on `draft/NAME`, before the PR
 is merged. Then ask with `AskUserQuestion`; on yes:
 
 ```bash
-gh repo edit puddle-works/NAME --visibility public --accept-visibility-change-consequences   # public only
+gh repo edit ORG/NAME --visibility public --accept-visibility-change-consequences   # public only
 cd W && make publish VISIBILITY=V
 ```
 

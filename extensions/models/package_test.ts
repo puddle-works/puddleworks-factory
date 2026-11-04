@@ -66,14 +66,58 @@ Deno.test("package: shipped docs don't lean on Puddleworks' other tools", async 
   );
 });
 
-Deno.test("package: the skill says it is Puddleworks' own procedure, and runs on any sed", async () => {
-  const skill = await Deno.readTextFile(
-    new URL(".claude/skills/factory-build/SKILL.md", ROOT),
-  );
-  const body = skill.slice(skill.indexOf("\n---", 3) + 4);
-  const intro = body.trimStart().split("\n\n").slice(0, 3).join("\n\n");
-  assertEquals(/Puddleworks' own/.test(intro), true, intro);
+const SKILL = new URL(".claude/skills/factory-build/SKILL.md", ROOT);
+const SETTINGS_KEYS = ["org", "template", "secrets", "collective", "worktrees"];
+
+/** The skill without its Settings section, the one place defaults may be written. */
+async function skillOutsideSettings(): Promise<string> {
+  const skill = await Deno.readTextFile(SKILL);
+  const at = skill.indexOf("\n## Settings");
+  const end = skill.indexOf("\n## ", at + 1);
+  return at < 0 ? skill : skill.slice(0, at) + skill.slice(end);
+}
+
+Deno.test("package: the skill has no Puddleworks setup outside its Settings section", async () => {
+  const skill = await Deno.readTextFile(SKILL);
+  const rest = await skillOutsideSettings();
+  assertEquals(skill.includes("\n## Settings"), true, "no Settings section");
+  assertEquals(/puddle-works/.test(rest), false, "a literal org or template");
+  assertEquals(/Puddleworks' own/.test(skill), false, "the own-procedure line");
+  assertEquals(rest.includes('--author="Claude Code'), false, "fixed author");
+  assertEquals(/Co-Authored-By: Claude/.test(rest), false, "fixed trailer");
   assertEquals(skill.includes("sed -i ''"), false, "BSD-only sed -i ''");
+});
+
+Deno.test("package: the skill's Settings name each key with its default, and cover no Orca and no secrets", async () => {
+  const skill = await Deno.readTextFile(SKILL);
+  const settings = skill.slice(skill.indexOf("\n## Settings"));
+  for (const key of SETTINGS_KEYS) {
+    assertEquals(settings.includes(`"${key}"`), true, key);
+  }
+  for (
+    const d of [
+      "puddle-works/puddle-template",
+      "SWAMP_API_KEY",
+      "SWAMP_SIGNIN_TOKEN",
+      "@puddleworks",
+    ]
+  ) assertEquals(settings.includes(d), true, `default ${d}`);
+  assertEquals(skill.includes("factory-build.json"), true);
+  assertEquals(skill.includes("git worktree add"), true, "plain worktree");
+  assertEquals(
+    /\[ -n "\$SECRETS" \]/.test(skill),
+    true,
+    "secret grant is not guarded",
+  );
+});
+
+Deno.test("package: the README documents each factory-build setting", async () => {
+  const readme = await Deno.readTextFile(new URL("README.md", ROOT));
+  assertEquals(readme.includes("factory-build.json"), true);
+  for (const key of SETTINGS_KEYS) {
+    assertEquals(readme.includes(`\`${key}\``), true, key);
+  }
+  assertEquals(/Puddleworks' own build procedure/.test(readme), false);
 });
 
 // What the draft writes, and what the docs say it writes, must not drift apart.
@@ -154,7 +198,7 @@ Deno.test("package: every model create sets typeScope, since it names the app's 
   assertEquals(skillCreates.length > 0, true);
   for (const line of skillCreates) {
     assertEquals(
-      line.includes("--global-arg typeScope=@puddleworks"),
+      line.includes("--global-arg typeScope=$COLLECTIVE"),
       true,
       `SKILL.md: ${line}`,
     );
