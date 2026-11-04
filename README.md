@@ -71,9 +71,30 @@ member of.
 
 ### From an outcome spec
 
-Run `/factory-build <path to the outcome spec>` in Claude Code. The skill is
-Puddleworks' own build procedure: it needs access to the `puddle-works` GitHub
-organisation and Orca. Without them, run the workflows below yourself. The skill
+Run `/factory-build <path to the outcome spec>` in Claude Code. It uses these
+settings, read from `factory-build.json` at the root of the swamp repo you run
+from (a key you leave out keeps its default; an argument such as `org=acme`
+overrides for one run):
+
+| Key          | Default                                   | What it sets                                                |
+| ------------ | ----------------------------------------- | ----------------------------------------------------------- |
+| `org`        | `puddle-works`                            | GitHub organisation or user that owns each app repo         |
+| `template`   | `puddle-works/puddle-template`            | Template repo each app repo is made from                    |
+| `secrets`    | `["SWAMP_API_KEY", "SWAMP_SIGNIN_TOKEN"]` | Org Actions secrets granted to a new repo; `[]` grants none |
+| `collective` | `@puddleworks`                            | Collective the apps are published under                     |
+| `worktrees`  | `orca`                                    | `orca` or `git`; `git` is used when Orca is not installed   |
+
+```json
+{
+  "org": "acme",
+  "template": "acme/app-template",
+  "secrets": [],
+  "collective": "@acme"
+}
+```
+
+Your template needs a `Makefile` with `test`, `contracts-check`,
+`guardrails-check` and `publish` targets, and a `contracts.ts`. The skill
 prefills an app spec, asks you to confirm the name, inputs, output, settings and
 delivery, makes the app's own repo from `puddle-works/puddle-template` if it
 does not exist yet (asking first), adds it to Orca (the worktree manager
