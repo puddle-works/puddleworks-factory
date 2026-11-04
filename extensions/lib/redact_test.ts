@@ -348,77 +348,254 @@ Deno.test("redact: secrets assigned in code, headers and connection strings are 
   }
 });
 
-Deno.test("redact: a weak password is still a secret", () => {
-  for (
-    const [t, secret] of [
-      ['password: "password123"', "password123"],
-      ["PASSWORD=Summer2024", "Summer2024"],
-      ['const API_TOKEN = "Summer2024token";', "Summer2024token"],
-      ["PASSWORD=Password1", "Password1"],
-      ['"password": "password1"', "password1"],
-      ["MYSQL_ROOT_PASSWORD: password1", "password1"],
-      ["password = Summer2024", "Summer2024"],
-      ["spring.datasource.password = Welcome2024", "Welcome2024"],
-      ['"Server=db.acme.io;User Id=sa;Password=Summer2024;"', "Summer2024"],
-      ["Pwd=Secret_Pass_2024;Encrypt=true", "Secret_Pass_2024"],
-      ["DB_PASSWORD = Summer2024", "Summer2024"],
-      ["token = AbcDefGhiJkl123", "AbcDefGhiJkl123"],
-    ]
-  ) {
-    assertEquals(hideSecrets(t).includes(secret), false, t);
+// The two-sided lists. Changing how secrets are detected has flipped between
+// missing real passwords and flagging ordinary code, so every change must keep
+// both sides passing. Add each new case, and every reviewer's probe, to the
+// list it belongs on, with the secret it must find.
+
+/** In config, docs and logs: each line, and the secret that must be found in it. */
+const MUST_FLAG_AS_TEXT: Array<[string, string]> = [
+  // Weak passwords.
+  ['password: "password123"', "password123"],
+  ["PASSWORD=Summer2024", "Summer2024"],
+  ['const API_TOKEN = "Summer2024token";', "Summer2024token"],
+  ["PASSWORD=Password1", "Password1"],
+  ['"password": "password1"', "password1"],
+  ["MYSQL_ROOT_PASSWORD: password1", "password1"],
+  ["POSTGRES_PASSWORD=postgres1", "postgres1"],
+  ["DB_PASSWORD=dbpassword1", "dbpassword1"],
+  ["secret: secret12", "secret12"],
+  ["password=password123", "password123"],
+  // `key = value` config files.
+  ["password = Summer2024", "Summer2024"],
+  ["password = Welcome123", "Welcome123"],
+  ["password = 8f3kD92mXq", "8f3kD92mXq"],
+  ["password = Xk29vLq83mZp", "Xk29vLq83mZp"],
+  ["db.password = Secret_Pass_2024", "Secret_Pass_2024"],
+  ["spring.datasource.password = Welcome2024", "Welcome2024"],
+  ["api_key = Live_Prod_Key_2024", "Live_Prod_Key_2024"],
+  ["DB_PASSWORD = Summer2024", "Summer2024"],
+  ["DB_PASSWORD=Summer2024", "Summer2024"],
+  ["token = AbcDefGhiJkl123", "AbcDefGhiJkl123"],
+  // YAML.
+  ["  password: Summer2024", "Summer2024"],
+  ["  password: Summer2024, user: bob", "Summer2024"],
+  // Connection strings.
+  ['"Server=db.acme.io;User Id=sa;Password=Summer2024;"', "Summer2024"],
+  [
+    "Server=db.acme.io;Database=App;User Id=sa;Password=Summer2024;",
+    "Summer2024",
+  ],
+  [
+    "Server=db.acme.io;User Id=sa;Password=Welcome123;Encrypt=true",
+    "Welcome123",
+  ],
+  ["Data Source=db;User ID=app;Pwd=Secret_Pass_2024;", "Secret_Pass_2024"],
+  ["Pwd=Secret_Pass_2024;Encrypt=true", "Secret_Pass_2024"],
+  ["Host=db;Username=app;Password=Monkey2024;Database=app", "Monkey2024"],
+  // A comment, in a language the scan does not treat as source code.
+  ["-- password: Summer2024", "Summer2024"],
+  ["<!-- password: Summer2024 -->", "Summer2024"],
+];
+
+/** In source code: secrets in strings and comments, which are text, not code. */
+const MUST_FLAG_IN_CODE: Array<[string, string]> = [
+  // In a string.
+  [
+    'const cs = "Server=db.acme.io;User Id=sa;Password=Summer2024;";',
+    "Summer2024",
+  ],
+  ["const s = 'Password=Summer2024;';", "Summer2024"],
+  ['const CONFIG = "password = Summer2024";', "Summer2024"],
+  ['const password = "Summer2024";', "Summer2024"],
+  ['"password": "password1"', "password1"],
+  ["db_url = 'postgres://app:Summer2024@db.acme.io/app'", "Summer2024"],
+  ['const u = "postgres://app:Summer2024@db.acme.io/app";', "Summer2024"],
+  ["''' password = Summer2024 '''", "Summer2024"],
+  // In a comment.
+  ["// staging login, password: Summer2024", "Summer2024"],
+  ["// password: Summer2024", "Summer2024"],
+  ["// TODO: password: Summer2024", "Summer2024"],
+  ["// DB_PASSWORD=Summer2024", "Summer2024"],
+  ["// DB_PASSWORD=Summer2024 (rotated)", "Summer2024"],
+  ["// token: 8f3kD92mXqZ7", "8f3kD92mXqZ7"],
+  ["// token:abc12345defgh", "abc12345defgh"],
+  ["// See https://x.io/a#token=AbcDef12345", "AbcDef12345"],
+  ["# api_key = Xk29vLq83mZp", "Xk29vLq83mZp"],
+  ["# staging db password = Summer2024", "Summer2024"],
+  ["  # PASSWORD=Summer2024", "Summer2024"],
+  ["x = 1  # DB_PASSWORD=Summer2024", "Summer2024"],
+  ["/* api_key: Live_Prod_Key_2024 */", "Live_Prod_Key_2024"],
+  [" * token: AbcDefGhiJkl123", "AbcDefGhiJkl123"],
+  ["/** @example client.login({ password: Summer2024 }) */", "Summer2024"],
+  ['const a = "x"; // password: Summer2024', "Summer2024"],
+];
+
+/** Not secrets anywhere: expressions, references, comments about secrets, and names for them. */
+const MUST_NOT_FLAG: string[] = [
+  "({ token: user_token })",
+  "password: hash_password(pw)",
+  "self.token = access_token",
+  "password: user.password2",
+  "token: access_token,",
+  "conn = psycopg2.connect(host=db_host, user=db_user, password=db_pass, dbname=db_name)",
+  "login(username=user, password=new_pw, remember=True)",
+  'jwt.sign(payload, secret_v2, { expiresIn: "1h" })',
+  "{ token: id_token, user }",
+  "{ token: jwt_token, user }",
+  "const pageToken = next_page_token;",
+  "return { token: access_token };",
+  "fn new<'a>(secret_key: Ed25519Key) -> Self {}",
+  // Names for a secret.
+  'const header_token = "X-Auth-Token";',
+  'const CSRF_TOKEN = "XSRF-TOKEN";',
+  'const TOKEN = "accessToken";',
+  'const COOKIE_TOKEN = "session_token";',
+  'export const REFRESH_TOKEN = "refresh_token";',
+  // Comments that name a secret or say where it comes from.
+  "$x = 1; # ok then",
+  "# frozen_string_literal: true",
+  "#!/usr/bin/env python3",
+  "# -*- coding: utf-8 -*-",
+  "// eslint-disable-next-line @typescript-eslint/no-explicit-any",
+  "/** @param token: the access token */",
+  " * @param {string} token - the token",
+  "// token: see client_secret_v2",
+  "// password: ${PASSWORD}",
+  "// password: process.env.DB_PASSWORD",
+  "// api_key = settings.API_KEY",
+  '# api_key = os.environ["API_KEY"]',
+  "# token = get_token(user2)",
+  "// const password = config.db.password;",
+  "// don't do this: token = refresh_token",
+];
+
+/** In source code only: a value without quotes is code. As text, these are flagged. */
+const MUST_NOT_FLAG_IN_CODE: string[] = [
+  ...MUST_NOT_FLAG,
+  "  secretKey: Uint8Array;",
+  "  secretKey: Uint8Array",
+  "secretKey: Uint8Array",
+  "token: Uint8Array",
+  "secret_key: Base64Bytes",
+  "privateKey: Uint8Array<ArrayBuffer>;",
+  "const privateKey: Uint8Array = ed.utils.randomPrivateKey();",
+  "  apiKey: Base64Url;",
+  "  password?: HashedPassword,",
+  "this.token = refresh_token;",
+  "user.password = hashed_password;",
+  "self.token = refresh_token",
+  "function sign(opts: { secretKey: Uint8Array }) {",
+  "type Token = { secret: Uint8Array };",
+  "Client(api_key=api_key_v2, timeout=30)",
+  "client = Client(api_key=api_key_v2, timeout=30)",
+  "  client_secret: client_secret_v2,",
+  '{"password": hashed_pw, "user": u}',
+  'data = {"password": hashed_pw, "user": u}',
+  "token=access_token2",
+  "secret = os_secret_2",
+  "  #token = refresh_token;",
+  "this.#apiKey = api_key_v2;",
+  "this.#secret = client_secret_v2;",
+  "class A { #token = refresh_token2; }",
+  "#[derive(Debug)] struct S { secret_key: Ed25519Key2 }",
+  'const u = "http://x"; const t = { token: access_token };',
+  'const h = "#"; return { secret: client_secret_v2 };',
+  "const u = x / y; const o = { token: refresh_token2 };",
+  "const n = a * 2; // the token: see refresh_token",
+  "const n = a * b; token = refresh_token2",
+  "const o = { token: access_token2 } // set from env",
+  'const glob = "src/**/*.ts"; const o = { token: access_token2 };',
+  'const href = url + "#" + id; const o = { secret: client_secret_v2 };',
+  'puts "#{token}"; token = refresh_token2',
+  // A bare name in code is a variable, though the same line in a config file is a password.
+  "password = Summer2024",
+  "DB_PASSWORD=Summer2024",
+];
+
+/**
+ * Known limits, reviewed and accepted so far: real secrets that are missed.
+ * These pin what happens today. If a change catches one, move it to a must-flag
+ * list. Each is `[line, mode]`.
+ */
+const KNOWN_MISSES: Array<[string, "text" | "code"]> = [
+  // A `}` stops the value counting.
+  ["{user: admin, password: Summer2024}", "text"],
+  // Words only: read as the name of a secret, not a secret.
+  ['password: "Super-Secret-Password"', "text"],
+  ['PASSWORD="SecretKey"', "text"],
+  ['api_key: "MasterKeyToken"', "text"],
+  // Escaped quotes.
+  ['"Password=\\"Summer2024\\";"', "text"],
+  ['"{\\"password\\":\\"Summer2024\\"}"', "text"],
+  // A `#` with no space is not read as a comment, so `#private` fields are not either.
+  ["#PASSWORD=Summer2024", "code"],
+  ["#password: Summer2024", "code"],
+  ["x = 1 #password=Summer2024", "code"],
+];
+
+/**
+ * Known limits, reviewed and accepted so far: ordinary code that is flagged,
+ * which errs on the side of blocking. If a change clears one, move it to
+ * `MUST_NOT_FLAG_IN_CODE`.
+ */
+const KNOWN_FALSE_ALARMS: string[] = [
+  // `//` outside a string turns on comment mode for the rest of the line.
+  "const re = /https?:\\/\\//; const t = { token: access_token2 };",
+  'path.replace(/\\/*$/, ""); const o = { secret: client_secret_v2 };',
+  "x = a // b; token = refresh_token2",
+  // A line starting `* ` is read as a doc comment.
+  "  * token: access_token2,",
+  "  * qty; const o = { token: refresh_token2 };",
+  // An apostrophe in a comment opens a string for the rest of the line.
+  "// it's here: secretKey: Uint8Array",
+  // A comment is checked as text.
+  "// secret: my_secret_2",
+  " * @param password: user_password_v2",
+  // `:` does not split words, so this is not read as a name for a secret.
+  'const STORAGE_TOKEN = "myapp:token";',
+];
+
+/** Whether the line's spans include the secret. */
+const flags = (line: string, secret: string, code: boolean) =>
+  secretSpans(line, { code }).some(([s, e]) =>
+    line.slice(s, e).includes(secret)
+  );
+
+Deno.test("detection list: must flag in config, docs and logs", () => {
+  for (const [line, secret] of MUST_FLAG_AS_TEXT) {
+    assertEquals(flags(line, secret, false), true, line);
+    assertEquals(hideSecrets(line).includes(secret), false, line);
   }
 });
 
-Deno.test("redact: in source code a value without quotes is code, not a secret", () => {
-  for (
-    const t of [
-      "  secretKey: Uint8Array;",
-      "  secretKey: Uint8Array",
-      "const privateKey: Uint8Array = ed.utils.randomPrivateKey();",
-      "  apiKey: Base64Url;",
-      "  password?: HashedPassword,",
-      "this.token = refresh_token;",
-      "user.password = hashed_password;",
-      "self.token = refresh_token",
-      "function sign(opts: { secretKey: Uint8Array }) {",
-      "type Token = { secret: Uint8Array };",
-      "return { token: access_token };",
-      "Client(api_key=api_key_v2, timeout=30)",
-      "  client_secret: client_secret_v2,",
-      '{"password": hashed_pw, "user": u}',
-      "  #token = refresh_token;",
-      "this.#apiKey = api_key_v2;",
-      'const u = "http://x"; const t = { token: access_token };',
-      'const h = "#"; return { secret: client_secret_v2 };',
-      "const n = a * 2; // the token: see refresh_token",
-    ]
-  ) {
-    assertEquals(secretSpans(t, { code: true }), [], t);
+Deno.test("detection list: must flag in strings and comments in source code", () => {
+  for (const [line, secret] of MUST_FLAG_IN_CODE) {
+    assertEquals(flags(line, secret, true), true, line);
+    assertEquals(flags(line, secret, false), true, `as text: ${line}`);
   }
-  for (
-    const [t, secret] of [
-      [
-        'const cs = "Server=db.acme.io;User Id=sa;Password=Summer2024;";',
-        "Summer2024",
-      ],
-      ['const password = "Summer2024";', "Summer2024"],
-      ["db_url = 'postgres://app:Summer2024@db.acme.io/app'", "Summer2024"],
-      // A comment is text, not code.
-      ["// staging login, password: Summer2024", "Summer2024"],
-      ["// token: 8f3kD92mXqZ7", "8f3kD92mXqZ7"],
-      ["# api_key = Xk29vLq83mZp", "Xk29vLq83mZp"],
-      ["x = 1  # DB_PASSWORD=Summer2024", "Summer2024"],
-      ["/* api_key: Live_Prod_Key_2024 */", "Live_Prod_Key_2024"],
-      [" * token: AbcDefGhiJkl123", "AbcDefGhiJkl123"],
-      ["/** @example client.login({ password: Summer2024 }) */", "Summer2024"],
-      ['const a = "x"; // password: Summer2024', "Summer2024"],
-    ]
-  ) {
-    const spans = secretSpans(t, { code: true });
-    assertEquals(
-      spans.some(([s, e]) => t.slice(s, e).includes(secret)),
-      true,
-      t,
-    );
+});
+
+Deno.test("detection list: must not flag, as text or in source code", () => {
+  for (const line of MUST_NOT_FLAG) {
+    assertEquals(secretSpans(line), [], line);
+  }
+});
+
+Deno.test("detection list: must not flag in source code", () => {
+  for (const line of MUST_NOT_FLAG_IN_CODE) {
+    assertEquals(secretSpans(line, { code: true }), [], line);
+  }
+});
+
+Deno.test("detection list: known misses are still missed, or move them to a must-flag list", () => {
+  for (const [line, mode] of KNOWN_MISSES) {
+    assertEquals(secretSpans(line, { code: mode === "code" }), [], line);
+  }
+});
+
+Deno.test("detection list: known false alarms are still flagged, or move them to must-not-flag", () => {
+  for (const line of KNOWN_FALSE_ALARMS) {
+    assertEquals(secretSpans(line, { code: true }).length > 0, true, line);
   }
 });
