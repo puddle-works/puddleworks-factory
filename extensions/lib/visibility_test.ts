@@ -541,3 +541,111 @@ Deno.test("visibility: a type in source code is not a secret, a password in a co
     ["secret"],
   );
 });
+
+// The two-sided lists, end to end: whether a file in the repo blocks going
+// public. See the lists in redact_test.ts; add each new case to the right one.
+
+const blocksPublic = (path: string, text: string) => {
+  const a = assessVisibility(
+    facts({ files: [...facts().files, { path, text }] }),
+  );
+  return !a.canBePublic;
+};
+
+const MUST_BLOCK: Array<[string, string]> = [
+  [
+    "extensions/models/db.ts",
+    'export const CONN = "Server=db.acme.io;Database=App;User Id=sa;Password=Summer2024;";\n',
+  ],
+  ["config/app.ini", "[db]\nhost = db.acme.io\npassword = Summer2024\n"],
+  [
+    "src/main/resources/application.properties",
+    "spring.datasource.url=jdbc:postgresql://db/app\nspring.datasource.password = Welcome2024\n",
+  ],
+  ["Makefile", "DB_PASSWORD = Summer2024\n"],
+  ["config/settings.cfg", "token = AbcDefGhiJkl123\n"],
+  [
+    "extensions/models/db.ts",
+    "// staging login, password: Summer2024\nexport const x = 1;\n",
+  ],
+  [
+    "extensions/models/db.ts",
+    "// DB_PASSWORD=Summer2024\nexport const x = 1;\n",
+  ],
+  ["app/settings.py", "# PASSWORD=Summer2024\nDEBUG = False\n"],
+];
+
+const MUST_NOT_BLOCK: Array<[string, string]> = [
+  [
+    "extensions/models/sign.ts",
+    "export function sign(opts: { secretKey: Uint8Array }): string {\n  return String(opts.secretKey);\n}\n",
+  ],
+  [
+    "extensions/models/keys.ts",
+    "export interface KeyPair {\n  publicKey: Uint8Array;\n  secretKey: Uint8Array;\n}\n",
+  ],
+  [
+    "extensions/models/a.ts",
+    "export function f(access_token: string) {\n  return { token: access_token };\n}\n",
+  ],
+  [
+    "extensions/models/h.ts",
+    'export const header_token = "X-Auth-Token";\nexport const CSRF_TOKEN = "XSRF-TOKEN";\n',
+  ],
+  [
+    "app/db.py",
+    "conn = psycopg2.connect(host=db_host, user=db_user, password=db_pass, dbname=db_name)\n",
+  ],
+];
+
+/** Known limits: real secrets missed, because the scan reads one line at a time. */
+const KNOWN_MISSED_FILES: Array<[string, string]> = [
+  ["app/settings.py", 'CONFIG = """\n[db]\npassword = Summer2024\n"""\n'],
+  [
+    "extensions/models/cfg.ts",
+    "export const ini = `\n[db]\npassword = Summer2024\n`;\n",
+  ],
+  ["extensions/models/cfg.ts", "/*\npassword: Summer2024\n*/\n"],
+  ["app/settings.py", "#PASSWORD=Summer2024\n"],
+];
+
+/** Known limits: code that blocks, because only some file types count as source code. */
+const KNOWN_BLOCKED_FILES: Array<[string, string]> = [
+  [
+    "src/App.vue",
+    '<script setup lang="ts">\nconst props = defineProps<{ secretKey: Uint8Array }>();\n</script>\n',
+  ],
+  [
+    "src/Key.svelte",
+    '<script lang="ts">\n  export let opts: { secretKey: Uint8Array };\n</script>\n',
+  ],
+  ["src/key.h", "  secret_key: Ed25519Key2;\n"],
+  [
+    "docs/keys.md",
+    "```ts\nexport function sign(opts: { secretKey: Uint8Array }) {}\n```\n",
+  ],
+];
+
+Deno.test("detection list: must block going public", () => {
+  for (const [path, text] of MUST_BLOCK) {
+    assertEquals(blocksPublic(path, text), true, `${path}: ${text}`);
+  }
+});
+
+Deno.test("detection list: must not block going public", () => {
+  for (const [path, text] of MUST_NOT_BLOCK) {
+    assertEquals(blocksPublic(path, text), false, `${path}: ${text}`);
+  }
+});
+
+Deno.test("detection list: known missed files are still missed, or move them to must-block", () => {
+  for (const [path, text] of KNOWN_MISSED_FILES) {
+    assertEquals(blocksPublic(path, text), false, `${path}: ${text}`);
+  }
+});
+
+Deno.test("detection list: known blocked files still block, or move them to must-not-block", () => {
+  for (const [path, text] of KNOWN_BLOCKED_FILES) {
+    assertEquals(blocksPublic(path, text), true, `${path}: ${text}`);
+  }
+});
