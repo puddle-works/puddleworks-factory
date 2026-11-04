@@ -79,6 +79,7 @@ Deno.test("visibility: a clean app is recommended public", () => {
       ["repository", "required", true],
       ["quality", "required", true],
       ["secrets", "required", true],
+      ["secrets-in-tests", "signal", true],
       ["internal-details", "signal", true],
       ["audience", "signal", true],
       ["repo-visibility", "info", true],
@@ -647,5 +648,62 @@ Deno.test("detection list: known missed files are still missed, or move them to 
 Deno.test("detection list: known blocked files still block, or move them to must-not-block", () => {
   for (const [path, text] of KNOWN_BLOCKED_FILES) {
     assertEquals(blocksPublic(path, text), true, `${path}: ${text}`);
+  }
+});
+
+// Real secrets get pasted into tests, so tests are scanned; but most hits there
+// are fixtures, so they go to a person instead of failing the required check.
+const KEY = ["AKIA", "Q".repeat(16)].join("");
+
+Deno.test("visibility: a secret-looking value in a test file goes to a person, not the required check", () => {
+  for (
+    const path of [
+      "extensions/lib/redact_test.ts",
+      "tests/unit/test_api.py",
+      "src/app.test.js",
+      "src/__tests__/app.ts",
+      "pkg/app_test.go",
+    ]
+  ) {
+    const a = assessVisibility(
+      facts({
+        files: [...facts().files, { path, text: `const k = "${KEY}"\n` }],
+      }),
+    );
+    assertEquals(check(a, "secrets").ok, true, path);
+    assertEquals(check(a, "secrets-in-tests").ok, false, path);
+    assertEquals(check(a, "secrets-in-tests").role, "signal", path);
+    assertStringIncludes(check(a, "secrets-in-tests").detail, path);
+    assertEquals(
+      check(a, "secrets-in-tests").detail.includes(KEY),
+      false,
+      path,
+    );
+    assertEquals(a.canBePublic, true, path);
+    assertEquals(a.recommendation, "private", path);
+    // Still scanned and reported, not skipped.
+    assertEquals(
+      a.findings.some((f) => f.file === path && f.kind === "secret"),
+      true,
+    );
+  }
+});
+
+Deno.test("visibility: a secret in a file that only looks like a test still blocks public", () => {
+  for (
+    const path of [
+      "src/latest.ts",
+      "src/contest.ts",
+      "README.md",
+      "config/testing.env",
+      "src/attestation.py",
+    ]
+  ) {
+    const a = assessVisibility(
+      facts({ files: [...facts().files, { path, text: `key ${KEY}\n` }] }),
+    );
+    assertEquals(check(a, "secrets").ok, false, path);
+    assertEquals(check(a, "secrets-in-tests").ok, true, path);
+    assertEquals(a.canBePublic, false, path);
   }
 });
