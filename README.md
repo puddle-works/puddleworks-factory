@@ -151,11 +151,13 @@ swamp data query 'behavior("puddleworks-factory") && name == "visibility-obsidia
 It can be public only when the licence, repository, quality and secrets checks
 pass (`canBePublic`). Anything that looks internal (home paths, internal hosts,
 private IPs, real email addresses) or spec wording that says it is for one team
-recommends private, and leaves the choice to you. Set `visibility:` in the
-manifest and in `.github/workflows/ci.yml` (`render` writes one, unless the repo
-already has its own) before writing the review report: the report is bound to
-the content hash, which the manifest is part of, so it is never passed as
-`--visibility`.
+recommends private, and leaves the choice to you. Secret-looking values in test
+files (`*_test.*`, `test_*`, `tests/`) are still scanned but reported as their
+own `secrets-in-tests` signal for a person to look at, since most are fixtures
+and real secrets do get pasted into tests. Set `visibility:` in the manifest and
+in `.github/workflows/ci.yml` (`render` writes one, unless the repo already has
+its own) before writing the review report: the report is bound to the content
+hash, which the manifest is part of, so it is never passed as `--visibility`.
 
 Before publishing, have someone other than the builder review it: write the
 review report from the publish dry run's skeleton, and map each acceptance

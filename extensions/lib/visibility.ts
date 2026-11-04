@@ -214,6 +214,13 @@ function audienceFindings(path: string, text: string): Finding[] {
   });
 }
 
+/**
+ * A test file by its name or folder. Tests are still scanned, because real
+ * secrets get pasted into them, but their hits are mostly fixtures.
+ */
+const TEST_FILE =
+  /(?:^|\/)(?:tests?|__tests__)\/|(?:^|\/)test_[^/]*$|[._]tests?\.[^/.]+$/i;
+
 function summarise(findings: Finding[]): string {
   const where = [...new Set(findings.map((f) => `${f.file}:${f.line}`))];
   const kinds = [...new Set(findings.map((f) => f.kind))].join(", ");
@@ -250,7 +257,9 @@ export function assessVisibility(facts: RepoFacts): Assessment {
       ? audienceFindings(f.path, f.text)
       : []),
   ]).map((f) => ({ ...f, file: safeText(f.file) }));
-  const secrets = findings.filter((f) => f.kind === "secret");
+  const allSecrets = findings.filter((f) => f.kind === "secret");
+  const secrets = allSecrets.filter((f) => !TEST_FILE.test(f.file));
+  const testSecrets = allSecrets.filter((f) => TEST_FILE.test(f.file));
   const internal = findings.filter((f) =>
     f.kind !== "secret" && f.kind !== "audience"
   );
@@ -312,6 +321,16 @@ export function assessVisibility(facts: RepoFacts): Assessment {
         (facts.notRead?.length
           ? `; not read: ${facts.notRead.join(", ")}`
           : ""),
+    },
+    {
+      id: "secrets-in-tests",
+      role: "signal",
+      ok: testSecrets.length === 0,
+      detail: testSecrets.length === 0
+        ? "nothing in test files looks like a secret"
+        : `a person must look: these are usually fixtures, but real secrets get pasted into tests. ${
+          summarise(testSecrets)
+        }`,
     },
     {
       id: "internal-details",
