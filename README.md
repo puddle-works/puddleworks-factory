@@ -19,6 +19,10 @@ The contracts, each with an example, are in
 - [build-result.md](https://github.com/puddle-works/puddleworks-factory/blob/main/docs/contracts/build-result.md):
   what a build produced and where it is
 
+Why Factory keeps its own copies of these contracts, and shares no code with the
+other Puddleworks apps, is recorded in
+[ADR-001](https://github.com/puddle-works/puddleworks-factory/blob/main/docs/adr/ADR-001-three-separate-apps.md).
+
 ## How it works
 
 ```mermaid

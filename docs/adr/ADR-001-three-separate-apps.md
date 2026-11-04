@@ -2,6 +2,10 @@
 
 ## Status: Accepted
 
+**Note, 2026-11-04:** the packages in the table below now publish under
+`@puddleworks/` (`@puddleworks/puddleworks-factory`, and so on), not `@mesgme/`.
+The decision and rules are unchanged.
+
 Recorded identically in `puddleworks-capture`, `puddleworks-factory` and
 `puddleworks-distribution`. Epic: puddle-works/puddleworks#207.
 

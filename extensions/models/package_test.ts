@@ -204,3 +204,33 @@ Deno.test("package: every model create sets typeScope, since it names the app's 
     );
   }
 });
+
+Deno.test("package: the README links ADR-001, and no ADR reference points at a missing file", async () => {
+  const readme = await Deno.readTextFile(new URL("README.md", ROOT));
+  assertEquals(
+    readme.includes("docs/adr/ADR-001-three-separate-apps.md"),
+    true,
+    "README does not link ADR-001",
+  );
+  const adrs: string[] = [];
+  for await (const e of Deno.readDir(new URL("docs/adr/", ROOT))) {
+    adrs.push(e.name);
+  }
+  const texts = [
+    readme,
+    await Deno.readTextFile(SKILL),
+    ...(await Promise.all(
+      adrs.map((n) => Deno.readTextFile(new URL(`docs/adr/${n}`, ROOT))),
+    )),
+  ];
+  const cited = new Set(
+    texts.flatMap((t) => [...t.matchAll(/\bADR-(\d{3})\b/g)].map((m) => m[1])),
+  );
+  for (const id of cited) {
+    assertEquals(
+      adrs.some((n) => n.startsWith(`ADR-${id}-`)),
+      true,
+      `ADR-${id} is cited but docs/adr has no such file`,
+    );
+  }
+});
