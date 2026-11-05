@@ -230,14 +230,14 @@ Then open <http://127.0.0.1:3003/>. Leave out `port` to have it pick a free one;
 the run logs the address. It shows the draft behavior named
 `puddleworks-factory`; set `draft` on `factory-viewer` to show another.
 
-`/` lists every app under the last stage it has a record for, in Factory order,
+`/` lists every app under the stage its records put it at, in Factory order,
 newest first. To decide and Blocked are marked as waiting on you:
 
 | Group              | When                                                         |
 | ------------------ | ------------------------------------------------------------ |
 | To decide          | prefilled, no draft yet                                      |
-| Drafted            | a draft, no visibility check yet                             |
-| Visibility checked | a visibility check, no readiness check yet                   |
+| Drafted            | a draft, no visibility check since                           |
+| Visibility checked | a visibility check, no readiness check since                 |
 | Blocked            | the latest readiness check has blockers                      |
 | Ready to publish   | the latest readiness check passed, and nothing published yet |
 | Released           | the build result records what was published                  |
@@ -245,11 +245,16 @@ newest first. To decide and Blocked are marked as waiting on you:
 Released means the build result has `published`, not just that there is a build
 result: `result` is first run when the draft is pushed, before it is published.
 
+A record older than the app's newest draft doesn't count, so a new draft puts
+the app back at Drafted, even after a release, until the later steps run again.
+A readiness check older than the newest visibility check doesn't count either.
+
 `/apps/<name>` shows one app: its stages (prefill, draft, visibility, readiness,
 pull request, published), then each record in that order, with links to the
 outcome spec, the repo, the pull request and, once published, the package on the
-registry. A record not written yet shows as not started. The page reloads when
-the data changes.
+registry. Every record stays listed, even one a new draft has replaced, and the
+step done most recently is marked as current. A record not written yet shows as
+not started. The page reloads when the data changes.
 
 The page only reads. It has no forms or buttons and no JSON API: the pages are
 rendered on the server, and the event stream it reloads on says only that
