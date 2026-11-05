@@ -5,7 +5,8 @@
     "title": "Weekly stock count and reorder list",
     "initialDescription": "We count stock every Friday and work out what to reorder.",
     "currentProcess": "Paper count sheet, typed into a spreadsheet, reorder list worked out by hand.",
-    "url": "https://requests.example.com/8f0c6a52-3d1e-4b8a-9f62-0b7d4e6c2a11"
+    "requestedPhrase": "what needs reordering this week",
+    "url": "https://capture.example.com/requests/8f0c6a52-3d1e-4b8a-9f62-0b7d4e6c2a11"
   },
   "specification": {
     "version": 1,
@@ -41,8 +42,27 @@
       {
         "id": "AC3",
         "text": "A count can be corrected until the list is produced"
+      },
+      {
+        "id": "R1",
+        "text": "\"what needs reordering this week\" is answered by a recipe, with no LLM call, as the recipe's examples describe."
       }
-    ]
+    ],
+    "recipe": {
+      "examples": [
+        {
+          "phrase": "what needs reordering this week",
+          "answer": "Each item below its minimum level, with how many to order."
+        },
+        {
+          "phrase": "what should I reorder",
+          "answer": "The same list."
+        }
+      ],
+      "pieces": [],
+      "whenEmpty": "Nothing needs reordering.",
+      "candidateExtensions": []
+    }
   },
   "agreement": {
     "agreedBy": {
@@ -50,7 +70,7 @@
       "email": "priya@example.com"
     },
     "agreedAt": "2026-10-07T08:45:00.000Z",
-    "specHash": "3736f9d309d3d1abf003b31f19e8244738da099f2c75731c769aa46ced758cc1"
+    "specHash": "67aa5763cfdaaed34cf7b98494a4d5a9ef462acf23b07a63db318b319961235a"
   },
   "participants": [
     {

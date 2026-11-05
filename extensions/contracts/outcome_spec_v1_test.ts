@@ -31,7 +31,7 @@ Deno.test("outcome-spec: the example parses", () => {
   if (result.ok) {
     assertEquals(result.spec.format, OUTCOME_SPEC_V1);
     assertEquals(result.spec.specification.version, 1);
-    assertEquals(result.spec.specification.acceptanceCriteria.length, 3);
+    assertEquals(result.spec.specification.acceptanceCriteria.length, 4);
   }
 });
 
@@ -74,6 +74,33 @@ Deno.test("outcome-spec: a v1 reader ignores fields it does not know", () => {
   const result = parseOutcomeSpec({ ...EXAMPLE, priority: "high" });
   assertEquals(result.ok, true);
   if (result.ok) assertEquals("priority" in result.spec, false);
+});
+
+Deno.test("outcome-spec: the example shows the optional fields, and Factory drops them", () => {
+  assertEquals(typeof EXAMPLE.request.requestedPhrase, "string");
+  assertEquals(typeof EXAMPLE.specification.recipe, "object");
+  const result = parseOutcomeSpec(EXAMPLE);
+  assertEquals(result.ok, true);
+  if (result.ok) {
+    assertEquals("requestedPhrase" in result.spec.request, false);
+    assertEquals("recipe" in result.spec.specification, false);
+  }
+});
+
+Deno.test("outcome-spec: a spec without the optional fields still parses", () => {
+  const spec = structuredClone(EXAMPLE);
+  delete spec.request.requestedPhrase;
+  delete spec.specification.recipe;
+  assertEquals(parseOutcomeSpec(spec).ok, true);
+});
+
+Deno.test("outcome-spec: the contract doc says which fields are optional", async () => {
+  const doc = (await Deno.readTextFile(
+    new URL("../../docs/contracts/outcome-spec.md", import.meta.url),
+  )).replace(/\s+/g, " ");
+  assertStringIncludes(doc, "`request.requestedPhrase`");
+  assertStringIncludes(doc, "`specification.recipe`");
+  assertEquals(doc.includes("Every field is required."), false);
 });
 
 Deno.test("outcome-spec: the request link is an http or https URL", () => {
