@@ -184,7 +184,7 @@ Deno.test("package: every model create sets typeScope, since it names the app's 
   assertEquals(readmeCreates.length > 0, true);
   for (const line of readmeCreates) {
     assertEquals(
-      line.includes("--global-arg typeScope=@YOUR-COLLECTIVE"),
+      line.includes("--global-arg 'typeScope=\\@YOUR-COLLECTIVE'"),
       true,
       `README: ${line}`,
     );
@@ -198,7 +198,7 @@ Deno.test("package: every model create sets typeScope, since it names the app's 
   assertEquals(skillCreates.length > 0, true);
   for (const line of skillCreates) {
     assertEquals(
-      line.includes("--global-arg typeScope=$COLLECTIVE"),
+      line.includes('--global-arg "typeScope=\\\\$COLLECTIVE"'),
       true,
       `SKILL.md: ${line}`,
     );
@@ -232,5 +232,38 @@ Deno.test("package: the README links ADR-001, and no ADR reference points at a m
       true,
       `ADR-${id} is cited but docs/adr has no such file`,
     );
+  }
+});
+
+// swamp reads a value that starts with @ as a file to load, so a collective
+// must be escaped or the command stops with "Input file not found".
+Deno.test("package: no command passes swamp an unescaped @ value", async () => {
+  const unescaped = (line: string) =>
+    /--(global-arg|input)\s+['"]?\w+=@/.test(line);
+  for (
+    const line of [
+      "--global-arg typeScope=@acme",
+      "--global-arg 'typeScope=@acme'",
+      '--input spec="$X" --input ref=@acme/app',
+    ]
+  ) assertEquals(unescaped(line), true, line);
+  for (
+    const line of [
+      "--global-arg 'typeScope=\\@acme'",
+      '--global-arg "typeScope=\\\\$COLLECTIVE"',
+      "swamp model create @acme/draft name --json",
+      "--input ref=https://x.example/@acme",
+      "--input name=app",
+    ]
+  ) assertEquals(unescaped(line), false, line);
+  for (
+    const file of [
+      "README.md",
+      ".claude/skills/factory-build/SKILL.md",
+      "docs/contracts/build-result.md",
+    ]
+  ) {
+    const text = await Deno.readTextFile(new URL(file, ROOT));
+    assertEquals(text.split("\n").filter(unescaped), [], file);
   }
 });
