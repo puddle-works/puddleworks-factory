@@ -2,9 +2,9 @@
   "apiVersion": "puddleworks.dev/app-spec/v1",
   "kind": "AppSpec",
   "name": "obsidian-puddle-scanner",
-  "title": "Scan Obsidian vault for tasks that could become puddle requests",
+  "title": "Scan Obsidian vault for tasks that could become requests",
   "specification": {
-    "purpose": "Search an Obsidian vault for open task lines and list them with the file each came from, as candidates for puddle requests.",
+    "purpose": "Search an Obsidian vault for open task lines and list them with the file each came from, as candidates for requests.",
     "inputs": [
       {
         "name": "folder",
@@ -30,7 +30,7 @@
     ],
     "output": "A list of matching lines, each with the path of the note it came from.",
     "outOfScope": [
-      "Creating puddle requests automatically",
+      "Creating requests automatically",
       "AI classification of the matches",
       "Editing the vault"
     ],
