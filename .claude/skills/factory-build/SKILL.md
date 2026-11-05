@@ -84,7 +84,7 @@ The spec: a file path, an `https://` URL, or the JSON itself. Ask for it if the
 user did not give one.
 
 The app repo: each app gets its own repo, `ORG/NAME`, made from the
-template `$TEMPLATE` (ADR-004). `APP` is the absolute path of
+template `$TEMPLATE`. `APP` is the absolute path of
 its checkout. Step 2 creates the repo and the checkout if they do not exist
 yet. If the user names an existing checkout, use that.
 
