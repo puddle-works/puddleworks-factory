@@ -68,6 +68,7 @@ import {
 } from "../lib/records.ts";
 import {
   BUILD_RESULT_V1,
+  BuildExamplesSchema,
   type BuildResult,
   BuildResultSchema,
   parseBuildResult,
@@ -937,6 +938,8 @@ const ResultArgsSchema = z.object({
   publishedVersion: optional(z.string().min(1)),
   /** The visibility it was pushed with. Give it with publishedVersion. */
   publishedVisibility: optional(z.enum(["public", "private"])),
+  /** How each of the spec's recipe examples went, once they have been checked. */
+  examples: optional(BuildExamplesSchema),
 });
 
 type ResultArgs = z.infer<typeof ResultArgsSchema>;
@@ -1612,8 +1615,9 @@ export const model = {
     result: {
       description:
         `Write a ${BUILD_RESULT_V1} for the last draft of an app spec: the extension, ` +
-        "its entry point, the repository, the branch or commit, and the pull request. " +
-        "Records it as a resource and, with out, as a JSON file.",
+        "its entry point, the repository, the branch or commit, the pull request, and " +
+        "how each recipe example went. Records it as a resource and, with out, as a " +
+        "JSON file.",
       arguments: ResultArgsSchema,
       execute: method(async (args: ResultArgs, context: MethodContext) => {
         context.logger.info("Recording the build result for {name}", {
@@ -1662,6 +1666,7 @@ export const model = {
               },
             }
             : {}),
+          ...(args.examples?.length ? { examples: args.examples } : {}),
           builtAt: new Date().toISOString(),
         };
         const parsed = parseBuildResult(candidate);

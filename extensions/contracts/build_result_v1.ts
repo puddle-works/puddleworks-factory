@@ -31,6 +31,19 @@ const SourceSchema = z.object({
   specHash: z.string().min(1).optional(),
 });
 
+/**
+ * How the build answered each example phrase in the agreed spec's recipe. The
+ * bounds match the reader's, so nothing written here is refused there.
+ */
+export const BuildExamplesSchema = z.array(z.object({
+  /** The example's phrase, exactly as in the spec. */
+  phrase: z.string().trim().min(1).max(500),
+  /** Whether the build answers that phrase as the example says. */
+  passed: z.boolean(),
+  /** What was seen, in plain words, especially when it failed. */
+  detail: z.string().max(2_000).optional(),
+})).max(50);
+
 /** One build of one app spec. */
 export const BuildResultSchema = z.object({
   apiVersion: z.literal(BUILD_RESULT_V1),
@@ -56,6 +69,8 @@ export const BuildResultSchema = z.object({
     version: z.string().min(1),
     visibility: z.enum(["public", "private"]),
   }).optional(),
+  /** How each example went, once the build has been checked against them. */
+  examples: BuildExamplesSchema.optional(),
   builtAt: z.iso.datetime(),
 });
 

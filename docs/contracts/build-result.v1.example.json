@@ -7,5 +7,13 @@
   "repository": "https://github.com/example/obsidian-puddle-scanner",
   "buildRef": "draft/obsidian-puddle-scanner",
   "pullRequest": "https://github.com/example/obsidian-puddle-scanner/pull/42",
+  "examples": [
+    { "phrase": "which notes need a request", "passed": true },
+    {
+      "phrase": "what is waiting in my vault",
+      "passed": false,
+      "detail": "Answered for one folder only."
+    }
+  ],
   "builtAt": "2026-10-16T10:00:00.000Z"
 }

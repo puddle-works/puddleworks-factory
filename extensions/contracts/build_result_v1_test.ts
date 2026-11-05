@@ -116,3 +116,88 @@ Deno.test("build-result: published needs a version and a known visibility", () =
   assertStringIncludes(problems.join(" "), "published.version");
   assertStringIncludes(problems.join(" "), "published.visibility");
 });
+
+const EXAMPLES = [
+  { phrase: "what needs reordering this week", passed: true },
+  {
+    phrase: "what should I reorder",
+    passed: false,
+    detail: "Answered for one week only.",
+  },
+];
+
+Deno.test("build-result: the documented example reports its examples", () => {
+  const result = parseBuildResult(EXAMPLE);
+  assertEquals(result.ok, true);
+  if (!result.ok) return;
+  const examples = result.result.examples ?? [];
+  assertEquals(examples.length > 0, true);
+  assertEquals(examples.some((e) => e.passed), true);
+  assertEquals(examples.some((e) => !e.passed && e.detail), true);
+});
+
+Deno.test("build-result: examples are optional, and kept when given", () => {
+  const { examples: _e, ...rest } = EXAMPLE;
+  const without = parseBuildResult(rest);
+  assertEquals(without.ok, true);
+  if (without.ok) assertEquals("examples" in without.result, false);
+  const given = parseBuildResult({ ...EXAMPLE, examples: EXAMPLES });
+  assertEquals(given.ok, true);
+  if (given.ok) assertEquals(given.result.examples, EXAMPLES);
+});
+
+Deno.test("build-result: each example needs a phrase and whether it passed", () => {
+  const problems = problemsOf({
+    ...EXAMPLE,
+    examples: [{ phrase: "   ", passed: true }, { phrase: "x", passed: "yes" }],
+  });
+  assertEquals(problems.length, 2);
+  assertStringIncludes(problems.join(" "), "examples.0.phrase");
+  assertStringIncludes(problems.join(" "), "examples.1.passed");
+});
+
+// The same bounds as the reader of these results, so nothing written here is
+// refused there.
+Deno.test("build-result: examples stay within their bounds", () => {
+  const entry = (phrase: string, detail?: string) => ({
+    phrase,
+    passed: true,
+    ...(detail === undefined ? {} : { detail }),
+  });
+  const within = {
+    ...EXAMPLE,
+    examples: [
+      ...Array(49).fill(entry("x")),
+      entry("y".repeat(500), "z".repeat(2_000)),
+    ],
+  };
+  assertEquals(problemsOf(within), []);
+  for (
+    const [where, examples] of [
+      ["examples", Array(51).fill(entry("x"))],
+      ["examples.0.phrase", [entry("y".repeat(501))]],
+      ["examples.0.detail", [entry("x", "z".repeat(2_001))]],
+    ] as const
+  ) {
+    const problems = problemsOf({ ...EXAMPLE, examples });
+    assertEquals(problems.length, 1, where);
+    assertStringIncludes(problems[0], where);
+  }
+});
+
+Deno.test("build-result: the contract doc names examples and what a missing one means", async () => {
+  const doc = (await Deno.readTextFile(
+    new URL("../../docs/contracts/build-result.md", import.meta.url),
+  )).replace(/\s+/g, " ");
+  for (
+    const field of [
+      "`examples`",
+      "`examples[].phrase`",
+      "`examples[].passed`",
+      "`examples[].detail`",
+    ]
+  ) {
+    assertStringIncludes(doc, field);
+  }
+  assertStringIncludes(doc, "A missing example counts as not passed");
+});
