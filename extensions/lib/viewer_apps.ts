@@ -137,14 +137,29 @@ export const STAGES: ReadonlyArray<
 ];
 
 /**
- * The last stage an app has a record for. Released means the build result
- * records what was published: `result` is first run when the build is pushed,
- * before it is published.
+ * The stage an app's records put it at, in Factory order. A record older than
+ * the newest draft is about code since replaced, so it doesn't count, and a
+ * readiness check older than the visibility check is out of date too. A later
+ * check doesn't undo a release: what was published stays published until a new
+ * draft starts again. Released means the build result records what was
+ * published: `result` is first run when the build is pushed, before it is
+ * published.
  */
 export function stageOf(app: App): Stage {
-  if (app.buildResult?.published) return "released";
-  if (app.readiness) return app.readiness.ready ? "ready" : "blocked";
-  if (app.visibility) return "visibility_checked";
+  const drafted = app.draft?.renderedAt ?? "";
+  const { buildResult, readiness } = app;
+  if (buildResult?.published && buildResult.builtAt >= drafted) {
+    return "released";
+  }
+  const visibility = app.visibility && app.visibility.assessedAt >= drafted
+    ? app.visibility
+    : undefined;
+  if (
+    readiness && readiness.assessedAt >= (visibility?.assessedAt ?? drafted)
+  ) {
+    return readiness.ready ? "ready" : "blocked";
+  }
+  if (visibility) return "visibility_checked";
   // A build result is only written for a draft, even one since deleted.
   if (app.draft || app.buildResult) return "drafted";
   return "to_decide";
@@ -192,7 +207,7 @@ export function grouped(apps: App[]): Group[] {
 /** One step of an app's timeline. */
 export interface Step {
   label: string;
-  /** Done; current, the last one done; or not started. */
+  /** Done; current, the one done most recently; or not started. */
   state: "done" | "current" | "not_started";
   at?: string;
   note?: string;
@@ -253,9 +268,14 @@ export function timeline(app: App): Step[] {
         : undefined,
     },
   ];
-  const last = steps.findLastIndex((s) => s.done);
+  // By time, not position: a new draft is current even with later steps done.
+  const latest = steps.reduce(
+    (best, s, n) =>
+      s.done && (best < 0 || (s.at ?? "") >= (steps[best].at ?? "")) ? n : best,
+    -1,
+  );
   return steps.map(({ done, ...step }, n) => ({
     ...step,
-    state: n === last ? "current" : done ? "done" : "not_started",
+    state: n === latest ? "current" : done ? "done" : "not_started",
   }));
 }

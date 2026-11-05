@@ -104,6 +104,140 @@ Deno.test("viewer apps: the latest version of a record wins", () => {
   assertEquals(app.draft?.files, ["new.ts"]);
 });
 
+const LATER = "2026-10-25T09:00:00.000Z";
+const LATEST = "2026-10-26T09:00:00.000Z";
+const PUBLISHED = {
+  published: { version: "2026.10.24.1", visibility: "public" as const },
+};
+
+Deno.test("viewer apps: an app is placed by its newest record, not its furthest", () => {
+  const redraft = record("draft", NAME, draft(NAME, { renderedAt: LATER }));
+  const checked = record("visibility", `visibility-${NAME}`, visibility(NAME));
+  const passed = record("readiness", `readiness-${NAME}`, readiness(NAME));
+  const blocked = record(
+    "readiness",
+    `readiness-${NAME}`,
+    readiness(NAME, { ready: false, blockers: ["AC1 has no test"] }),
+  );
+  const released = record(
+    "buildResult",
+    `build-result-${NAME}`,
+    buildResult(NAME, PUBLISHED),
+  );
+  const cases: Array<[string, unknown[], string]> = [
+    ["drafted again after readiness", [redraft, passed], "drafted"],
+    ["drafted again after visibility", [redraft, checked], "drafted"],
+    ["drafted again after being blocked", [redraft, blocked], "drafted"],
+    [
+      "drafted again after all the checks",
+      [redraft, checked, passed],
+      "drafted",
+    ],
+    ["drafted again after release", [redraft, released], "drafted"],
+    [
+      "checked again after the new draft",
+      [
+        redraft,
+        record(
+          "visibility",
+          `visibility-${NAME}`,
+          visibility(NAME, { assessedAt: LATEST }),
+        ),
+        passed,
+      ],
+      "visibility_checked",
+    ],
+    [
+      "ready again after the new draft",
+      [
+        redraft,
+        checked,
+        record(
+          "readiness",
+          `readiness-${NAME}`,
+          readiness(NAME, { assessedAt: LATEST }),
+        ),
+      ],
+      "ready",
+    ],
+    [
+      "released again after the new draft",
+      [
+        redraft,
+        record(
+          "buildResult",
+          `build-result-${NAME}`,
+          buildResult(NAME, { ...PUBLISHED, builtAt: LATEST }),
+        ),
+      ],
+      "released",
+    ],
+    [
+      "visibility checked again after readiness",
+      [
+        record("draft", NAME, draft(NAME)),
+        record(
+          "visibility",
+          `visibility-${NAME}`,
+          visibility(NAME, { assessedAt: LATER }),
+        ),
+        passed,
+      ],
+      "visibility_checked",
+    ],
+    [
+      "visibility checked again after release",
+      [
+        record("draft", NAME, draft(NAME)),
+        record(
+          "visibility",
+          `visibility-${NAME}`,
+          visibility(NAME, { assessedAt: LATER }),
+        ),
+        released,
+      ],
+      "released",
+    ],
+    [
+      "records written at the same moment, in Factory order",
+      [
+        record("draft", NAME, draft(NAME, { renderedAt: LATER })),
+        record(
+          "visibility",
+          `visibility-${NAME}`,
+          visibility(NAME, { assessedAt: LATER }),
+        ),
+        record(
+          "readiness",
+          `readiness-${NAME}`,
+          readiness(NAME, { assessedAt: LATER }),
+        ),
+      ],
+      "ready",
+    ],
+  ];
+  for (const [label, records, stage] of cases) {
+    assertEquals(stageOf(only(records)), stage, label);
+  }
+});
+
+Deno.test("viewer apps: a new draft is the current step, and the timeline keeps every record", () => {
+  const steps = timeline(only([
+    ...allRecords(NAME).filter((r) => r.specName !== "draft"),
+    record("draft", NAME, draft(NAME, { renderedAt: LATEST })),
+  ]));
+  assertEquals(steps.map((s) => [s.label, s.state]), [
+    ["Prefill", "done"],
+    ["Draft", "current"],
+    ["Visibility", "done"],
+    ["Readiness", "done"],
+    ["Pull request", "done"],
+    ["Published", "not_started"],
+  ]);
+  assertEquals(steps[2].at, visibility(NAME).assessedAt);
+  assertEquals(steps[3].at, readiness(NAME).assessedAt);
+});
+
 Deno.test("viewer apps: each combination of records is in the right stage", () => {
   const cases: Array<[string, unknown[], string]> = [
     [
