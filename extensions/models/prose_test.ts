@@ -3,7 +3,6 @@
  * word: repos, files, types, skills and hyphenated forms.
  */
 import { assertEquals } from "jsr:@std/assert@1.0.19";
-import { walk } from "jsr:@std/fs@1.0.23/walk";
 
 const ROOT = new URL("../../", import.meta.url);
 
@@ -12,6 +11,17 @@ const PUDDLE_WORD = /(?<![-_/@.\w])puddles?(?![-_/\w])(?!\.\w)/i;
 
 /** A heading in the template repo, which names it; the template decides it. */
 const TEMPLATE_HEADING = '"Puddle repo"';
+
+/** The Markdown and JSON files under a directory. */
+async function docFiles(dir: string): Promise<string[]> {
+  const found: string[] = [];
+  for await (const e of Deno.readDir(dir)) {
+    const path = `${dir}/${e.name}`;
+    if (e.isDirectory) found.push(...await docFiles(path));
+    else if (/\.(md|json)$/.test(e.name)) found.push(path);
+  }
+  return found;
+}
 
 Deno.test("prose: the check finds the word and leaves names alone", () => {
   const flagged = [
@@ -40,10 +50,7 @@ Deno.test("prose: the README, the skill and the docs don't say puddle", async ()
     new URL("README.md", ROOT).pathname,
     new URL(".claude/skills/factory-build/SKILL.md", ROOT).pathname,
   ];
-  const docs = new URL("docs", ROOT).pathname;
-  for await (const e of walk(docs, { exts: [".md", ".json"] })) {
-    if (e.isFile) files.push(e.path);
-  }
+  files.push(...await docFiles(new URL("docs", ROOT).pathname));
   const found: string[] = [];
   for (const file of files) {
     const text = (await Deno.readTextFile(file)).replace(/\s+/g, " ")
