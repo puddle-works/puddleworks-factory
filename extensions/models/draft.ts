@@ -1055,6 +1055,7 @@ export const io: SpecIo = {
 interface MethodContext {
   globalArgs: { typeScope: string };
   logger: {
+    debug: (msg: string, props?: Record<string, unknown>) => void;
     info: (msg: string, props?: Record<string, unknown>) => void;
     warning: (msg: string, props?: Record<string, unknown>) => void;
   };
@@ -1068,6 +1069,9 @@ interface MethodContext {
     version?: number,
   ) => Promise<Record<string, unknown> | null>;
 }
+
+/** Where a check runs when it is not given a targetDir, as a start log says it. */
+const DRAFT_CHECKOUT = "its draft's checkout";
 
 /** Log, as a warning, the files a check did not read, if there are any. */
 function warnNotRead(context: MethodContext, notRead: string[]): void {
@@ -1135,6 +1139,8 @@ export function guarded(context: MethodContext): MethodContext {
   return {
     ...context,
     logger: {
+      debug: (msg, props) =>
+        context.logger.debug(safeText(msg), props && safeData(props)),
       info: (msg, props) =>
         context.logger.info(safeText(msg), props && safeData(props)),
       warning: (msg, props) =>
@@ -1409,8 +1415,13 @@ export const model = {
         "prefill resource. Refuses to replace out unless overwrite=true.",
       arguments: PrefillArgsSchema,
       execute: method(async (args: PrefillArgs, context: MethodContext) => {
-        context.logger.info("Reading the outcome spec from {source}", {
-          source: sourceLabel(args.outcomeSpec),
+        const from = sourceLabel(args.outcomeSpec);
+        context.logger.info("Prefilling from {source} into {out}", {
+          source: from,
+          out: args.out,
+        });
+        context.logger.debug("Reading the outcome spec from {source}", {
+          source: from,
         });
         const { spec: outcome, source } = await loadOutcomeSpec(
           args.outcomeSpec,
@@ -1455,7 +1466,12 @@ export const model = {
         "overwritten unless overwrite=true.",
       arguments: RenderArgsSchema,
       execute: method(async (args: RenderArgs, context: MethodContext) => {
+        const from = sourceLabel(args.spec);
         const root = args.targetDir.replace(/\/+$/, "");
+        context.logger.info("Drafting from {source} into {targetDir}", {
+          source: from,
+          targetDir: root,
+        });
         if (safeText(root) !== root) {
           throw new Error(
             "The targetDir path reads as a secret, so every record would hide it. " +
@@ -1469,8 +1485,8 @@ export const model = {
           );
         }
 
-        context.logger.info("Reading the app spec from {source}", {
-          source: sourceLabel(args.spec),
+        context.logger.debug("Reading the app spec from {source}", {
+          source: from,
         });
         const { spec, source } = await loadAppSpec(args.spec, io);
         const files = renderDraft(spec, {
@@ -1687,9 +1703,10 @@ export const model = {
         "Records the visibility resource.",
       arguments: VisibilityArgsSchema,
       execute: method(async (args: VisibilityArgs, context: MethodContext) => {
-        context.logger.info("Checking whether {name} can be public", {
-          name: args.name,
-        });
+        context.logger.info(
+          "Checking whether {name} can be public, in {targetDir}",
+          { name: args.name, targetDir: args.targetDir ?? DRAFT_CHECKOUT },
+        );
         const raw = context.readResource
           ? await context.readResource(args.name)
           : null;
@@ -1704,6 +1721,7 @@ export const model = {
           /\/+$/,
           "",
         );
+        context.logger.debug("Scanning {targetDir}", { targetDir: root });
         const { files, notRead } = await textFiles(root);
         warnNotRead(context, notRead);
         const assessment = assessVisibility({
@@ -1744,9 +1762,10 @@ export const model = {
         "Records the readiness resource with a one-screen summary.",
       arguments: ReadinessArgsSchema,
       execute: method(async (args: ReadinessArgs, context: MethodContext) => {
-        context.logger.info("Checking whether {name} is ready to publish", {
-          name: args.name,
-        });
+        context.logger.info(
+          "Checking whether {name} is ready to publish, in {targetDir}",
+          { name: args.name, targetDir: args.targetDir ?? DRAFT_CHECKOUT },
+        );
         if (args.pullRequest) {
           checkLink("pullRequest", args.pullRequest, PR_EXAMPLE);
         }
@@ -1775,6 +1794,7 @@ export const model = {
             `${RESOURCE_PREFIX.visibility}${args.name}`,
           ),
         );
+        context.logger.debug("Scanning {targetDir}", { targetDir: root });
         const { files, notRead } = await textFiles(root);
         warnNotRead(context, notRead);
         // The files change after the visibility check (the manifest's

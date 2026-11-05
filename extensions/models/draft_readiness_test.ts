@@ -30,7 +30,7 @@ function makeContext() {
   const writes: Array<{ specName: string; name: string }> = [];
   return {
     globalArgs: { typeScope: "@puddleworks" },
-    logger: { info: () => {}, warning: () => {} },
+    logger: { debug: () => {}, info: () => {}, warning: () => {} },
     writeResource(
       specName: string,
       name: string,
@@ -287,6 +287,7 @@ Deno.test("readiness: what it did not read is logged as a warning", async () => 
     await model.methods.readiness.execute(args(), {
       ...ctx,
       logger: {
+        debug: () => {},
         info: () => {},
         warning: (msg: string, props?: Record<string, unknown>) =>
           warned.push(`${msg} ${JSON.stringify(props ?? {})}`),

@@ -812,6 +812,7 @@ Deno.test("guarded: log lines and resources keep no secret", async () => {
   const ctx = {
     ...makeContext(),
     logger: {
+      debug: () => {},
       info: (msg: string, props?: Record<string, unknown>) =>
         lines.push(msg + JSON.stringify(props)),
       warning: () => {},
@@ -827,6 +828,7 @@ Deno.test("guarded: warnings are logged as warnings, and keep no secret", () => 
   const ctx = {
     ...makeContext(),
     logger: {
+      debug: () => {},
       info: (msg: string) => lines.push(`info ${msg}`),
       warning: (msg: string, props?: Record<string, unknown>) =>
         lines.push(`warning ${msg}${JSON.stringify(props)}`),
@@ -944,7 +946,7 @@ function makeContext() {
   > = [];
   return {
     globalArgs: { typeScope: "@puddleworks" },
-    logger: { info: () => {}, warning: () => {} },
+    logger: { debug: () => {}, info: () => {}, warning: () => {} },
     writeResource(
       specName: string,
       name: string,
@@ -1364,6 +1366,7 @@ Deno.test("method: render says where it reads the spec from first, without any s
     const ctx = {
       ...makeContext(),
       logger: {
+        debug: () => {},
         info: (msg: string, props?: Record<string, unknown>) =>
           logged.push(`${msg} ${JSON.stringify(props ?? {})}`),
         warning: (msg: string, props?: Record<string, unknown>) =>
