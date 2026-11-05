@@ -28,7 +28,7 @@ function makeContext() {
   const writes: Array<{ specName: string; name: string }> = [];
   return {
     globalArgs: { typeScope: "@puddleworks" },
-    logger: { info: () => {}, warning: () => {} },
+    logger: { debug: () => {}, info: () => {}, warning: () => {} },
     writeResource(
       specName: string,
       name: string,
@@ -135,6 +135,7 @@ Deno.test("result: says where it wrote the out file", async () => {
     await model.methods.result.execute(resultArgs({ out }), {
       ...ctx,
       logger: {
+        debug: () => {},
         info: (msg: string, props?: Record<string, unknown>) =>
           logged.push(`${msg} ${JSON.stringify(props ?? {})}`),
         warning: () => {},
@@ -333,6 +334,7 @@ Deno.test("result: what it stores and logs has no URL login, query or secret", a
     const logging = {
       ...ctx,
       logger: {
+        debug: () => {},
         info: (msg: string, props?: Record<string, unknown>) => {
           logged.push(`${msg} ${JSON.stringify(props ?? {})}`);
         },
