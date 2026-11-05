@@ -10,8 +10,8 @@ description: >
   the publish checks; recommend public or private and ask; have a fresh agent
   review it against the spec; publish once the user confirms a one-screen
   summary, and record the result. Triggers on:
-  "factory build", "build from spec", "build this puddle", "publish this
-  puddle", "/factory-build <spec>".
+  "factory build", "build from spec", "build this extension", "publish this
+  extension", "/factory-build <spec>".
 ---
 
 # Factory Build
