@@ -358,3 +358,82 @@ Deno.test("result: what it stores and logs has no URL login, query or secret", a
     assertStringIncludes(stored, "https://x.acme.io/b");
   });
 });
+
+const EXAMPLES = [
+  { phrase: "which notes need a request", passed: true },
+  {
+    phrase: "what is waiting in my vault",
+    passed: false,
+    detail: "Answered for one folder only.",
+  },
+];
+
+Deno.test("result: records how each example went", async () => {
+  await withDraft(async (_dir, ctx) => {
+    await model.methods.result.execute(resultArgs({ examples: EXAMPLES }), ctx);
+    const parsed = parseBuildResult(
+      ctx.store.get("build-result-obsidian-puddle-scanner"),
+    );
+    assertEquals(parsed.ok, true, JSON.stringify(parsed));
+    if (parsed.ok) assertEquals(parsed.result.examples, EXAMPLES);
+  });
+});
+
+// Workflows pass [] for an input left blank. An empty list would say every
+// example had been checked when none was, so it is left out.
+Deno.test("result: blank or empty examples are left out", async () => {
+  await withDraft(async (_dir, ctx) => {
+    for (const examples of ["", [], undefined]) {
+      await model.methods.result.execute(resultArgs({ examples }), ctx);
+      const data = ctx.store.get("build-result-obsidian-puddle-scanner")!;
+      assertEquals("examples" in data, false, JSON.stringify(examples));
+    }
+  });
+});
+
+Deno.test("result: examples out of shape are refused before anything is written", () => {
+  for (
+    const examples of [
+      [{ phrase: "no outcome" }],
+      [{ phrase: "", passed: true }],
+      [{ phrase: "x", passed: true, detail: "z".repeat(2_001) }],
+      Array(51).fill({ phrase: "x", passed: true }),
+      "not a list",
+    ]
+  ) {
+    assertEquals(
+      model.methods.result.arguments.safeParse({
+        name: "obsidian-puddle-scanner",
+        buildRef: "draft/obsidian-puddle-scanner",
+        examples,
+      }).success,
+      false,
+      JSON.stringify(examples).slice(0, 80),
+    );
+  }
+});
+
+Deno.test("result: an example's detail keeps no URL login, query or secret", async () => {
+  await withDraft(async (dir, ctx) => {
+    const out = `${dir}/build-result.json`;
+    await model.methods.result.execute(
+      resultArgs({
+        out,
+        examples: [{
+          phrase: "which notes need a request",
+          passed: false,
+          detail: "Fetching https://u:pw1@x.acme.io/b?token=SEKRET1 failed.",
+        }],
+      }),
+      ctx,
+    );
+    const stored = JSON.stringify(
+      ctx.store.get("build-result-obsidian-puddle-scanner"),
+    );
+    for (const text of [stored, await Deno.readTextFile(out)]) {
+      for (const s of ["pw1", "SEKRET1"]) {
+        assertEquals(text.includes(s), false, text);
+      }
+    }
+  });
+});

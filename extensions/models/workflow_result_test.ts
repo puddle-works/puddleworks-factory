@@ -27,7 +27,7 @@ const TEXT = await Deno.readTextFile(
 const workflow = parseYaml(TEXT) as {
   name: string;
   inputs: {
-    properties: Record<string, { default?: unknown }>;
+    properties: Record<string, { type?: string; default?: unknown }>;
     required: string[];
   };
   jobs: { steps: Step[] }[];
@@ -45,6 +45,11 @@ Deno.test("result workflow: the repository, pull request, out file and published
   assertEquals(workflow.inputs.properties.out.default, "");
   assertEquals(workflow.inputs.properties.publishedVersion.default, "");
   assertEquals(workflow.inputs.properties.publishedVisibility.default, "");
+});
+
+Deno.test("result workflow: examples are a list, empty until they are checked", () => {
+  assertEquals(workflow.inputs.properties.examples.type, "array");
+  assertEquals(workflow.inputs.properties.examples.default, []);
 });
 
 Deno.test("result workflow: one step passes every input to result", () => {

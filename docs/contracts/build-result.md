@@ -31,6 +31,17 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
   --input out=$HOME/obsidian-puddle-scanner.build-result.json
 ```
 
+Once the build has been checked against the recipe in the agreed spec, pass the
+outcomes as well. Pass them on every later run too, because each run replaces
+the last:
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-result \
+  --input name=obsidian-puddle-scanner \
+  --input buildRef=draft/obsidian-puddle-scanner \
+  --input 'examples:json=[{"phrase":"which notes need a request","passed":true}]'
+```
+
 ## Shape
 
 | Field           | Required | Meaning                                                                                         |
@@ -46,7 +57,21 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
 | `pullRequest`   | no       | `https://` URL of the pull request that proposes the build, once there is one                   |
 | `published`     | no       | What was pushed to the registry, once it is: `version` and `visibility` (`public` or `private`) |
 | `source`        | no       | The app spec's `source`, when it had one: where the spec was agreed                             |
+| `examples`      | no       | One entry per example in the agreed spec's recipe, once the build has been checked against them |
 | `builtAt`       | yes      | ISO 8601 timestamp of when the result was written                                               |
+
+Each entry in `examples`:
+
+| Field               | Required | Meaning                                                                         |
+| ------------------- | -------- | ------------------------------------------------------------------------------- |
+| `examples[].phrase` | yes      | The example's phrase, exactly as in the spec. 1 to 500 characters               |
+| `examples[].passed` | yes      | Whether the build answers that phrase as the example says                       |
+| `examples[].detail` | no       | What was seen, in plain words, especially when it failed. Up to 2000 characters |
+
+There are at most 50 entries. A reader that decides whether a request is done
+matches each `phrase` against the agreed spec. A missing example counts as not
+passed, the same as a failed one, so a result with no `examples` says nothing
+was checked. Factory leaves an empty list out.
 
 `parseBuildResult` checks the shape and returns each broken rule as a sentence.
 

@@ -207,7 +207,9 @@ fits on one screen: confirm publishing against it.
 
 Write the build result once the draft is pushed. Add `pullRequest` once the pull
 request is open, and `publishedVersion` with `publishedVisibility` once it is
-published:
+published. Once the build has been checked against the spec's recipe, add how
+each example went, for example
+`--input 'examples:json=[{"phrase":"which notes need a request","passed":true}]'`:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result \

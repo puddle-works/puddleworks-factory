@@ -53,6 +53,14 @@ inputs:
         public or private: the visibility it was pushed with. Leave blank
         until it is published; give it with publishedVersion.
       default: ""
+    examples:
+      type: array
+      description: >-
+        How the build answered each example phrase in the spec's recipe, once
+        it has been checked against them. Each has a phrase, passed (true or
+        false), and optionally a detail saying what was seen. Leave empty until
+        then.
+      default: []
   required:
     - name
     - buildRef
@@ -84,3 +92,4 @@ jobs:
             out: ${{ inputs.out }}
             publishedVersion: ${{ inputs.publishedVersion }}
             publishedVisibility: ${{ inputs.publishedVisibility }}
+            examples: ${{ inputs.examples }}
