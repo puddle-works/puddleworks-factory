@@ -42,11 +42,12 @@ out first (`warnings`: open questions, no acceptance criteria).
 | `specification.inputs`     | Left empty for the builder                                        |
 | `specification.output`     | Left blank for the builder                                        |
 | `specification.settings`   | Left empty for the builder                                        |
+| `specification.recipe`     | `specification.recipe`, without `candidateExtensions`             |
 | `delivery.method`          | Left blank for the builder                                        |
 
 The starter is not a valid app spec until the builder fills in the blanks, so it
 cannot be built by mistake. Scope in, constraints, assumptions, acceptance
-criteria, the requested phrase and the recipe have no place in an app spec. The
+criteria and the requested phrase have no place in an app spec. The
 `factory-build` skill keeps the outcome spec beside the app spec, in `spec/` in
 the app's repo, and the build plan reads them there.
 
@@ -66,8 +67,10 @@ the app's repo, and the build plan reads them there.
 | `openQuestions`           | `question`, `askedBy`, `askedAt`; empty when nothing is open                                                                     |
 | `exportedAt`              | When the file was exported                                                                                                       |
 
-`request.requestedPhrase` and `specification.recipe` are optional, and Factory
-does not read them yet. All the other fields are required. A spec with another
+`request.requestedPhrase` and `specification.recipe` are optional. Factory does
+not read the requested phrase. It uses the recipe to draft the app's own recipe
+and to check each example phrase reaches the app, but not its
+`candidateExtensions`. All the other fields are required. A spec with another
 `format`, including an app spec, is refused by name.
 
 ## Changing the contract

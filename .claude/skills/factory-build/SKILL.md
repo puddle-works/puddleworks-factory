@@ -161,6 +161,9 @@ criteria) and **propose** a value for each `toDecide` field, in one message:
 - `specification.inputs`: what the person enters each run, each with `name`
   (camelCase), `type` (`string`, `number`, `integer` or `boolean`),
   `description`, and `required: true`, or `required: false` with a `default`.
+  If `specification.recipe` has `pieces`, give each piece an input of its name.
+  A required input with no piece means no recipe can reach the app, so make it
+  optional if a default will do, and say so if it can't.
 - `specification.output`: what one run produces.
 - `specification.settings`: what the builder sets once (paths, tokens), each
   with `name` (camelCase), `description` and `sensitive` (true for secrets,
@@ -287,7 +290,12 @@ after the build. The skeleton goes in the root of `W`: the extension, its test
 and the workflow under `extensions/models/` and `workflows/`, plus
 `manifest.yaml`, `README.md`, `LICENSE` and `.github/workflows/ci.yml` (the
 template's are kept), and a marked app section in `CLAUDE.md` (added, or
-replaced on a re-draft).
+replaced on a re-draft). If the spec has a `specification.recipe` that one method
+call can answer, it also writes `workflows/workflow-NAME-recipe.yaml`, lists it
+in the manifest and adds the `puddlerouter-recipe` label. Set its `each.line`
+during the build, as the `CLAUDE.md` section says; readiness blocks until you do.
+If it can't be answered that way, there is no recipe file and that section says
+why. Don't put a `source` key in the recipe tag: the engine refuses it for now.
 
 `succeeded` means the files are written. On `failed`, tell the user what the
 message says in plain words and stop:
@@ -519,9 +527,11 @@ swamp data query 'behavior("puddleworks-factory") && name == "readiness-NAME"' \
   --select content --json | jq -r '.results[0] | .ready, .summary'
 ```
 
-Run it from the swamp repo from step 1. It changes nothing, and gives the same
-answer for the same files. `false` lists the blockers in the summary (the first
-six; `.blockers` has them all):
+Run it from the swamp repo from step 1. It changes nothing in `W`, and gives the
+same answer for the same files. When the spec has a recipe, it also sends each
+phrase through `@puddleworks/recipes` in a throwaway swamp repo, so it needs
+network access, and `Recipe:` in the summary says how many passed. `false` lists
+the blockers in the summary (the first six; `.blockers` has them all):
 
 - `The review report could not be read`, or it is for another name or
   version: run this step again.
@@ -533,6 +543,15 @@ six; `.blockers` has them all):
   this step again.
 - `The visibility check has not run`, or the manifest says public when its
   required checks failed: run step 7 again.
+- `each.line is still the draft's`: set it in the recipe workflow's tag, as the
+  app's `CLAUDE.md` says, commit, and run this step again.
+- `The recipe does not answer "<phrase>"`: widen the tag's `pattern`, or fix what
+  the detail says, and run this step again. Never drop a phrase to pass.
+- `No recipe answers the phrases`, or the manifest lacks the file or the
+  `puddlerouter-recipe` label: put them back, or if one method call truly can't
+  answer them, delete the recipe file so `Recipe: none` says why.
+- `The recipe could not be checked`: swamp or the network failed, not the app;
+  read the message and run this step again.
 
 `true`, with no scope problems in the reply, means go on to step 9. Otherwise
 fix each finding the way step 5 does (test first), run step 6's checks, commit
@@ -618,5 +637,8 @@ means one was left out. If the user stopped before publishing, leave both out.
 
 Tell the user: the package and version, its visibility and why, the PR (which
 they merge), the build result file, how long the run took, and anything
-skipped (the real run, a check). If the spec had a `source`, the build result
+skipped (the real run, a check). The build result takes `examples` from the
+last readiness check, which shows a phrase reaches the app without running it,
+so say if a recipe's answers were not tried for real, and if `Recipe: none` says
+there is no recipe, say why. If the spec had a `source`, the build result
 names the request, version and hash, so it can be matched to the request later.

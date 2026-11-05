@@ -61,6 +61,27 @@ const SpecSettingSchema = z.object({
 });
 
 /**
+ * What must reach the app: the phrases agreed for it, what each should answer,
+ * and what a phrase passes to it. Factory drafts a recipe from these, so an
+ * agreed phrase reaches the app without going through a person.
+ */
+export const RecipeSchema = z.object({
+  examples: z.array(z.object({
+    /** What someone types, as agreed. */
+    phrase: z.string().trim().min(1).max(500),
+    /** What the answer shows, in plain words. */
+    answer: z.string().max(2000),
+  })).max(50),
+  /** What a phrase passes on: `name` is the input it goes to. */
+  pieces: z.array(z.object({
+    name: z.string().min(1).max(40),
+    shape: z.enum(["int", "repo", "word"]),
+  })).max(20).default([]),
+  /** What the answer says when there is nothing to show. */
+  whenEmpty: z.string().max(2000).default(""),
+});
+
+/**
  * The agreed bounded behaviour of the app. The draft generator builds from
  * it.
  */
@@ -73,6 +94,7 @@ export const SpecificationSchema = z.object({
   /** What the app deliberately does not do. */
   outOfScope: z.array(z.string().min(1)),
   settings: z.array(SpecSettingSchema).optional(),
+  recipe: RecipeSchema.optional(),
   recordedBy: z.string().email(),
   recordedAt: z.iso.datetime(),
 });

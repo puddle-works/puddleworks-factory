@@ -5,9 +5,10 @@ description: >-
   report matches the manifest's name and version with no issue or pending
   verdict, every acceptance criterion in spec/ maps to tests that exist or a
   manual check (spec/acceptance.json), and the visibility check allows the
-  manifest's visibility. The answer, with a one-screen summary to confirm
-  publishing against, is recorded as a readiness resource on the
-  puddleworks-factory model. It changes nothing.
+  manifest's visibility. If the spec has a recipe, each agreed phrase goes
+  through the recipe engine in a throwaway swamp repo. The answer, with a
+  one-screen summary to confirm publishing against, is recorded as a readiness
+  resource on the puddleworks-factory model. It changes nothing in the app's repo.
 version: 1
 
 inputs:

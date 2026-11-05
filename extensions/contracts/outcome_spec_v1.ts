@@ -12,6 +12,7 @@
  * @module
  */
 import { z } from "npm:zod@4";
+import { RecipeSchema } from "./app_spec_v1.ts";
 
 /** The `format` every v1 outcome spec carries. */
 export const OUTCOME_SPEC_V1 = "puddleworks.dev/outcome-spec/v1";
@@ -38,6 +39,8 @@ export const OutcomeSpecSchema = z.object({
     constraints: z.array(z.string()),
     assumptions: z.array(z.string()),
     acceptanceCriteria: z.array(z.object({ id: z.string(), text: z.string() })),
+    /** The phrases that must reach the app. Optional; older specs have none. */
+    recipe: RecipeSchema.optional(),
   }),
   agreement: z.object({
     agreedBy: PersonSchema,
