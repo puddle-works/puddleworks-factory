@@ -10,6 +10,7 @@
  */
 import { z } from "npm:zod@4";
 import { SpecSourceSchema } from "../contracts/app_spec_v1.ts";
+import { BuildExamplesSchema } from "../contracts/build_result_v1.ts";
 
 export const DraftSchema = z.object({
   /** The app spec's name. */
@@ -29,6 +30,17 @@ export const DraftSchema = z.object({
   files: z.array(z.string()),
   /** Paths that already existed and were replaced (overwrite=true only). */
   overwrote: z.array(z.string()),
+  /** The recipe the spec asked for: what was written, or why it wasn't. */
+  recipe: z.object({
+    /** The phrases agreed in the spec. */
+    examples: z.array(z.string()),
+    /** The names of the recipe's pieces. */
+    pieces: z.array(z.string()),
+    /** The recipe workflow written, relative to targetDir. */
+    workflow: z.string().optional(),
+    /** Why none was written. */
+    reason: z.string().optional(),
+  }).optional(),
   renderedAt: z.iso.datetime(),
 });
 
@@ -112,6 +124,10 @@ export const ReadinessSchema = z.object({
     ok: z.boolean(),
   })),
   blockers: z.array(z.string()),
+  /** How the recipe went, or why there is none; null when no phrase was agreed. */
+  recipe: z.string().nullable().optional(),
+  /** How each agreed phrase went. Left out when no check could run. */
+  examples: BuildExamplesSchema.optional(),
   /** One screen of plain text to confirm publishing against. */
   summary: z.string(),
   pullRequest: z.string().nullable(),

@@ -189,3 +189,44 @@ Deno.test("prefill: the factory-build skill does not offer workflow_form either"
   assertEquals(skill.includes("workflow_form"), false);
   assertStringIncludes(skill, "usually `packaged_script`");
 });
+
+const WITH_PIECES: OutcomeSpec = {
+  ...OUTCOME,
+  specification: {
+    ...OUTCOME.specification,
+    recipe: {
+      examples: [{ phrase: "show issue 42", answer: "Issue 42." }],
+      pieces: [{ name: "number", shape: "int" }],
+      whenEmpty: "Nothing.",
+    },
+  },
+};
+
+Deno.test("prefill: carries the agreed recipe into the starter", () => {
+  const { spec } = prefillAppSpec(WITH_PIECES);
+  assertEquals(
+    spec.specification.recipe,
+    WITH_PIECES.specification.recipe,
+  );
+});
+
+Deno.test("prefill: says each piece needs an input of its name", () => {
+  const { toDecide } = prefillAppSpec(WITH_PIECES);
+  const line = toDecide.find((t) => t.startsWith("specification.recipe"));
+  assertStringIncludes(line ?? "", "number");
+  assertStringIncludes(line ?? "", "input");
+});
+
+Deno.test("prefill: a recipe with no phrases, or none at all, stays out", () => {
+  for (
+    const recipe of [undefined, { examples: [], pieces: [], whenEmpty: "" }]
+  ) {
+    const outcome = {
+      ...OUTCOME,
+      specification: { ...OUTCOME.specification, recipe },
+    };
+    const { spec, toDecide } = prefillAppSpec(outcome);
+    assertEquals("recipe" in spec.specification, false);
+    assertEquals(toDecide.some((t) => t.includes("recipe")), false);
+  }
+});

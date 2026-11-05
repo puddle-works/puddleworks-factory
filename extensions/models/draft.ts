@@ -61,6 +61,18 @@ import { assessVisibility } from "../lib/visibility.ts";
 import { linkProblem, safeData, safeText } from "../lib/redact.ts";
 import { assessReadiness } from "../lib/readiness.ts";
 import {
+  DRAFT_LINE,
+  RECIPE_LABEL,
+  type RecipeFit,
+  recipeFit,
+  type RecipeInputs,
+} from "../lib/recipes.ts";
+import {
+  realSwamp,
+  recipeReadiness,
+  type SwampRun,
+} from "../lib/recipe_check.ts";
+import {
   DraftSchema,
   PrefillSchema,
   ReadinessSchema,
@@ -92,6 +104,8 @@ export interface RenderOptions {
   now: Date;
   /** Id of the generated workflow. */
   uuid: string;
+  /** Id of the generated recipe workflow, if the spec gets one. Random if not given. */
+  recipeUuid?: string;
   /** `https://` URL of the app's repository, for the manifest and LICENSE. */
   repository: string;
   /** Scope for the generated extension type. Defaults to `@puddleworks`. */
@@ -509,10 +523,78 @@ jobs:
 `;
 }
 
+/**
+ * The recipe workflow: one step calling the app's method, with the recipe in
+ * its tag. A draft, like the rest: its \`each.line\` can't be known until the
+ * items have a shape, and readiness blocks until it is set.
+ */
+function renderRecipeWorkflow(
+  input: AppSpec,
+  n: Names,
+  fit: { pattern: string; inputs: RecipeInputs },
+  uuid: string,
+): string {
+  const spec = input.specification;
+  const whenEmpty = spec.recipe?.whenEmpty.trim();
+  const tag = JSON.stringify({
+    id: n.app,
+    extension: n.modelType,
+    pattern: fit.pattern,
+    dataName: "result",
+    inputs: fit.inputs,
+    each: { path: "items", line: DRAFT_LINE },
+    // Braces would be read as fields to fill in.
+    template: `${spec.output.replace(/[{}]/g, "")}\n{lines}`,
+    ...(whenEmpty ? { empty: whenEmpty } : {}),
+  });
+  const used = spec.inputs.filter((i) => i.name in fit.inputs);
+  const props = used.flatMap((i) => [
+    `    ${i.name}:`,
+    `      type: ${i.type}`,
+    `      description: ${q(i.description)}`,
+  ]);
+  const required = used.map((i) => `    - ${i.name}`);
+  const passes = used.map((i) =>
+    `            ${i.name}: \${{ inputs.${i.name} }}`
+  );
+  return `id: ${uuid}
+name: ${q(`${n.entryPointRef}-recipe`)}
+description: ${q(`Answer the phrases agreed for ${n.app}.`)}
+version: 1
+tags:
+  maxReruns: "3"
+  maxWallClock: "1m"
+  puddlerouterRecipe: '${tag.replaceAll("'", "''")}'
+
+inputs:
+  type: object
+  properties:${props.length ? "\n" + props.join("\n") : " {}"}
+  required:${required.length ? "\n" + required.join("\n") : " []"}
+
+jobs:
+  - name: main
+    description: ${q(`Run ${n.app} once for a phrase agreed for it.`)}
+    dependsOn: []
+    weight: 0
+    steps:
+      - name: run
+        description: ${q(spec.output)}
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+        task:
+          type: model_method
+          modelIdOrName: ${n.instance}
+          methodName: run
+          inputs:${passes.length ? "\n" + passes.join("\n") : " {}"}
+`;
+}
+
 function renderManifest(
   input: AppSpec,
   n: Names,
   opts: RenderOptions,
+  recipe: boolean,
 ): string {
   return `manifestVersion: 1
 name: ${q(n.modelType)}
@@ -521,14 +603,14 @@ description: ${q(input.specification.purpose)}
 repository: ${q(opts.repository)}
 license: MIT
 visibility: ${opts.visibility ?? "private"}
-additionalFiles:
+${recipe ? `labels:\n  - ${RECIPE_LABEL}\n` : ""}additionalFiles:
   - README.md
   - LICENSE
 models:
   - ${n.fileBase}.ts
 workflows:
   - workflow-${n.slug}.yaml
-`;
+${recipe ? `  - ${recipeFileName(n)}\n` : ""}`;
 }
 
 /**
@@ -728,7 +810,55 @@ dry run needs two repository secrets, \`SWAMP_API_KEY\` and
 `;
 }
 
-function renderClaude(input: AppSpec, n: Names): string {
+/** The file name of the recipe workflow. */
+const recipeFileName = (n: Names) => `workflow-${n.slug}-recipe.yaml`;
+
+/** How to finish the recipe, or why there is none; empty when none was asked for. */
+function recipeSection(input: AppSpec, n: Names, fit: RecipeFit): string {
+  if (!fit) return "";
+  const phrases = (input.specification.recipe?.examples ?? []).map((e) =>
+    `- ${q(e.phrase)}: ${e.answer}`
+  );
+  const agreed = `## Recipe
+
+These phrases were agreed for this app:
+
+${phrases.join("\n")}
+`;
+  if ("reason" in fit) {
+    return `${agreed}
+No recipe was drafted, so they don't reach it yet. ${fit.reason}
+
+If the app can answer them with one method after all, write
+\`workflows/${recipeFileName(n)}\` by hand, list it in \`manifest.yaml\` and
+label the manifest \`${RECIPE_LABEL}\`. Readiness then checks it.
+
+`;
+  }
+  return `${agreed}
+\`workflows/${recipeFileName(n)}\` sends them to \`run\`. To finish it:
+
+1. In its \`puddlerouterRecipe\` tag, set \`each.line\` to one line of the answer,
+   using fields of each item in \`items\`, like \`{title}\`, and make
+   \`template\` read as the answer should.
+2. You may widen \`pattern\`, but must not drop an example phrase.
+3. Readiness checks each phrase, and the build result reports how each went.
+
+A recipe calls one method. If the entry point ends up with several steps, or
+needs free text, no recipe can call it: delete the file, take it out of the
+manifest's \`workflows:\` and remove the manifest's \`${RECIPE_LABEL}\` label.
+Readiness says so, and no example is reported.
+
+Whoever installs it needs the model instance \`${n.instance}\`${
+    input.specification.settings?.length ? " with its settings set" : ""
+  }.
+A collective other than \`@puddleworks\` also needs an \`allow:\` entry in their
+\`puddlerouter.yaml\`.
+
+`;
+}
+
+function renderClaude(input: AppSpec, n: Names, fit: RecipeFit): string {
   const spec = input.specification;
   const settings = spec.settings ?? [];
   const inputs = spec.inputs.map((i) =>
@@ -784,7 +914,8 @@ settings above do not name.
    in \`.github/workflows/ci.yml\`, and, if the repo has a \`Makefile\`, to its
    \`test\` target.
 4. \`deno check\` and \`deno test\` must pass before review.
-${CLAUDE_END}
+
+${recipeSection(input, n, fit)}${CLAUDE_END}
 `;
 }
 
@@ -842,6 +973,8 @@ export function renderDraft(
     entryPointRef: `${scope}/${slug}`,
     version: versionFor(opts.now),
   };
+  const fit = recipeFit(input.specification);
+  const recipeFits = !!fit && "pattern" in fit;
   return [
     {
       path: `extensions/models/${n.fileBase}.ts`,
@@ -855,7 +988,10 @@ export function renderDraft(
       path: `workflows/workflow-${n.slug}.yaml`,
       content: renderWorkflow(input, n, opts.uuid),
     },
-    { path: "manifest.yaml", content: renderManifest(input, n, opts) },
+    {
+      path: "manifest.yaml",
+      content: renderManifest(input, n, opts, recipeFits),
+    },
     { path: "README.md", content: renderReadme(input, n) },
     {
       path: "LICENSE",
@@ -864,7 +1000,7 @@ export function renderDraft(
     },
     {
       path: "CLAUDE.md",
-      content: renderClaude(input, n),
+      content: renderClaude(input, n, fit),
       existing: "section",
     },
     {
@@ -872,6 +1008,17 @@ export function renderDraft(
       content: renderCi(opts),
       existing: "keep",
     },
+    ...(recipeFits
+      ? [{
+        path: `workflows/${recipeFileName(n)}`,
+        content: renderRecipeWorkflow(
+          input,
+          n,
+          fit,
+          opts.recipeUuid ?? crypto.randomUUID(),
+        ),
+      }]
+      : []),
   ];
 }
 
@@ -1071,6 +1218,8 @@ interface MethodContext {
     instanceName: string,
     version?: number,
   ) => Promise<Record<string, unknown> | null>;
+  /** Stands in for swamp in tests. */
+  runSwamp?: SwampRun;
 }
 
 /** Where a check runs when it is not given a targetDir, as a start log says it. */
@@ -1534,6 +1683,7 @@ export const model = {
         // The record is built and checked before any file is written, so a
         // draft the Factory could not record leaves the checkout as it was.
         const workflow = files[2].path;
+        const fit = recipeFit(spec.specification);
         const record = {
           name: spec.name,
           specSource: source,
@@ -1547,6 +1697,21 @@ export const model = {
           }`,
           files: writes.filter((w) => w.text !== null).map((w) => w.file),
           overwrote: present,
+          ...(fit
+            ? {
+              recipe: {
+                examples: (spec.specification.recipe?.examples ?? []).map((e) =>
+                  e.phrase
+                ),
+                pieces: (spec.specification.recipe?.pieces ?? []).map((p) =>
+                  p.name
+                ),
+                ...("reason" in fit ? { reason: fit.reason } : {
+                  workflow: files.at(-1)!.path,
+                }),
+              },
+            }
+            : {}),
           renderedAt: new Date().toISOString(),
         };
         const checked = checkedResource("draft", record);
@@ -1648,6 +1813,15 @@ export const model = {
         if (args.pullRequest) {
           checkLink("pullRequest", args.pullRequest, PR_EXAMPLE);
         }
+        // What readiness found, unless the builder says otherwise.
+        const readiness = ReadinessSchema.safeParse(
+          await context.readResource?.(
+            `${RESOURCE_PREFIX.readiness}${args.name}`,
+          ),
+        );
+        const examples = args.examples?.length
+          ? args.examples
+          : readiness.data?.examples;
         const candidate: BuildResult = {
           apiVersion: BUILD_RESULT_V1,
           kind: "BuildResult",
@@ -1666,7 +1840,7 @@ export const model = {
               },
             }
             : {}),
-          ...(args.examples?.length ? { examples: args.examples } : {}),
+          ...(examples?.length ? { examples } : {}),
           builtAt: new Date().toISOString(),
         };
         const parsed = parseBuildResult(candidate);
@@ -1763,7 +1937,8 @@ export const model = {
         "acceptance criterion in spec/ maps to tests that exist or a manual check " +
         "(spec/acceptance.json), and the visibility checks, run again on the files as they " +
         "are now with the quality and repo visibility last given, allow the manifest's " +
-        "visibility. " +
+        "visibility. If the spec has a recipe, each agreed phrase goes through the recipe " +
+        "engine in a throwaway swamp repo, which needs swamp and network access. " +
         "Records the readiness resource with a one-screen summary.",
       arguments: ReadinessArgsSchema,
       execute: method(async (args: ReadinessArgs, context: MethodContext) => {
@@ -1816,8 +1991,14 @@ export const model = {
             provisionalQuality: answer.data.provisionalQuality,
             repoVisibility: answer.data.repoVisibility,
           });
+        const recipe = await recipeReadiness(
+          files,
+          draft.data,
+          context.runSwamp ?? realSwamp,
+        );
         const readiness = assessReadiness({
           files,
+          recipe,
           review: reviewText === null
             ? null
             : { path: reviewFile, text: reviewText },

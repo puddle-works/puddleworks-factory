@@ -31,9 +31,11 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
   --input out=$HOME/obsidian-puddle-scanner.build-result.json
 ```
 
-Once the build has been checked against the recipe in the agreed spec, pass the
-outcomes as well. Pass them on every later run too, because each run replaces
-the last:
+When the spec has a recipe, `examples` comes from the latest readiness check,
+which sends each phrase through the recipe engine. That check does not run the
+app: it says a phrase reaches the app with inputs it takes, not that the answer
+is right. If you have checked more than that, pass your own outcomes instead.
+Pass them on every later run too, because each run replaces the last:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result \

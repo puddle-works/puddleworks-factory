@@ -105,3 +105,41 @@ Deno.test("app-spec: the source version is a positive whole number", () => {
   assertEquals(problems.length, 1);
   assertStringIncludes(problems[0], "source.version");
 });
+
+Deno.test("app-spec: the recipe is optional, and a spec without one is as before", () => {
+  const without = parseAppSpec(structuredClone(EXAMPLE));
+  assertEquals(without.ok, true);
+  if (without.ok) {
+    assertEquals("recipe" in without.spec.specification, false);
+  }
+  const spec = structuredClone(EXAMPLE);
+  (spec.specification as Record<string, unknown>).recipe = {
+    examples: [{ phrase: " show issue 42 ", answer: "Issue 42." }],
+    pieces: [{ name: "number", shape: "int" }],
+  };
+  const got = parseAppSpec(spec);
+  assertEquals(got.ok, true);
+  if (got.ok) {
+    assertEquals(got.spec.specification.recipe, {
+      examples: [{ phrase: "show issue 42", answer: "Issue 42." }],
+      pieces: [{ name: "number", shape: "int" }],
+      whenEmpty: "",
+    });
+  }
+});
+
+Deno.test("app-spec: a recipe's phrase has words and its pieces a known shape", () => {
+  for (
+    const recipe of [
+      { examples: [{ phrase: "  ", answer: "" }] },
+      {
+        examples: [{ phrase: "go", answer: "" }],
+        pieces: [{ name: "n", shape: "colour" }],
+      },
+    ]
+  ) {
+    const spec = structuredClone(EXAMPLE);
+    (spec.specification as Record<string, unknown>).recipe = recipe;
+    assertEquals(parseAppSpec(spec).ok, false, JSON.stringify(recipe));
+  }
+});
