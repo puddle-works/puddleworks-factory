@@ -444,6 +444,29 @@ Deno.test("recipe through the model: no recipe leaves examples out, and says why
   assertEquals(calls, []);
 });
 
+Deno.test("recipe through the model: a required number with no piece blocks, it isn't free text", async () => {
+  await drafted(
+    spec({
+      inputs: [{
+        name: "number",
+        type: "integer",
+        description: "An issue number.",
+        required: true,
+      }],
+      recipe: {
+        examples: [{ phrase: "show the notes", answer: "" }],
+        pieces: [],
+        whenEmpty: "",
+      },
+    }),
+    async (dir, ctx) => {
+      const readiness = await readinessOf(dir, ctx);
+      assertStringIncludes(readiness.blockers.join(" "), '"number"');
+      assertEquals(readiness.summary.includes("Recipe: none."), false);
+    },
+  );
+});
+
 Deno.test("recipe through the model: a spec that could have a recipe blocks until it does", async () => {
   await drafted(spec({ inputs: [] }), async (dir, ctx) => {
     const readiness = await readinessOf(dir, ctx);

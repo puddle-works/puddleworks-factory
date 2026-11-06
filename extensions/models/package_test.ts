@@ -130,17 +130,18 @@ Deno.test("package: the skill's Settings name each key with its default, and cov
 /** The skill's block that reads its settings, as the builder runs it. */
 async function settingsBlock(): Promise<string> {
   const skill = await Deno.readTextFile(SKILL);
-  const at = skill.indexOf("```bash\nD='{");
+  const at = skill.indexOf("```bash\nO='{}'");
   return skill.slice(at + "```bash\n".length, skill.indexOf("\n```", at));
 }
 
-async function readSettings(file: string | null) {
+async function readSettings(file: string | null, args = "{}") {
   const dir = await Deno.makeTempDir({ prefix: "factory-settings-" });
   try {
     if (file !== null) {
       await Deno.writeTextFile(`${dir}/factory-build.json`, file);
     }
-    const script = `${await settingsBlock()}
+    const block = (await settingsBlock()).replace("O='{}'", `O='${args}'`);
+    const script = `${block}
 echo "$ORG|$TEMPLATE|$SECRETS|$COLLECTIVE"`;
     const out = await new Deno.Command("bash", {
       args: ["-c", script],
@@ -187,6 +188,44 @@ Deno.test("package: the skill's settings block uses a good factory-build.json an
     assertEquals(got.stdout, "", bad);
     assertEquals(got.stderr.includes("factory-build.json"), true, bad);
   }
+});
+
+Deno.test("package: the settings block keeps the arguments of /factory-build over the file, and every call", async () => {
+  const file = '{"org":"filed","collective":"@filed"}';
+  const got = await readSettings(file, '{"org":"acme"}');
+  assertEquals(got.code, 0, got.stderr);
+  assertEquals(
+    got.stdout,
+    "acme|puddle-works/puddle-template|SWAMP_API_KEY SWAMP_SIGNIN_TOKEN|@filed",
+  );
+  const skill = await Deno.readTextFile(SKILL);
+  assertEquals(skill.includes("O='{}'"), true, "the arguments line");
+});
+
+Deno.test("package: the settings block refuses a setting that isn't text and a file with two objects", async () => {
+  for (
+    const bad of [
+      '{"org":null}',
+      '{"org":""}',
+      '{"template":5}',
+      '{"worktrees":["git"]}',
+      '{"org":"a"}\n{"org":"b"}',
+    ]
+  ) {
+    const got = await readSettings(bad);
+    assertEquals(got.code === 0, false, `${bad}: ${got.stdout}`);
+    assertEquals(got.stdout, "", bad);
+    assertEquals(got.stderr.includes("factory-build.json"), true, bad);
+  }
+  const bad = await readSettings("{}", '{"org":null}');
+  assertEquals(bad.code === 0, false, bad.stdout);
+});
+
+Deno.test("package: the settings block says when it found no factory-build.json", async () => {
+  const none = await readSettings(null);
+  assertEquals(none.stderr.includes("no factory-build.json"), true);
+  const there = await readSettings("{}");
+  assertEquals(there.stderr, "");
 });
 
 Deno.test("package: the skill says its settings don't last between Bash calls", async () => {

@@ -63,14 +63,17 @@ repo you run from (a key it leaves out keeps its default). An argument to
 | `worktrees`  | `orca`                          | `orca` or `git`; `git` is used anyway when `orca` is not installed |
 
 ```bash
+O='{}'   # the arguments given to /factory-build, e.g. O='{"org":"acme"}'
 D='{"org":"puddle-works","template":"puddle-works/puddle-template",
     "secrets":["SWAMP_API_KEY","SWAMP_SIGNIN_TOKEN"],"collective":"@puddleworks",
     "worktrees":"orca"}'
-S=$D
-if [ -f factory-build.json ]; then
-  S=$(jq -es '(.[1] | objects) as $o | .[0] * $o | select(.secrets | arrays)' <(echo "$D") factory-build.json) ||
-    { echo "factory-build.json must be a JSON object, with secrets as a list: fix it, or delete it to use the defaults" >&2; exit 1; }
-fi
+if [ -f factory-build.json ]; then F=$(cat factory-build.json)
+else F='{}'; echo "no factory-build.json here: using the defaults" >&2; fi
+S=$(jq -es --argjson a "$O" 'select(length == 2) |
+    (.[1] | objects) as $o | .[0] * $o * $a |
+    select(([.org, .template, .collective, .worktrees] | all(type == "string" and length > 0)) and (.secrets | arrays))' \
+  <(echo "$D") <(printf %s "$F")) ||
+  { echo "factory-build.json (or the arguments) must be one JSON object, with org, template, collective and worktrees as text and secrets as a list: fix it, or delete it to use the defaults" >&2; exit 1; }
 ORG=$(jq -r .org <<<"$S"); TEMPLATE=$(jq -r .template <<<"$S")
 SECRETS=$(jq -r '.secrets | join(" ")' <<<"$S"); COLLECTIVE=$(jq -r .collective <<<"$S")
 WT=$(jq -r .worktrees <<<"$S"); command -v orca >/dev/null || WT=git
@@ -78,9 +81,12 @@ WT=$(jq -r .worktrees <<<"$S"); command -v orca >/dev/null || WT=git
 
 Shell variables don't last from one Bash call to the next, so run this block
 again, from that repo root, at the start of every Bash call that uses `$ORG`,
-`$TEMPLATE`, `$SECRETS`, `$COLLECTIVE` or `$WT`. If it stops on
-`factory-build.json`, show the user its message and wait for the file to be
-fixed. Don't carry on with the defaults.
+`$TEMPLATE`, `$SECRETS`, `$COLLECTIVE` or `$WT`. Run it from the swamp repo
+root, not from an app worktree: elsewhere it says "no factory-build.json here"
+and uses the defaults. If the user gave arguments to `/factory-build`, put them
+in the first line (`O='{"org":"acme"}'`) every time, or the file's values come
+back. If it stops, show the user its message and wait for the file or the
+arguments to be fixed. Don't carry on with the defaults.
 
 The template must give each app a `Makefile` with `test`, `contracts-check`,
 `guardrails-check` and `publish` targets, and a `contracts.ts`.
