@@ -297,6 +297,19 @@ during the build, as the `CLAUDE.md` section says; readiness blocks until you do
 If it can't be answered that way, there is no recipe file and that section says
 why. Don't put a `source` key in the recipe tag: the engine refuses it for now.
 
+A recipe calls one method and has 10 s to answer, because the router gives up on
+it at 15 s. If the build gives the entry point several steps, keep one method that
+does them all by calling the code directly, and point the recipe at it. Never
+start `swamp` on the same instance from a method: it waits on its own lock until
+it fails. If that takes too long, or a step belongs to another extension, write a
+method that answers from the latest stored result, and point the recipe at that.
+Only a required input of free text means no recipe.
+
+If the recipe's method changes nothing at all, add `effects-read` to the
+manifest's labels. Be sure: the recipe then answers without asking first, and
+readiness runs it to time it. Otherwise readiness doesn't run it, so time it
+yourself on something safe.
+
 `succeeded` means the files are written. On `failed`, tell the user what the
 message says in plain words and stop:
 
@@ -530,8 +543,12 @@ swamp data query 'behavior("puddleworks-factory") && name == "readiness-NAME"' \
 Run it from the swamp repo from step 1. It changes nothing in `W`, and gives the
 same answer for the same files. When the spec has a recipe, it also sends each
 phrase through `@puddleworks/recipes` in a throwaway swamp repo, so it needs
-network access, and `Recipe:` in the summary says how many passed. `false` lists
-the blockers in the summary (the first six; `.blockers` has them all):
+network access, and `Recipe:` in the summary says how many passed. There it also
+loads the app, to see the recipe's method exists. If the manifest says
+`effects-read`, it runs the app for each phrase and times it, so that part of the
+answer can change between runs; if not, `Recipe:` says the speed wasn't timed.
+`false` lists the blockers in the summary (the first six; `.blockers` has them
+all):
 
 - `The review report could not be read`, or it is for another name or
   version: run this step again.
@@ -548,8 +565,15 @@ the blockers in the summary (the first six; `.blockers` has them all):
 - `The recipe does not answer "<phrase>"`: widen the tag's `pattern`, or fix what
   the detail says, and run this step again. Never drop a phrase to pass.
 - `No recipe answers the phrases`, or the manifest lacks the file or the
-  `puddlerouter-recipe` label: put them back, or if one method call truly can't
-  answer them, delete the recipe file so `Recipe: none` says why.
+  `puddlerouter-recipe` label: put them back. Only an input of free text means
+  no recipe: then delete the recipe file so `Recipe: none` says why.
+- `The entry point ... has N steps`: give it one method that does them all, or
+  one that answers from the latest stored result, and point a recipe at it, as
+  the app's `CLAUDE.md` says.
+- `The recipe "..." calls the method`: the app doesn't have that method. Fix the
+  recipe workflow's `methodName`, or put the method back.
+- `The recipe took ... s` or `did not finish`: it is too slow for the router. Add
+  a method that answers from the latest stored result, and point the recipe at it.
 - `The recipe could not be checked`: swamp or the network failed, not the app;
   read the message and run this step again.
 

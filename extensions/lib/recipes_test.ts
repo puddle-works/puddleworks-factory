@@ -369,6 +369,34 @@ function repo(over: Record<string, string | null> = {}) {
   );
 }
 
+Deno.test("recipe in the repo: an entry point with several steps and no recipe blocks, and says how to get one", () => {
+  const found = assessRecipe(
+    repo({
+      "workflows/workflow-my-app-recipe.yaml": null,
+      "workflows/workflow-my-app.yaml": ENTRY(6),
+    }),
+    DRAFT,
+  );
+  assertEquals(found.none, undefined);
+  assertEquals(found.recipes, []);
+  assertEquals(found.blockers.length, 1);
+  for (const part of ["6 steps", "one method", "latest stored result"]) {
+    assertStringIncludes(found.blockers[0], part);
+  }
+});
+
+Deno.test("recipe in the repo: several steps that also need free text can't have a recipe", () => {
+  const found = assessRecipe(
+    repo({
+      "workflows/workflow-my-app-recipe.yaml": null,
+      "workflows/workflow-my-app.yaml": ENTRY(6, "[note]"),
+    }),
+    DRAFT,
+  );
+  assertEquals(found.blockers, []);
+  assertStringIncludes(found.none ?? "", '"note"');
+});
+
 Deno.test("recipe in the repo: a finished one is ready to check, as the engine would read it", () => {
   const found = assessRecipe(repo(), DRAFT);
   assertEquals(found.blockers, []);
@@ -461,15 +489,6 @@ Deno.test("recipe in the repo: no recipe is fine when it can't call the app, and
           reason: "The input needs free text.",
         },
       }, "free text"],
-      [
-        "the entry point grew steps",
-        {
-          ...without,
-          "workflows/workflow-my-app.yaml": ENTRY(6),
-        },
-        DRAFT,
-        "6 steps",
-      ],
       [
         "the entry point now needs free text",
         {

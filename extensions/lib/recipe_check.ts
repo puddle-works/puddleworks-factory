@@ -4,12 +4,19 @@
  *
  * It runs in a throwaway swamp repo, so the app's checkout isn't touched:
  * pulling an extension leaves files in the repo it is pulled into. A recipe
- * that writes only says it would ask, so nothing in the app runs.
+ * that writes only says it would ask, so nothing in the app runs. An app whose
+ * manifest says it only reads does run, once per phrase, to time it against
+ * what the router allows.
  *
  * @module
  */
 import { stringify } from "jsr:@std/yaml@1.0.12";
-import { assessRecipe, type DraftRecipe } from "./recipes.ts";
+import {
+  assessRecipe,
+  type DraftRecipe,
+  onlyReads,
+  RECIPE_BUDGET_SECONDS,
+} from "./recipes.ts";
 
 /** The extension that runs recipes. */
 const ENGINE = "@puddleworks/recipes";
@@ -17,10 +24,17 @@ const ENGINE = "@puddleworks/recipes";
 /** How long one swamp command may take. */
 const TIMEOUT_MS = 120_000;
 
-/** Run swamp in a directory. */
+/** How long a timed run may take before it is stopped: long enough to be sure. */
+const CUT_OFF_MS = 30_000;
+
+/** How long to wait for swamp's output once it has been told to stop. */
+const STOP_GRACE_MS = 1_000;
+
+/** Run swamp in a directory, for at most `timeoutMs` if given. */
 export type SwampRun = (
   args: string[],
   cwd: string,
+  timeoutMs?: number,
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 /** How one agreed phrase went. */
@@ -42,23 +56,41 @@ export interface RecipeReadiness {
 const decoder = new TextDecoder();
 
 /** Swamp itself, as the method runs it. */
-export const realSwamp: SwampRun = async (args, cwd) => {
-  // Only swamp's own CLI can run another extension. No shell is involved, so a
-  // phrase stays one argument; the README says readiness starts swamp.
-  // swamp-quality-ignore deno-command
-  const { code, stdout, stderr } = await new Deno.Command("swamp", {
-    args,
-    cwd,
-    stdin: "null",
-    stdout: "piped",
-    stderr: "piped",
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  }).output();
-  return {
-    code,
-    stdout: decoder.decode(stdout),
-    stderr: decoder.decode(stderr),
-  };
+export const realSwamp: SwampRun = async (
+  args,
+  cwd,
+  timeoutMs = TIMEOUT_MS,
+) => {
+  // Stopping swamp doesn't stop a run it started, which keeps the pipes open,
+  // so the output alone could wait for as long as that run goes on.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const gaveUp = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`swamp gave no answer in ${timeoutMs / 1000} s`)),
+      timeoutMs + STOP_GRACE_MS,
+    );
+  });
+  try {
+    // Only swamp's own CLI can run another extension. No shell is involved, so a
+    // phrase stays one argument; the README says readiness starts swamp.
+    // swamp-quality-ignore deno-command
+    const output = new Deno.Command("swamp", {
+      args,
+      cwd,
+      stdin: "null",
+      stdout: "piped",
+      stderr: "piped",
+      signal: AbortSignal.timeout(timeoutMs),
+    }).output();
+    const { code, stdout, stderr } = await Promise.race([output, gaveUp]);
+    return {
+      code,
+      stdout: decoder.decode(stdout),
+      stderr: decoder.decode(stderr),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 const message = (e: unknown) => e instanceof Error ? e.message : String(e);
@@ -81,6 +113,7 @@ async function runMethod(
   method: string,
   inputs: string[],
   literal = false,
+  timeoutMs?: number,
 ): Promise<Record<string, unknown>> {
   const args = [
     "behavior",
@@ -95,7 +128,7 @@ async function runMethod(
     ...(literal ? ["--literal-inputs"] : []),
     "--json",
   ];
-  const r = await run(args, dir);
+  const r = await run(args, dir, timeoutMs);
   if (r.code !== 0) throw new Error(failure(args, r));
   const attributes = JSON.parse(r.stdout)?.dataArtifacts?.[0]?.attributes;
   if (typeof attributes !== "object" || attributes === null) {
@@ -137,12 +170,169 @@ async function checkPhrase(
   }
 }
 
+/** The app's checkout, for the checks that load it, and a clock for the tests. */
+export interface AppUnderCheck {
+  dir: string;
+  now?: () => number;
+}
+
+/** What loading and running the app added to the phrases' results. */
+interface AppCheck {
+  blockers: string[];
+  note?: string;
+}
+
+/** The method each recipe calls that the app's type doesn't have. */
+async function missingMethods(
+  recipes: Array<Record<string, unknown>>,
+  dir: string,
+  run: SwampRun,
+): Promise<string[]> {
+  const blockers: string[] = [];
+  for (const type of new Set(recipes.map((r) => String(r.extension)))) {
+    const args = ["behavior", "type", "describe", type, "--json"];
+    const r = await run(args, dir);
+    if (r.code !== 0) throw new Error(failure(args, r));
+    const methods = JSON.parse(r.stdout)?.methods;
+    if (!Array.isArray(methods)) throw new Error(`${type} lists no methods`);
+    const names = methods.map((m) => String(m?.name));
+    for (const recipe of recipes.filter((x) => x.extension === type)) {
+      if (!names.includes(String(recipe.method))) {
+        blockers.push(
+          `The recipe "${recipe.id}" calls the method "${recipe.method}", which ${type} doesn't have. It has: ${
+            names.map((n) => `"${n}"`).join(", ")
+          }.`,
+        );
+      }
+    }
+  }
+  return blockers;
+}
+
+/** Run an app that only reads for each phrase, and see if it answers in time. */
+async function timeRuns(
+  recipes: Array<Record<string, unknown>>,
+  phrases: string[],
+  dir: string,
+  run: SwampRun,
+  now: () => number,
+): Promise<AppCheck> {
+  const notTimed = (why: string) => ({
+    blockers: [],
+    note: `Speed not timed: ${why.slice(0, 300)}`,
+  });
+  const tooSlow = (phrase: string, what: string) => ({
+    blockers: [
+      `The recipe ${what} on "${phrase}", and must answer within ${RECIPE_BUDGET_SECONDS} s or the router gives up on it: add a method that answers from the latest stored result, and point the recipe at it, as the app's CLAUDE.md says.`,
+    ],
+  });
+  await Deno.writeTextFile(
+    `${dir}/puddlerouter.yaml`,
+    stringify({
+      allow: [
+        ...new Set(
+          recipes.map((r) => `${String(r.extension).split("/")[0]}/*`),
+        ),
+      ],
+      reads: [...new Set(recipes.map((r) => `${r.extension} ${r.method}`))],
+      recipes,
+    }),
+  );
+  let slowest = 0;
+  for (const phrase of phrases) {
+    const match = await runMethod(run, dir, "match", [`text=${phrase}`], true);
+    const started = now();
+    let done: Record<string, unknown>;
+    try {
+      done = await runMethod(
+        run,
+        dir,
+        "execute",
+        [
+          `recipeId=${match.recipeId}`,
+          `captures:json=${JSON.stringify(match.captures ?? [])}`,
+          "mode=shadow",
+        ],
+        false,
+        CUT_OFF_MS,
+      );
+    } catch (e) {
+      return now() - started >= CUT_OFF_MS
+        ? tooSlow(phrase, `did not finish in ${CUT_OFF_MS / 1000} s`)
+        : notTimed(message(e));
+    }
+    if (done.action !== "ran") {
+      return notTimed(`the engine answered "${done.action}" and didn't run it`);
+    }
+    if (done.ok !== true) {
+      return notTimed(String(done.error || "the run failed"));
+    }
+    const seconds = (now() - started) / 1000;
+    if (seconds > RECIPE_BUDGET_SECONDS) {
+      return tooSlow(phrase, `took ${seconds.toFixed(1)} s`);
+    }
+    slowest = Math.max(slowest, seconds);
+  }
+  return {
+    blockers: [],
+    note: `Slowest run ${
+      slowest.toFixed(1)
+    } s, of ${RECIPE_BUDGET_SECONDS} s allowed.`,
+  };
+}
+
+/** Load the app in the repo made for the check, then check what needs it. */
+async function checkApp(
+  files: Array<{ path: string; text: string }>,
+  recipes: Array<Record<string, unknown>>,
+  phrases: string[],
+  dir: string,
+  run: SwampRun,
+  app: AppUnderCheck,
+): Promise<AppCheck> {
+  try {
+    const args = ["extension", "source", "add", app.dir, "--json"];
+    const added = await run(args, dir);
+    if (added.code !== 0) throw new Error(failure(args, added));
+    const blockers = await missingMethods(recipes, dir, run);
+    if (blockers.length > 0) return { blockers };
+  } catch (e) {
+    return {
+      blockers: [],
+      note: `Method and speed not checked: ${message(e).slice(0, 300)}`,
+    };
+  }
+  if (!onlyReads(files)) {
+    return {
+      blockers: [],
+      note:
+        "Speed not timed: the manifest doesn't say effects-read, so it may change things and readiness doesn't run it.",
+    };
+  }
+  try {
+    return await timeRuns(
+      recipes,
+      phrases,
+      dir,
+      run,
+      app.now ?? (() => performance.now()),
+    );
+  } catch (e) {
+    return {
+      blockers: [],
+      note: `Speed not timed: ${message(e).slice(0, 300)}`,
+    };
+  }
+}
+
 /** Run each phrase through the engine, in a repo made for it. */
 async function checkExamples(
+  files: Array<{ path: string; text: string }>,
   recipes: Array<Record<string, unknown>>,
   phrases: string[],
   run: SwampRun,
-): Promise<ExampleCheck[]> {
+  app?: AppUnderCheck,
+): Promise<{ examples: ExampleCheck[]; app: AppCheck }> {
   const dir = await Deno.makeTempDir({ prefix: "factory-recipe-check-" });
   try {
     // Made here because a first run would make it, and say so ahead of its JSON.
@@ -168,7 +358,11 @@ async function checkExamples(
     for (const phrase of phrases) {
       examples.push(await checkPhrase(phrase, ids, dir, run));
     }
-    return examples;
+    // A phrase that doesn't reach the app already blocks, so the app can wait.
+    const checked = app && examples.every((e) => e.passed)
+      ? await checkApp(files, recipes, phrases, dir, run, app)
+      : { blockers: [] };
+    return { examples, app: checked };
   } finally {
     await Deno.remove(dir, { recursive: true }).catch(() => {});
   }
@@ -179,6 +373,7 @@ export async function recipeReadiness(
   files: Array<{ path: string; text: string }>,
   draft: { entryPointRef: string; recipe?: DraftRecipe },
   run: SwampRun = realSwamp,
+  app?: AppUnderCheck,
 ): Promise<RecipeReadiness> {
   const found = assessRecipe(files, draft);
   if (found.phrases.length === 0) return { line: null, blockers: [] };
@@ -186,9 +381,15 @@ export async function recipeReadiness(
   if (found.recipes.length === 0) {
     return { line: "not checked", blockers: found.blockers };
   }
-  let examples: ExampleCheck[];
+  let checked: { examples: ExampleCheck[]; app: AppCheck };
   try {
-    examples = await checkExamples(found.recipes, found.phrases, run);
+    checked = await checkExamples(
+      files,
+      found.recipes,
+      found.phrases,
+      run,
+      app,
+    );
   } catch (e) {
     return {
       line: "not checked",
@@ -198,14 +399,18 @@ export async function recipeReadiness(
       ],
     };
   }
+  const { examples } = checked;
   const passed = examples.filter((e) => e.passed).length;
   return {
-    line: `${passed} of ${examples.length} example phrases passed`,
+    line: `${passed} of ${examples.length} example phrases passed${
+      checked.app.note ? `. ${checked.app.note}` : ""
+    }`,
     blockers: [
       ...found.blockers,
       ...examples.filter((e) => !e.passed).map((e) =>
         `The recipe does not answer "${e.phrase}": ${e.detail}`
       ),
+      ...checked.app.blockers,
     ],
     examples,
   };

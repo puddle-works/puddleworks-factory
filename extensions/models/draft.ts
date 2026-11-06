@@ -62,6 +62,7 @@ import { linkProblem, safeData, safeText } from "../lib/redact.ts";
 import { assessReadiness } from "../lib/readiness.ts";
 import {
   DRAFT_LINE,
+  RECIPE_BUDGET_SECONDS,
   RECIPE_LABEL,
   type RecipeFit,
   recipeFit,
@@ -844,10 +845,24 @@ label the manifest \`${RECIPE_LABEL}\`. Readiness then checks it.
 2. You may widen \`pattern\`, but must not drop an example phrase.
 3. Readiness checks each phrase, and the build result reports how each went.
 
-A recipe calls one method. If the entry point ends up with several steps, or
-needs free text, no recipe can call it: delete the file, take it out of the
-manifest's \`workflows:\` and remove the manifest's \`${RECIPE_LABEL}\` label.
-Readiness says so, and no example is reported.
+A recipe calls one method, and has ${RECIPE_BUDGET_SECONDS} s to answer before the router gives up on it.
+
+- If the entry point ends up with several steps, keep one method that does them
+  all by calling the code directly, and point the recipe at it. Never start
+  \`swamp\` on the same instance from a method: it waits on its own lock until it
+  fails.
+- If that takes too long, or a step belongs to another extension, add a method
+  that answers from the latest stored result (\`context.readResource\`), starts
+  nothing new, and says so when nothing has run yet. In the recipe workflow, set
+  \`methodName\`, and \`dataName\`, \`each\` and \`template\` to fit it.
+- If it needs free text, no recipe can call it: delete the file, take it out of
+  the manifest's \`workflows:\` and remove the manifest's \`${RECIPE_LABEL}\` label.
+  Readiness says so, and no example is reported.
+
+If the recipe's method changes nothing at all, add \`effects-read\` to the
+manifest's labels: the recipe then answers without asking first, and readiness
+runs it to time it. Otherwise readiness doesn't run it, so time it yourself on
+something safe.
 
 Whoever installs it needs the model instance \`${n.instance}\`${
     input.specification.settings?.length ? " with its settings set" : ""
@@ -1938,7 +1953,8 @@ export const model = {
         "(spec/acceptance.json), and the visibility checks, run again on the files as they " +
         "are now with the quality and repo visibility last given, allow the manifest's " +
         "visibility. If the spec has a recipe, each agreed phrase goes through the recipe " +
-        "engine in a throwaway swamp repo, which needs swamp and network access. " +
+        "engine in a throwaway swamp repo, which needs swamp and network access, and " +
+        "an app whose manifest says effects-read is run there to time it. " +
         "Records the readiness resource with a one-screen summary.",
       arguments: ReadinessArgsSchema,
       execute: method(async (args: ReadinessArgs, context: MethodContext) => {
@@ -1995,6 +2011,7 @@ export const model = {
           files,
           draft.data,
           context.runSwamp ?? realSwamp,
+          { dir: root },
         );
         const readiness = assessReadiness({
           files,

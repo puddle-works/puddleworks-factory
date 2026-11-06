@@ -283,6 +283,11 @@ Deno.test("package: the docs say the draft writes a recipe and readiness checks 
   }
   assertEquals(appSpec.includes("`specification.recipe`"), true);
   assertEquals(result.includes("from the latest readiness check"), true);
-  assertEquals(result.includes("does not run the app"), true);
+  assertEquals(result.includes("runs the app only if"), true);
+  for (const [name, text] of [["README", readme], ["SKILL.md", skill]]) {
+    assertEquals(text.includes("effects-read"), true, name);
+    assertEquals(text.includes("latest stored result"), true, name);
+    assertEquals(text.includes("10 s"), true, name);
+  }
   assertEquals(skill.includes("give each piece an input"), true);
 });
