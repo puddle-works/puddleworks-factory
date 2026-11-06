@@ -90,6 +90,13 @@ export function prefillAppSpec(outcome: OutcomeSpec): Prefill {
     "specification.settings: what the builder sets once per instance (paths, tokens); leave empty if none",
     "delivery.method: one of packaged_script, scheduled_workflow, external_app, manual_process",
   ];
+  if (s.recipe?.pieces.length) {
+    toDecide.push(
+      `specification.recipe: the phrases pass on ${
+        s.recipe.pieces.map((p) => `${p.name} (${p.shape})`).join(", ")
+      }; give each an input of that name, or no recipe can be written`,
+    );
+  }
   if (!recordedBy) {
     toDecide.push(
       "specification.recordedBy: the agreement has no usable email; give the email of whoever agreed it",
@@ -122,6 +129,7 @@ export function prefillAppSpec(outcome: OutcomeSpec): Prefill {
         output: "",
         outOfScope: s.scope.out,
         settings: [],
+        ...(s.recipe?.examples.length ? { recipe: s.recipe } : {}),
         recordedBy,
         recordedAt,
       },

@@ -158,6 +158,14 @@ writes nothing and lists every broken rule. Existing files are kept unless you
 pass `--input overwrite=true`. The drafted package is private; whether it goes
 public is decided once it is built (below).
 
+If the spec has a `specification.recipe`, the phrases agreed for the app, and
+one method call can answer them, the draft also writes
+`workflows/workflow-NAME-recipe.yaml`, lists it in the manifest and adds the
+`puddlerouter-recipe` label, so `@puddleworks/recipes` can route those phrases
+to the app once it is published. The builder sets its `each.line`, the one thing
+the draft can't know. If no single method call can answer them, there is no
+recipe, and the app's `CLAUDE.md` and the readiness summary say why.
+
 Once it is built and passes its checks, ask for a recommendation. `quality` is
 `swamp extension quality manifest.yaml --json | jq .percentage` in the app repo,
 `provisionalQuality` is `.ifProvisionalEarned.percentage` from the same output
@@ -208,8 +216,12 @@ fits on one screen: confirm publishing against it.
 
 Write the build result once the draft is pushed. Add `pullRequest` once the pull
 request is open, and `publishedVersion` with `publishedVisibility` once it is
-published. Once the build has been checked against the spec's recipe, add how
-each example went, for example
+published. When the spec has a recipe, readiness has already sent each phrase
+through the recipe engine, in a throwaway swamp repo so your checkout stays as
+it is, and the result reports how each went. To do that it starts `swamp` as a
+subprocess, without a shell, and needs network access. It shows a phrase reaches
+the app, and doesn't run the app; if you have checked the answers too, pass your
+own, for example
 `--input 'examples:json=[{"phrase":"which notes need a request","passed":true}]'`:
 
 ```bash

@@ -267,3 +267,22 @@ Deno.test("package: no command passes swamp an unescaped @ value", async () => {
     assertEquals(text.split("\n").filter(unescaped), [], file);
   }
 });
+
+Deno.test("package: the docs say the draft writes a recipe and readiness checks it", async () => {
+  const flat = async (path: string) =>
+    (await Deno.readTextFile(new URL(path, ROOT))).replace(/\s+/g, " ");
+  const readme = await flat("README.md");
+  const skill = await flat(".claude/skills/factory-build/SKILL.md");
+  const result = await flat("docs/contracts/build-result.md");
+  const appSpec = await flat("docs/contracts/app-spec.md");
+  for (const [name, text] of [["README", readme], ["SKILL.md", skill]]) {
+    assertEquals(text.includes("-recipe.yaml"), true, name);
+    assertEquals(text.includes("each.line"), true, name);
+    assertEquals(text.includes("puddlerouter-recipe"), true, name);
+    assertEquals(text.includes("in a throwaway"), true, name);
+  }
+  assertEquals(appSpec.includes("`specification.recipe`"), true);
+  assertEquals(result.includes("from the latest readiness check"), true);
+  assertEquals(result.includes("does not run the app"), true);
+  assertEquals(skill.includes("give each piece an input"), true);
+});

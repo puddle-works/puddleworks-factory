@@ -48,6 +48,10 @@ export interface Readiness {
   review: ReviewSummary | null;
   criteria: CriterionCheck[];
   blockers: string[];
+  /** How the recipe went, or why there is none; null when no phrase was agreed. */
+  recipe: string | null;
+  /** How each agreed phrase went. Left out when no check could run. */
+  examples?: Array<{ phrase: string; passed: boolean; detail?: string }>;
   /** One screen of plain text: what would be published, and whether it is ready. */
   summary: string;
 }
@@ -67,6 +71,12 @@ export interface ReadinessFacts {
     | { recommendation: Visibility; canBePublic: boolean }
     | "outdated"
     | null;
+  /** What checking the recipe found, when it was checked. */
+  recipe?: {
+    line: string | null;
+    blockers: string[];
+    examples?: Array<{ phrase: string; passed: boolean; detail?: string }>;
+  };
   pullRequest?: string;
   commit?: string;
 }
@@ -170,9 +180,22 @@ function parseJson(text: string): unknown {
 }
 
 /** The outcome spec with the highest specification.version in spec/. */
-function latestOutcome(files: ReadinessFacts["files"]) {
+/** The phrases an outcome spec's recipe agreed. */
+function outcomePhrases(spec: Record<string, unknown>): string[] {
+  const examples = record(spec.recipe)?.examples;
+  return (Array.isArray(examples) ? examples : [])
+    .map((e) => str(record(e)?.phrase).trim())
+    .filter(Boolean);
+}
+
+export function latestOutcome(files: ReadinessFacts["files"]) {
   let best:
-    | { path: string; version: number; criteria: Array<[string, string]> }
+    | {
+      path: string;
+      version: number;
+      criteria: Array<[string, string]>;
+      phrases: string[];
+    }
     | null = null;
   for (const f of files) {
     if (!/^spec\/outcome-spec\.[^/]*\.json$/.test(f.path)) continue;
@@ -187,6 +210,7 @@ function latestOutcome(files: ReadinessFacts["files"]) {
       path: f.path,
       version,
       criteria: list.map((c) => [str(record(c)?.id), str(record(c)?.text)]),
+      phrases: outcomePhrases(spec),
     };
   }
   return best;
@@ -387,6 +411,8 @@ function summarise(
     }
   }
 
+  if (r.recipe) lines.push(clip(`Recipe: ${r.recipe}`, 100));
+
   if (r.blockers.length) {
     lines.push("Blockers:");
     const shown = r.blockers.slice(0, 6);
@@ -456,6 +482,8 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
     );
   }
 
+  blockers.push(...(facts.recipe?.blockers ?? []));
+
   const result = {
     ready: blockers.length === 0,
     package: pkg,
@@ -465,6 +493,8 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
     review,
     criteria,
     blockers,
+    recipe: facts.recipe?.line ?? null,
+    ...(facts.recipe?.examples ? { examples: facts.recipe.examples } : {}),
   };
   return { ...result, summary: summarise(result, facts, outcomePath) };
 }

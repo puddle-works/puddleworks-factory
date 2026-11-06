@@ -76,15 +76,28 @@ Deno.test("outcome-spec: a v1 reader ignores fields it does not know", () => {
   if (result.ok) assertEquals("priority" in result.spec, false);
 });
 
-Deno.test("outcome-spec: the example shows the optional fields, and Factory drops them", () => {
+Deno.test("outcome-spec: the example shows the optional fields; Factory keeps the recipe it uses", () => {
   assertEquals(typeof EXAMPLE.request.requestedPhrase, "string");
   assertEquals(typeof EXAMPLE.specification.recipe, "object");
   const result = parseOutcomeSpec(EXAMPLE);
   assertEquals(result.ok, true);
   if (result.ok) {
     assertEquals("requestedPhrase" in result.spec.request, false);
-    assertEquals("recipe" in result.spec.specification, false);
+    const recipe = result.spec.specification.recipe!;
+    assertEquals(
+      recipe.examples.map((e) => e.phrase),
+      EXAMPLE.specification.recipe.examples.map((e: { phrase: string }) =>
+        e.phrase
+      ),
+    );
+    assertEquals("candidateExtensions" in recipe, false);
   }
+});
+
+Deno.test("outcome-spec: a recipe piece has a known shape", () => {
+  const spec = structuredClone(EXAMPLE);
+  spec.specification.recipe.pieces = [{ name: "n", shape: "colour" }];
+  assertEquals(parseOutcomeSpec(spec).ok, false);
 });
 
 Deno.test("outcome-spec: a spec without the optional fields still parses", () => {
@@ -101,6 +114,7 @@ Deno.test("outcome-spec: the contract doc says which fields are optional", async
   assertStringIncludes(doc, "`request.requestedPhrase`");
   assertStringIncludes(doc, "`specification.recipe`");
   assertEquals(doc.includes("Every field is required."), false);
+  assertEquals(doc.includes("does not read them yet"), false);
 });
 
 Deno.test("outcome-spec: the request link is an http or https URL", () => {
