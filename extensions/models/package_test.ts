@@ -127,6 +127,91 @@ Deno.test("package: the skill's Settings name each key with its default, and cov
   );
 });
 
+/** The skill's block that reads its settings, as the builder runs it. */
+async function settingsBlock(): Promise<string> {
+  const skill = await Deno.readTextFile(SKILL);
+  const at = skill.indexOf("```bash\nD='{");
+  return skill.slice(at + "```bash\n".length, skill.indexOf("\n```", at));
+}
+
+async function readSettings(file: string | null) {
+  const dir = await Deno.makeTempDir({ prefix: "factory-settings-" });
+  try {
+    if (file !== null) {
+      await Deno.writeTextFile(`${dir}/factory-build.json`, file);
+    }
+    const script = `${await settingsBlock()}
+echo "$ORG|$TEMPLATE|$SECRETS|$COLLECTIVE"`;
+    const out = await new Deno.Command("bash", {
+      args: ["-c", script],
+      cwd: dir,
+      stdout: "piped",
+      stderr: "piped",
+    }).output();
+    return {
+      code: out.code,
+      stdout: new TextDecoder().decode(out.stdout).trim(),
+      stderr: new TextDecoder().decode(out.stderr),
+    };
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+}
+
+Deno.test("package: the skill's settings block uses a good factory-build.json and stops on a bad one", async () => {
+  const none = await readSettings(null);
+  assertEquals(none.code, 0, none.stderr);
+  assertEquals(
+    none.stdout,
+    "puddle-works|puddle-works/puddle-template|SWAMP_API_KEY SWAMP_SIGNIN_TOKEN|@puddleworks",
+  );
+  const set = await readSettings(
+    '{"org":"acme","secrets":["ONE"],"collective":"@acme"}',
+  );
+  assertEquals(set.code, 0, set.stderr);
+  assertEquals(
+    set.stdout,
+    "acme|puddle-works/puddle-template|ONE|@acme",
+  );
+  const noSecrets = await readSettings('{"secrets":[]}');
+  assertEquals(noSecrets.code, 0, noSecrets.stderr);
+  assertEquals(
+    noSecrets.stdout,
+    "puddle-works|puddle-works/puddle-template||@puddleworks",
+  );
+  for (
+    const bad of ["{not json", '{"secrets":"ONE"}', "[1]", '"x"', "null", ""]
+  ) {
+    const got = await readSettings(bad);
+    assertEquals(got.code === 0, false, `${bad}: ${got.stdout}`);
+    assertEquals(got.stdout, "", bad);
+    assertEquals(got.stderr.includes("factory-build.json"), true, bad);
+  }
+});
+
+Deno.test("package: the skill says its settings don't last between Bash calls", async () => {
+  const skill = await Deno.readTextFile(SKILL);
+  assertEquals(skill.replace(/\s+/g, " ").includes("every Bash call"), true);
+});
+
+Deno.test("package: the docs follow the settings, not Puddleworks' own values", async () => {
+  const rest = await skillOutsideSettings();
+  assertEquals(rest.includes("@puddleworks/NAME"), false, "SKILL.md");
+  const readme = await Deno.readTextFile(new URL("README.md", ROOT));
+  const flatReadme = readme.replace(/\s+/g, " ");
+  assertEquals(
+    flatReadme.includes("from `puddle-works/puddle-template`"),
+    false,
+    "README: from the template",
+  );
+  assertEquals(
+    flatReadme.includes("made from `puddle-works/puddle-template`"),
+    false,
+    "README: made from the template",
+  );
+  assertEquals(flatReadme.includes("new Orca worktree"), false, "README: Orca");
+});
+
 Deno.test("package: the README documents each factory-build setting", async () => {
   const readme = await Deno.readTextFile(new URL("README.md", ROOT));
   assertEquals(readme.includes("factory-build.json"), true);

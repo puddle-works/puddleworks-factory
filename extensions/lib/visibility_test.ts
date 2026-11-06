@@ -574,6 +574,10 @@ const MUST_BLOCK: Array<[string, string]> = [
     "// DB_PASSWORD=Summer2024\nexport const x = 1;\n",
   ],
   ["app/settings.py", "# PASSWORD=Summer2024\nDEBUG = False\n"],
+  // Config beside tests is real config, so only test code goes to a person.
+  ["tests/.env", "API_TOKEN=AbcDefGhiJkl123\n"],
+  ["config.test.json", '{"token": "AbcDefGhiJkl123"}\n'],
+  ["test_creds.env", "DB_PASSWORD=Summer2024\n"],
 ];
 
 const MUST_NOT_BLOCK: Array<[string, string]> = [
@@ -697,6 +701,9 @@ Deno.test("visibility: a secret in a file that only looks like a test still bloc
       "README.md",
       "config/testing.env",
       "src/attestation.py",
+      "tests/.env",
+      "config.test.json",
+      "test_creds.env",
     ]
   ) {
     const a = assessVisibility(

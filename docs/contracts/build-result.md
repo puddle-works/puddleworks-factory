@@ -32,11 +32,12 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
 ```
 
 When the spec has a recipe, `examples` comes from the latest readiness check,
-which sends each phrase through the recipe engine. That check runs the app only
-if its manifest says `effects-read`, and then only to time it: it says a phrase
-reaches the app with inputs it takes, not that the answer is right. If you have
-checked more than that, pass your own outcomes instead. Pass them on every later
-run too, because each run replaces the last:
+which sends each phrase through the recipe engine, as long as that check came
+after the latest render. That check runs the app only if its manifest says
+`effects-read`, and then only to time it: it says a phrase reaches the app with
+inputs it takes, not that the answer is right. If you have checked more than
+that, pass your own outcomes instead. Pass them on every later run too, because
+each run replaces the last:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result \

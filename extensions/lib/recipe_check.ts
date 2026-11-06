@@ -291,7 +291,11 @@ async function checkApp(
   app: AppUnderCheck,
 ): Promise<AppCheck> {
   try {
-    const args = ["extension", "source", "add", app.dir, "--json"];
+    // Swamp runs from the throwaway repo, so a relative path wouldn't reach it.
+    const where = app.dir.startsWith("/")
+      ? app.dir
+      : `${Deno.cwd()}/${app.dir}`;
+    const args = ["extension", "source", "add", where, "--json"];
     const added = await run(args, dir);
     if (added.code !== 0) throw new Error(failure(args, added));
     const blockers = await missingMethods(recipes, dir, run);
@@ -403,8 +407,12 @@ export async function recipeReadiness(
   const passed = examples.filter((e) => e.passed).length;
   return {
     line: `${passed} of ${examples.length} example phrases passed${
-      checked.app.note ? `. ${checked.app.note}` : ""
-    }`,
+      found.skipped === 0
+        ? ""
+        : `. ${found.skipped} more ${
+          found.skipped === 1 ? "phrase" : "phrases"
+        } not checked`
+    }${checked.app.note ? `. ${checked.app.note}` : ""}`,
     blockers: [
       ...found.blockers,
       ...examples.filter((e) => !e.passed).map((e) =>

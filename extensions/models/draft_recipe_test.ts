@@ -408,14 +408,30 @@ Deno.test("recipe through the model: the draft's each.line left in blocks readin
   });
 });
 
+const FREE_TEXT = {
+  inputs: [{
+    name: "note",
+    type: "string",
+    description: "Free text.",
+    required: true,
+  }],
+  recipe: {
+    examples: [{ phrase: "take a note", answer: "" }],
+    pieces: [],
+    whenEmpty: "",
+  },
+};
+
 Deno.test("recipe through the model: no recipe leaves examples out, and says why", async () => {
   const calls: string[][] = [];
-  await drafted(spec({ inputs: [] }), async (dir, ctx) => {
+  await drafted(spec(FREE_TEXT), async (dir, ctx) => {
     const readiness = await readinessOf(dir, ctx);
     assertEquals(readiness.blockers, []);
     assertEquals("examples" in readiness, false);
-    assertStringIncludes(readiness.recipe as string, '"number"');
+    assertStringIncludes(readiness.recipe as string, '"note"');
     assertStringIncludes(readiness.summary, "Recipe: none.");
+    // The whole reason, not its first hundred characters.
+    assertStringIncludes(readiness.summary, "taken from the phrase.");
     await model.methods.result.execute(
       model.methods.result.arguments.parse({
         name: "my-app",
@@ -426,6 +442,44 @@ Deno.test("recipe through the model: no recipe leaves examples out, and says why
     assertEquals("examples" in ctx.store.get("build-result-my-app")!, false);
   }, calls);
   assertEquals(calls, []);
+});
+
+Deno.test("recipe through the model: a spec that could have a recipe blocks until it does", async () => {
+  await drafted(spec({ inputs: [] }), async (dir, ctx) => {
+    const readiness = await readinessOf(dir, ctx);
+    assertStringIncludes(readiness.blockers.join(" "), '"number"');
+    assertEquals(readiness.summary.includes("Recipe: none."), false);
+  });
+});
+
+Deno.test("recipe through the model: a result after a new draft doesn't report the old draft's phrases", async () => {
+  await drafted(spec(), async (dir, ctx) => {
+    await finish(dir);
+    await readinessOf(dir, ctx);
+    await model.methods.render.execute(
+      model.methods.render.arguments.parse({
+        spec: JSON.stringify(spec({
+          recipe: {
+            examples: [{ phrase: "show ticket 9", answer: "" }],
+            pieces: [{ name: "number", shape: "int" }],
+            whenEmpty: "",
+          },
+        })),
+        targetDir: dir,
+        repository: REPO,
+        overwrite: true,
+      }),
+      ctx,
+    );
+    await model.methods.result.execute(
+      model.methods.result.arguments.parse({
+        name: "my-app",
+        buildRef: "draft/my-app",
+      }),
+      ctx,
+    );
+    assertEquals("examples" in ctx.store.get("build-result-my-app")!, false);
+  });
 });
 
 Deno.test("recipe through the model: examples the builder passes still win", async () => {

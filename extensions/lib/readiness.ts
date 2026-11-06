@@ -411,7 +411,7 @@ function summarise(
     }
   }
 
-  if (r.recipe) lines.push(clip(`Recipe: ${r.recipe}`, 100));
+  if (r.recipe) lines.push(clip(`Recipe: ${r.recipe}`, 400));
 
   if (r.blockers.length) {
     lines.push("Blockers:");

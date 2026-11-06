@@ -1517,7 +1517,11 @@ export const model = {
         "phrase went. A secret in a test file goes to a separate secrets-in-tests " +
         "check for a person to look at, not the secrets check. The draft record lists " +
         "only the files render wrote, so not a LICENSE or ci.yml it kept. Each " +
-        "method logs its start before any I/O. No data migration required.",
+        "method logs its start before any I/O. A secret in config beside the tests, " +
+        "like tests/.env, fails the secrets check. An app spec's recipe pieces must " +
+        "have different names. readiness accepts no recipe only when a required " +
+        "input is free text, and blocks otherwise. result leaves out examples from " +
+        "a readiness check older than the latest render. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -1852,9 +1856,14 @@ export const model = {
             `${RESOURCE_PREFIX.readiness}${args.name}`,
           ),
         );
+        // A check from before the latest render was of other phrases.
+        const checkedNow = readiness.data &&
+          readiness.data.assessedAt > draft.data.renderedAt;
         const examples = args.examples?.length
           ? args.examples
-          : readiness.data?.examples;
+          : checkedNow
+          ? readiness.data?.examples
+          : undefined;
         const candidate: BuildResult = {
           apiVersion: BUILD_RESULT_V1,
           kind: "BuildResult",

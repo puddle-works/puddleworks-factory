@@ -216,7 +216,8 @@ function audienceFindings(path: string, text: string): Finding[] {
 
 /**
  * A test file by its name or folder. Tests are still scanned, because real
- * secrets get pasted into them, but their hits are mostly fixtures.
+ * secrets get pasted into them, but their hits are mostly fixtures. Only code
+ * counts: config beside the tests, like `tests/.env`, is more likely real.
  */
 const TEST_FILE =
   /(?:^|\/)(?:tests?|__tests__)\/|(?:^|\/)test_[^/]*$|[._]tests?\.[^/.]+$/i;
@@ -258,8 +259,10 @@ export function assessVisibility(facts: RepoFacts): Assessment {
       : []),
   ]).map((f) => ({ ...f, file: safeText(f.file) }));
   const allSecrets = findings.filter((f) => f.kind === "secret");
-  const secrets = allSecrets.filter((f) => !TEST_FILE.test(f.file));
-  const testSecrets = allSecrets.filter((f) => TEST_FILE.test(f.file));
+  const inTestCode = (f: Finding) =>
+    TEST_FILE.test(f.file) && SOURCE_CODE.test(f.file);
+  const secrets = allSecrets.filter((f) => !inTestCode(f));
+  const testSecrets = allSecrets.filter(inTestCode);
   const internal = findings.filter((f) =>
     f.kind !== "secret" && f.kind !== "audience"
   );

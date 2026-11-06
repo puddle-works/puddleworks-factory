@@ -45,19 +45,27 @@ sentence.
 
 Optional. The phrases agreed for the app, so that they can reach it:
 
-| Field               | Required | Meaning                                                                   |
-| ------------------- | -------- | ------------------------------------------------------------------------- |
-| `examples[].phrase` | yes      | What someone types. 1 to 500 characters, at most 50 examples              |
-| `examples[].answer` | yes      | What the answer shows, in plain words                                     |
-| `pieces[].name`     | no       | What a phrase passes on. The name of the app's input it goes to           |
-| `pieces[].shape`    | no       | `int`, `repo` (`owner/name`) or `word`. A number in the phrase, and so on |
-| `whenEmpty`         | no       | What the answer says when there is nothing to show                        |
+| Field               | Required | Meaning                                                                             |
+| ------------------- | -------- | ----------------------------------------------------------------------------------- |
+| `examples[].phrase` | yes      | What someone types. 1 to 500 characters, at most 50 examples                        |
+| `examples[].answer` | yes      | What the answer shows, in plain words                                               |
+| `pieces[].name`     | no       | What a phrase passes on. The name of the app's input it goes to, each one different |
+| `pieces[].shape`    | no       | `int`, `repo` (`owner/name`) or `word`. A number in the phrase, and so on           |
+| `whenEmpty`         | no       | What the answer says when there is nothing to show                                  |
 
 The draft turns these into a recipe workflow when one method call can answer
 them: each required input has a piece, each piece has an input of a matching
 type, and the phrases show where each piece goes. Otherwise it writes no recipe
 and says why, and the spec is still valid. A `word` piece always needs its
 pattern written by hand, because a phrase can't show which word it is.
+
+Pieces of one shape fill in the order listed, so `from 1 to 2` with pieces
+`from` and `to` passes 1 to `from`. Phrases with two such pieces must use the
+same words, since the draft can't tell a reworded phrase from a swapped one.
+
+No recipe passes readiness only when a required input has no piece, which means
+it takes free text. For any other reason readiness blocks, until you write the
+recipe by hand or change the spec.
 
 When a spec has a `source`, the build links back to it: the drafted app's
 `CLAUDE.md` and `README.md` say "Spec: [where it was agreed](url), version N,
