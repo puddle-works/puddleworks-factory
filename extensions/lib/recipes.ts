@@ -371,8 +371,17 @@ function entryProblem(
   const required = isObj(entry.inputs) && Array.isArray(entry.inputs.required)
     ? entry.inputs.required
     : [];
+  const props = isObj(entry.inputs) && isObj(entry.inputs.properties)
+    ? entry.inputs.properties
+    : {};
   const pieces = draft.recipe?.pieces;
-  const free = pieces && required.find((r) => !pieces.includes(String(r)));
+  // Only text is free text: a number with no piece is a piece left out, which
+  // blocks, since a number piece would have worked.
+  const free = pieces && required.find((r) => {
+    const prop = props[String(r)];
+    return !pieces.includes(String(r)) &&
+      (!isObj(prop) || prop.type === "string");
+  });
   return free
     ? `The input "${free}" is required and the recipe has no piece for it: a recipe can only pass a number, a repo or one word taken from the phrase.`
     : undefined;

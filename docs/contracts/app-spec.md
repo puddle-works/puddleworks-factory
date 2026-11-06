@@ -63,9 +63,10 @@ Pieces of one shape fill in the order listed, so `from 1 to 2` with pieces
 `from` and `to` passes 1 to `from`. Phrases with two such pieces must use the
 same words, since the draft can't tell a reworded phrase from a swapped one.
 
-No recipe passes readiness only when a required input has no piece, which means
-it takes free text. For any other reason readiness blocks, until you write the
-recipe by hand or change the spec.
+No recipe passes readiness only when a required input of type `string` has no
+piece, which means it takes free text. A required number with no piece blocks:
+give it a number piece. For any other reason readiness blocks, until you write
+the recipe by hand or change the spec.
 
 When a spec has a `source`, the build links back to it: the drafted app's
 `CLAUDE.md` and `README.md` say "Spec: [where it was agreed](url), version N,
