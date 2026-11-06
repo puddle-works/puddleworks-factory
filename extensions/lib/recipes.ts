@@ -22,6 +22,12 @@ export const RECIPE_LABEL = "puddlerouter-recipe";
 /** The draft's `each.line`, until the builder knows what each item holds. */
 export const DRAFT_LINE = "{TODO_field_of_each_item}";
 
+/**
+ * Seconds a recipe's method may take. The router gives up on a turn after 15 s,
+ * and has to route it and start swamp in that time too.
+ */
+export const RECIPE_BUDGET_SECONDS = 10;
+
 /** The most captures the recipe engine takes. */
 const MAX_CAPTURES = 9;
 
@@ -328,20 +334,24 @@ function parsedOrNull(text: string): unknown {
 }
 
 /** Why the entry point can't be called by a recipe, if it can't. */
+function entryWorkflow(
+  files: Array<{ path: string; text: string }>,
+  entryPointRef: string,
+): Record<string, unknown> | undefined {
+  return files.flatMap((f) => {
+    if (!/^workflows\/[^/]*\.ya?ml$/.test(f.path)) return [];
+    const wf = parsedOrNull(f.text);
+    return isObj(wf) && wf.name === entryPointRef ? [wf] : [];
+  })[0];
+}
+
+/** Why no recipe can call this app at all: only free text rules one out. */
 function entryProblem(
   files: Array<{ path: string; text: string }>,
   draft: { entryPointRef: string; recipe?: DraftRecipe },
 ): string | undefined {
-  const entry = files.flatMap((f) => {
-    if (!/^workflows\/[^/]*\.ya?ml$/.test(f.path)) return [];
-    const wf = parsedOrNull(f.text);
-    return isObj(wf) && wf.name === draft.entryPointRef ? [wf] : [];
-  })[0];
+  const entry = entryWorkflow(files, draft.entryPointRef);
   if (!entry) return undefined;
-  const steps = stepsOf(entry);
-  if (steps.length > 1) {
-    return `The entry point ${draft.entryPointRef} has ${steps.length} steps, and a recipe calls one method.`;
-  }
   const required = isObj(entry.inputs) && Array.isArray(entry.inputs.required)
     ? entry.inputs.required
     : [];
@@ -350,6 +360,33 @@ function entryProblem(
   return free
     ? `The input "${free}" is required and the recipe has no piece for it: a recipe can only pass a number, a repo or one word taken from the phrase.`
     : undefined;
+}
+
+/** How to give an entry point with several steps a recipe, if it has them. */
+function severalSteps(
+  files: Array<{ path: string; text: string }>,
+  entryPointRef: string,
+): string | undefined {
+  const entry = entryWorkflow(files, entryPointRef);
+  const steps = entry ? stepsOf(entry).length : 0;
+  return steps > 1
+    ? `The entry point ${entryPointRef} has ${steps} steps, and a recipe calls one method: give the app one method that does them all by calling the code directly, or, if that can't answer in ${RECIPE_BUDGET_SECONDS} s, one that answers from the latest stored result, and point a recipe at it, as the app's CLAUDE.md says.`
+    : undefined;
+}
+
+/**
+ * Whether the manifest says the app only reads: the engine's own rule, so
+ * `effects-read` without `effects-write`, and anything unclear is a write.
+ */
+export function onlyReads(
+  files: Array<{ path: string; text: string }>,
+): boolean {
+  const manifest = parsedOrNull(
+    files.find((f) => f.path === "manifest.yaml")?.text ?? "",
+  );
+  const labels = isObj(manifest) ? manifest.labels : undefined;
+  return Array.isArray(labels) && labels.includes("effects-read") &&
+    !labels.includes("effects-write");
 }
 
 /**
@@ -403,6 +440,8 @@ export function assessRecipe(
   if (shipped.size === 0) {
     const why = draft.recipe?.reason ?? entryProblem(files, draft);
     if (why) return { ...empty, none: why };
+    const steps = severalSteps(files, draft.entryPointRef);
+    if (steps) return { ...empty, blockers: [...blockers, steps] };
     const file = draft.recipe?.workflow;
     return {
       ...empty,

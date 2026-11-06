@@ -10,7 +10,8 @@
  */
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { parse } from "jsr:@std/yaml@1.0.12";
-import { recipeReadiness, type SwampRun } from "./recipe_check.ts";
+import { realSwamp, recipeReadiness, type SwampRun } from "./recipe_check.ts";
+import { onlyReads } from "./recipes.ts";
 
 const ok = (attributes: unknown) => ({
   code: 0,
@@ -243,4 +244,222 @@ Deno.test("recipe check: it allows the app's collective, and leaves no repo behi
   assertEquals(allow, ["@acme/*"]);
   const left = await Deno.stat(cwd).then(() => true, () => false);
   assertEquals(left, false);
+});
+
+// ---- Does the app answer in time? Only a recipe that only reads is ever run.
+
+const READ_MANIFEST = {
+  path: "manifest.yaml",
+  text:
+    "labels: [puddlerouter-recipe, effects-read]\nworkflows: [workflow-my-app.yaml, workflow-my-app-recipe.yaml]\n",
+};
+const readingApp = () => [READ_MANIFEST, ...files().slice(1)];
+
+/** A `swamp` that also loads the app and runs it, on a clock it moves itself. */
+function appSwamp(over: {
+  methods?: string[];
+  runSeconds?: number;
+  runResult?: Record<string, unknown>;
+  cutOff?: boolean;
+  fail?: string;
+  seen?: string[][];
+  reads?: unknown[];
+  timeouts?: Array<number | undefined>;
+} = {}) {
+  let clock = 0;
+  const base = fakeSwamp({ seen: over.seen, fail: over.fail });
+  const run: SwampRun = async (args, cwd, timeoutMs) => {
+    if (args[0] === "behavior" && args[1] === "type") {
+      over.seen?.push(args);
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          methods: (over.methods ?? ["run"]).map((name) => ({ name })),
+        }),
+        stderr: "",
+      };
+    }
+    const config = parse(
+      await Deno.readTextFile(`${cwd}/puddlerouter.yaml`).catch(() => "{}"),
+    ) as { reads?: string[] };
+    if (args.includes("execute") && config.reads) {
+      over.seen?.push(args);
+      over.reads?.push(config.reads);
+      over.timeouts?.push(timeoutMs);
+      if (over.cutOff) {
+        clock += timeoutMs ?? 0;
+        return { code: 143, stdout: "", stderr: "" };
+      }
+      clock += (over.runSeconds ?? 2) * 1000;
+      return ok(
+        over.runResult ?? { action: "ran", ok: true, text: "A.", error: "" },
+      );
+    }
+    return base(args, cwd);
+  };
+  return { run, now: () => clock };
+}
+
+Deno.test("speed: an app that only reads is run once for each phrase and timed", async () => {
+  const seen: string[][] = [];
+  const reads: unknown[] = [];
+  const { run, now } = appSwamp({ seen, reads, runSeconds: 2.5 });
+  const got = await recipeReadiness(
+    readingApp(),
+    draft(["show issue 42"]),
+    run,
+    {
+      dir: "/w/app",
+      now,
+    },
+  );
+  assertEquals(got.blockers, []);
+  assertEquals(reads, [["@acme/my-app run"]]);
+  assertEquals(
+    seen.some((a) => a.join(" ") === "extension source add /w/app --json"),
+    true,
+  );
+  assertStringIncludes(got.line!, "1 of 1 example phrases passed");
+  assertStringIncludes(got.line!, "Slowest run 2.5 s");
+});
+
+Deno.test("speed: a run over the budget blocks, and says what to do", async () => {
+  const { run, now } = appSwamp({ runSeconds: 10.5 });
+  const got = await recipeReadiness(readingApp(), draft(), run, {
+    dir: "/w/app",
+    now,
+  });
+  assertEquals(got.blockers.length, 1);
+  assertStringIncludes(got.blockers[0], "10.5 s");
+  assertStringIncludes(got.blockers[0], "latest stored result");
+});
+
+Deno.test("speed: a run at the budget is allowed", async () => {
+  const { run, now } = appSwamp({ runSeconds: 10 });
+  const got = await recipeReadiness(readingApp(), draft(), run, {
+    dir: "/w/app",
+    now,
+  });
+  assertEquals(got.blockers, []);
+});
+
+Deno.test("speed: a run that is cut off blocks, however it ended", async () => {
+  const timeouts: Array<number | undefined> = [];
+  const { run, now } = appSwamp({ cutOff: true, timeouts });
+  const got = await recipeReadiness(readingApp(), draft(), run, {
+    dir: "/w/app",
+    now,
+  });
+  assertEquals(typeof timeouts[0], "number");
+  assertEquals(got.blockers.length, 1);
+  assertStringIncludes(got.blockers[0], "did not finish");
+});
+
+Deno.test("speed: a run that fails for another reason only leaves a note", async () => {
+  const { run, now } = appSwamp({
+    runResult: { action: "ran", ok: false, text: "", error: "no token" },
+  });
+  const got = await recipeReadiness(readingApp(), draft(), run, {
+    dir: "/w/app",
+    now,
+  });
+  assertEquals(got.blockers, []);
+  assertStringIncludes(got.line!, "Speed not timed");
+  assertStringIncludes(got.line!, "no token");
+});
+
+Deno.test("speed: a run the engine didn't actually do is not counted as fast", async () => {
+  const { run, now } = appSwamp({
+    runResult: { action: "would-ask", ok: true, text: "Would ask.", error: "" },
+  });
+  const got = await recipeReadiness(readingApp(), draft(), run, {
+    dir: "/w/app",
+    now,
+  });
+  assertEquals(got.blockers, []);
+  assertEquals(got.line!.includes("Slowest run"), false);
+  assertStringIncludes(got.line!, "Speed not timed");
+});
+
+Deno.test("speed: an app that may change things is never run", async () => {
+  const reads: unknown[] = [];
+  const { run, now } = appSwamp({ reads, runSeconds: 99 });
+  const got = await recipeReadiness(files(), draft(), run, {
+    dir: "/w/app",
+    now,
+  });
+  assertEquals(reads, []);
+  assertEquals(got.blockers, []);
+  assertStringIncludes(got.line!, "Speed not timed");
+  assertStringIncludes(got.line!, "may change things");
+});
+
+Deno.test("speed: only effects-read without effects-write counts as only reading", async () => {
+  const manifest = (text: string) => [{ path: "manifest.yaml", text }];
+  for (
+    const text of [
+      "labels: [effects-read]",
+      "labels:\n  - puddlerouter-recipe\n  - effects-read\n",
+    ]
+  ) assertEquals(onlyReads(manifest(text)), true, text);
+  for (
+    const text of [
+      "labels: []",
+      "labels: [puddlerouter-recipe]",
+      "labels: [effects-read, effects-write]",
+      "labels: [effects-write]",
+      "labels: effects-read",
+      "labels: [effects-reads]",
+      "name: x",
+      ": : not yaml [",
+    ]
+  ) assertEquals(onlyReads(manifest(text)), false, text);
+  assertEquals(onlyReads([]), false);
+});
+
+Deno.test("method: a recipe calling a method the app doesn't have blocks, for any app", async () => {
+  for (const app of [readingApp(), files()]) {
+    const { run, now } = appSwamp({ methods: ["other"] });
+    const got = await recipeReadiness(app, draft(), run, {
+      dir: "/w/app",
+      now,
+    });
+    assertEquals(got.blockers.length, 1);
+    assertStringIncludes(got.blockers[0], '"run"');
+    assertStringIncludes(got.blockers[0], '"other"');
+  }
+});
+
+Deno.test("method: an app that can't be loaded here is a note, not a blocker", async () => {
+  const { run, now } = appSwamp({ fail: "source add" });
+  const got = await recipeReadiness(readingApp(), draft(), run, {
+    dir: "/w/app",
+    now,
+  });
+  assertEquals(got.blockers, []);
+  assertStringIncludes(got.line!, "not checked");
+  assertStringIncludes(got.line!, "source add");
+});
+
+// Stopping swamp doesn't stop a run it started, and that run holds its pipes.
+Deno.test({
+  name: "real swamp: a run left going by the stopped swamp doesn't hold it up",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    const dir = await Deno.makeTempDir({ prefix: "factory-swamp-shim-" });
+    const path = Deno.env.get("PATH") ?? "";
+    try {
+      await Deno.writeTextFile(`${dir}/swamp`, "#!/bin/sh\nsleep 6 &\nwait\n");
+      await Deno.chmod(`${dir}/swamp`, 0o755);
+      Deno.env.set("PATH", `${dir}:${path}`);
+      const started = performance.now();
+      // A slow machine may stop it before the sleep starts, which also passes.
+      await realSwamp(["x"], dir, 1000).catch(() => {});
+      assertEquals(performance.now() - started < 4000, true);
+    } finally {
+      Deno.env.set("PATH", path);
+      await Deno.remove(dir, { recursive: true });
+    }
+  },
 });

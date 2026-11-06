@@ -163,8 +163,15 @@ one method call can answer them, the draft also writes
 `workflows/workflow-NAME-recipe.yaml`, lists it in the manifest and adds the
 `puddlerouter-recipe` label, so `@puddleworks/recipes` can route those phrases
 to the app once it is published. The builder sets its `each.line`, the one thing
-the draft can't know. If no single method call can answer them, there is no
-recipe, and the app's `CLAUDE.md` and the readiness summary say why.
+the draft can't know. If they need free text, there is no recipe, and the app's
+`CLAUDE.md` and the readiness summary say why.
+
+A recipe calls one method and has 10 s to answer, so an app with several steps
+keeps one method that does them all, in process. One too slow for that, or with
+a step from another extension, adds a method that answers from the latest stored
+result, and points the recipe at it. A method that changes nothing can say so:
+`effects-read` in the manifest's labels lets the recipe answer without asking
+first.
 
 Once it is built and passes its checks, ask for a recommendation. `quality` is
 `swamp extension quality manifest.yaml --json | jq .percentage` in the app repo,
@@ -220,8 +227,10 @@ published. When the spec has a recipe, readiness has already sent each phrase
 through the recipe engine, in a throwaway swamp repo so your checkout stays as
 it is, and the result reports how each went. To do that it starts `swamp` as a
 subprocess, without a shell, and needs network access. It shows a phrase reaches
-the app, and doesn't run the app; if you have checked the answers too, pass your
-own, for example
+the app, and that the method the recipe calls exists. It runs the app only if
+the manifest says `effects-read`, to block a recipe slower than 10 s; any other
+app isn't run, and the summary says its speed wasn't timed. If you have checked
+the answers too, pass your own, for example
 `--input 'examples:json=[{"phrase":"which notes need a request","passed":true}]'`:
 
 ```bash

@@ -141,6 +141,10 @@ Deno.test("recipe draft: CLAUDE.md says how to finish it and when to remove it",
       "several steps",
       "manifest",
       "puddlerouter-recipe",
+      "10 s",
+      "latest stored result",
+      "its own lock",
+      "effects-read",
     ]
   ) assertStringIncludes(claude, part);
 });
@@ -195,6 +199,13 @@ function makeContext(swampCalls: string[][] = []) {
     store,
     runSwamp: (args: string[]) => {
       swampCalls.push(args);
+      if (args[1] === "type") {
+        return Promise.resolve({
+          code: 0,
+          stdout: JSON.stringify({ methods: [{ name: "run" }] }),
+          stderr: "",
+        });
+      }
       const attributes = args.includes("match")
         ? {
           matched: true,
@@ -320,10 +331,17 @@ Deno.test("recipe through the model: readiness checks it and the build result re
       { phrase: "show issue 42?", passed: true },
       { phrase: "what's in issue 7", passed: true },
     ]);
-    assertEquals(readiness.recipe, "2 of 2 example phrases passed");
+    assertStringIncludes(
+      readiness.recipe as string,
+      "2 of 2 example phrases passed. Speed not timed",
+    );
     assertStringIncludes(
       readiness.summary,
       "Recipe: 2 of 2 example phrases passed",
+    );
+    assertEquals(
+      calls.some((c) => c.join(" ") === `extension source add ${dir} --json`),
+      true,
     );
     await model.methods.result.execute(
       model.methods.result.arguments.parse({
