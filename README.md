@@ -61,11 +61,12 @@ flowchart LR
 ## Use
 
 Install the package and create the model instance once, with your own collective
-in place of `@YOUR-COLLECTIVE`:
+in place of `@YOUR-COLLECTIVE`. Keep the backslash, because swamp otherwise
+reads a value starting with `@` as a file to load:
 
 ```bash
 swamp extension pull @puddleworks/puddleworks-factory
-swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory --global-arg typeScope=@YOUR-COLLECTIVE
+swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory --global-arg 'typeScope=\@YOUR-COLLECTIVE'
 ```
 
 `typeScope` is the collective each app is published under: it starts the app's
