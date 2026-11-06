@@ -290,4 +290,6 @@ Deno.test("package: the docs say the draft writes a recipe and readiness checks 
     assertEquals(text.includes("10 s"), true, name);
   }
   assertEquals(skill.includes("give each piece an input"), true);
+  assertEquals(skill.includes("the engine refuses it"), false, "SKILL.md");
+  assertEquals(appSpec.includes("the recipe's tag"), true, "app-spec.md");
 });

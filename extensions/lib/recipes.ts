@@ -375,6 +375,26 @@ function severalSteps(
 }
 
 /**
+ * The `source` for a recipe's tag: what the engine keeps. It takes https, or http
+ * on this machine, with no user name or password, and a spec may hold other http
+ * links, so those stay out of the tag rather than being reported on every sync.
+ */
+export function recipeSource(
+  source: { url: string; version?: number } | undefined,
+): { url: string; version?: number } | undefined {
+  if (!source) return undefined;
+  const url = new URL(source.url);
+  const fits = !url.username && !url.password &&
+    (url.protocol === "https:" ||
+      ["localhost", "127.0.0.1"].includes(url.hostname));
+  if (!fits) return undefined;
+  return {
+    url: source.url,
+    ...(source.version === undefined ? {} : { version: source.version }),
+  };
+}
+
+/**
  * Whether the manifest says the app only reads: the engine's own rule, so
  * `effects-read` without `effects-write`, and anything unclear is a write.
  */

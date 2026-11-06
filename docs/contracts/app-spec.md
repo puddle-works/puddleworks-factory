@@ -65,6 +65,11 @@ hash `…`", the draft resource records it, and the build result carries it.
 `http://` is allowed in `source.url` because the page where a spec was agreed
 may be on a local server; it is only a link and is never fetched.
 
+A drafted recipe also carries the `url` and `version` in the recipe's tag, so
+the recipe engine can say which request a recipe answers. The engine takes only
+`https`, or `http` on `127.0.0.1` or `localhost`, with no user name or password,
+so any other `source.url` stays out of the tag.
+
 ### Deprecated: `workflow_form`
 
 `workflow_form` promised a form that people fill in to run the app. Nothing
