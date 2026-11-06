@@ -136,6 +136,10 @@ Deno.test("app-spec: a recipe's phrase has words and its pieces a known shape", 
         examples: [{ phrase: "go", answer: "" }],
         pieces: [{ name: "n", shape: "colour" }],
       },
+      {
+        examples: [{ phrase: "from 1 to 2", answer: "" }],
+        pieces: [{ name: "n", shape: "int" }, { name: "n", shape: "int" }],
+      },
     ]
   ) {
     const spec = structuredClone(EXAMPLE);

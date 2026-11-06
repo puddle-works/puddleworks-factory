@@ -76,7 +76,10 @@ export const RecipeSchema = z.object({
   pieces: z.array(z.object({
     name: z.string().min(1).max(40),
     shape: z.enum(["int", "repo", "word"]),
-  })).max(20).default([]),
+  })).max(20).refine(
+    (pieces) => new Set(pieces.map((p) => p.name)).size === pieces.length,
+    "each piece goes to its own input, so piece names must differ",
+  ).default([]),
   /** What the answer says when there is nothing to show. */
   whenEmpty: z.string().max(2000).default(""),
 });

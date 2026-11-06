@@ -101,9 +101,9 @@ overrides for one run):
 Your template needs a `Makefile` with `test`, `contracts-check`,
 `guardrails-check` and `publish` targets, and a `contracts.ts`. The skill
 prefills an app spec, asks you to confirm the name, inputs, output, settings and
-delivery, makes the app's own repo from `puddle-works/puddle-template` if it
-does not exist yet (asking first), adds it to Orca (the worktree manager
-Puddleworks builds in) as a project, makes the `draft/NAME` branch in a new Orca
+delivery, makes the app's own repo from your `template` if it does not exist yet
+(asking first), adds it to Orca (the worktree manager Puddleworks builds in) as
+a project when `worktrees` is `orca`, makes the `draft/NAME` branch in a new
 worktree, writes both specs to `spec/` there, and generates the draft. It then
 builds the behaviour test-first, gets it through the checks (tests, contracts,
 guardrails, quality 100%), recommends public or private and asks you, has a
@@ -149,14 +149,14 @@ in its run records under `.swamp/`, so prefer a spec URL that needs no token, or
 download the spec and pass the file.
 
 `targetDir` must be a swamp repo (it has a `.swamp.yaml`), such as one made from
-`puddle-works/puddle-template`. The draft goes in its root: the extension and
-its test in `extensions/models/`, the workflow in `workflows/`, and
-`manifest.yaml`, `README.md`, `LICENSE`, `.github/workflows/ci.yml` and an app
-section in `CLAUDE.md`. An existing `LICENSE` or `.github/workflows/ci.yml` is
-kept, and the rest of `CLAUDE.md` is left alone. A spec that breaks the contract
-writes nothing and lists every broken rule. Existing files are kept unless you
-pass `--input overwrite=true`. The drafted package is private; whether it goes
-public is decided once it is built (below).
+your `template`. The draft goes in its root: the extension and its test in
+`extensions/models/`, the workflow in `workflows/`, and `manifest.yaml`,
+`README.md`, `LICENSE`, `.github/workflows/ci.yml` and an app section in
+`CLAUDE.md`. An existing `LICENSE` or `.github/workflows/ci.yml` is kept, and
+the rest of `CLAUDE.md` is left alone. A spec that breaks the contract writes
+nothing and lists every broken rule. Existing files are kept unless you pass
+`--input overwrite=true`. The drafted package is private; whether it goes public
+is decided once it is built (below).
 
 If the spec has a `specification.recipe`, the phrases agreed for the app, and
 one method call can answer them, the draft also writes
@@ -193,12 +193,14 @@ It can be public only when the licence, repository, quality and secrets checks
 pass (`canBePublic`). Anything that looks internal (home paths, internal hosts,
 private IPs, real email addresses) or spec wording that says it is for one team
 recommends private, and leaves the choice to you. Secret-looking values in test
-files (`*_test.*`, `test_*`, `tests/`) are still scanned but reported as their
-own `secrets-in-tests` signal for a person to look at, since most are fixtures
-and real secrets do get pasted into tests. Set `visibility:` in the manifest and
-in `.github/workflows/ci.yml` (`render` writes one, unless the repo already has
-its own) before writing the review report: the report is bound to the content
-hash, which the manifest is part of, so it is never passed as `--visibility`.
+code (`*_test.*`, `test_*`, `tests/`, in a source file) are still scanned but
+reported as their own `secrets-in-tests` signal for a person to look at, since
+most are fixtures and real secrets do get pasted into tests. Other files in
+those places, like `tests/.env`, count as config, so they fail `secrets`. Set
+`visibility:` in the manifest and in `.github/workflows/ci.yml` (`render` writes
+one, unless the repo already has its own) before writing the review report: the
+report is bound to the content hash, which the manifest is part of, so it is
+never passed as `--visibility`.
 
 Before publishing, have someone other than the builder review it: write the
 review report from the publish dry run's skeleton, and map each acceptance

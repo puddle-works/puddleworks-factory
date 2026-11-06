@@ -136,7 +136,8 @@ export function recipePattern(
 ): { pattern: string; order: string[] } | { reason: string } {
   const cuts: Array<{ words: string[]; order: string[] }> = [];
   for (const phrase of phrases) {
-    const bare = phrase.trim().replace(/[?.!]+$/, "");
+    // Spaces as the engine leaves a turn: it squeezes them before matching.
+    const bare = phrase.trim().replace(/[?.!]+$/, "").replace(/\s+/g, " ");
     if (!bare) {
       return { reason: `The phrase "${phrase}" has no words to match.` };
     }
@@ -149,6 +150,18 @@ export function recipePattern(
     return {
       reason:
         "The phrases have the recipe's pieces in a different order, and a capture has only one number.",
+    };
+  }
+  // Pieces of one shape fill in the order listed, so a phrase that words them
+  // another way would quietly pass each to the other's input.
+  const wording = (c: { words: string[] }) => c.words.join("\0").toLowerCase();
+  if (
+    new Set(pieces.map((p) => p.shape)).size < pieces.length &&
+    cuts.some((c) => wording(c) !== wording(cuts[0]))
+  ) {
+    return {
+      reason:
+        "The phrases word pieces of the same shape differently, so which is which can't be told: use the same words in each phrase, or write the pattern by hand.",
     };
   }
   const shapeOf = new Map(pieces.map((p) => [p.name, p.shape]));
@@ -231,7 +244,8 @@ export function recipeFit(spec: Specification): RecipeFit {
 const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
-const REF = /^\$\{\{\s*inputs\.([A-Za-z_]\w*)\s*\}\}$/;
+/** The one spelling of an input the recipe engine reads. */
+const REF = /^\$\{\{ inputs\.(\w+) \}\}$/;
 
 /** The recipe in a workflow, as the engine would read it, or what's wrong. */
 export function recipeFromWorkflow(
@@ -321,6 +335,8 @@ export interface RecipeFindings {
   /** The recipes in the repo, as `puddlerouter.yaml` takes them. */
   recipes: Array<Record<string, unknown>>;
   blockers: string[];
+  /** How many agreed phrases are past the limit, and so go unchecked. */
+  skipped: number;
   /** Why there is no recipe, when that's no fault of the build. */
   none?: string;
 }
@@ -412,19 +428,22 @@ export function onlyReads(
 /**
  * What the repo's recipes come to, against the phrases agreed for the app. A
  * recipe's own faults are blockers. No recipe is a blocker too, unless the app
- * can't be called by one: then `none` says why.
+ * can't be called by one, because a required input is free text: then `none`
+ * says why.
  */
 export function assessRecipe(
   files: Array<{ path: string; text: string }>,
   draft: { entryPointRef: string; recipe?: DraftRecipe },
 ): RecipeFindings {
-  const phrases = [
+  const agreed = [
     ...new Set([
       ...(draft.recipe?.examples ?? []),
       ...(latestOutcome(files)?.phrases ?? []),
     ]),
-  ].slice(0, MAX_EXAMPLES);
-  const empty: RecipeFindings = { phrases, recipes: [], blockers: [] };
+  ];
+  const phrases = agreed.slice(0, MAX_EXAMPLES);
+  const skipped = agreed.length - phrases.length;
+  const empty: RecipeFindings = { phrases, recipes: [], blockers: [], skipped };
   if (phrases.length === 0) return empty;
 
   const blockers: string[] = [];
@@ -458,18 +477,21 @@ export function assessRecipe(
   }
 
   if (shipped.size === 0) {
-    const why = draft.recipe?.reason ?? entryProblem(files, draft);
+    const why = entryProblem(files, draft);
     if (why) return { ...empty, none: why };
     const steps = severalSteps(files, draft.entryPointRef);
     if (steps) return { ...empty, blockers: [...blockers, steps] };
     const file = draft.recipe?.workflow;
+    const reason = draft.recipe?.reason;
     return {
       ...empty,
       blockers: [
         ...blockers,
-        `No recipe answers the phrases agreed for this app: ${
-          file ? `put ${file} back` : "render the draft again or write one"
-        }, list it in the manifest and label the manifest ${RECIPE_LABEL}.`,
+        reason
+          ? `No recipe answers the phrases agreed for this app: ${reason} Write one by hand, as the app's CLAUDE.md says, or change the spec.`
+          : `No recipe answers the phrases agreed for this app: ${
+            file ? `put ${file} back` : "render the draft again or write one"
+          }, list it in the manifest and label the manifest ${RECIPE_LABEL}.`,
       ],
     };
   }
@@ -491,5 +513,5 @@ export function assessRecipe(
   if (!labels.includes(RECIPE_LABEL)) {
     blockers.push(`The manifest's labels: doesn't have ${RECIPE_LABEL}.`);
   }
-  return { phrases, recipes, blockers };
+  return { phrases, recipes, blockers, skipped };
 }

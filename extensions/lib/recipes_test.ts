@@ -415,7 +415,7 @@ Deno.test("recipe in the repo: nothing agreed means nothing to say", () => {
     repo({ "workflows/workflow-my-app-recipe.yaml": null }),
     { entryPointRef: "@puddleworks/my-app" },
   );
-  assertEquals(found, { phrases: [], recipes: [], blockers: [] });
+  assertEquals(found, { phrases: [], recipes: [], blockers: [], skipped: 0 });
 });
 
 Deno.test("recipe in the repo: a later outcome spec's phrases count too", () => {
@@ -481,14 +481,17 @@ Deno.test("recipe in the repo: no recipe is fine when it can't call the app, and
   const without = { "workflows/workflow-my-app-recipe.yaml": null };
   for (
     const [what, over, draft, says] of [
-      ["the draft found no fit", without, {
+      ["the draft found no fit, for free text", {
+        ...without,
+        "workflows/workflow-my-app.yaml": ENTRY(1, "[note]"),
+      }, {
         entryPointRef: DRAFT.entryPointRef,
         recipe: {
           examples: ["show issue 42"],
           pieces: [],
           reason: "The input needs free text.",
         },
-      }, "free text"],
+      }, '"note"'],
       [
         "the entry point now needs free text",
         {
@@ -527,6 +530,12 @@ Deno.test("recipe in the repo: the engine's rules for a workflow", () => {
     }],
   });
   assertEquals("recipe" in recipeFromWorkflow(steps(1)), true);
+  // The engine reads only this spelling of an input.
+  for (const spelling of ["${{inputs.number}}", "${{  inputs.number }}"]) {
+    const wf = steps(1);
+    wf.jobs[0].steps[0].task.inputs.number = spelling;
+    assertEquals("error" in recipeFromWorkflow(wf), true, spelling);
+  }
   assertEquals(recipeFromWorkflow(steps(2)), {
     error: "must have exactly one step",
   });
@@ -553,5 +562,80 @@ Deno.test("recipe in the repo: the engine's rules for a workflow", () => {
   assertEquals(
     "recipe" in fixed && fixed.recipe.fixed,
     { state: "open", limit: "5" },
+  );
+});
+
+Deno.test("recipe in the repo: no recipe blocks when it's the spec or the build that can change, and says why", () => {
+  const found = assessRecipe(
+    repo({ "workflows/workflow-my-app-recipe.yaml": null }),
+    {
+      entryPointRef: DRAFT.entryPointRef,
+      recipe: {
+        examples: ["show issue 42"],
+        pieces: ["number"],
+        reason: 'The recipe\'s piece "number" is a word.',
+      },
+    },
+  );
+  assertEquals(found.none, undefined);
+  assertEquals(found.blockers.length, 1);
+  assertStringIncludes(found.blockers[0], 'piece "number" is a word');
+  assertStringIncludes(found.blockers[0], "CLAUDE.md");
+  assertStringIncludes(found.blockers[0], "change the spec");
+});
+
+Deno.test("recipe pattern: pieces of one shape need the same words in every phrase", () => {
+  const ints: Piece[] = [
+    { name: "from", shape: "int" },
+    { name: "to", shape: "int" },
+  ];
+  const repos: Piece[] = [
+    { name: "from", shape: "repo" },
+    { name: "to", shape: "repo" },
+  ];
+  for (
+    const [phrases, pieces] of [
+      [["from 1 to 2 notes", "notes to 2 from 1 now"], ints],
+      [["from 1 to 2", "to 1 from 2"], ints],
+      [["copy a/b to c/d", "into c/d copy a/b"], repos],
+    ] as Array<[string[], Piece[]]>
+  ) {
+    const made = recipePattern(phrases, pieces);
+    assertEquals("reason" in made, true, phrases.join(" | "));
+    if ("reason" in made) {
+      assertStringIncludes(made.reason, "which is which");
+    }
+  }
+  for (
+    const [phrases, pieces] of [
+      [["from 1 to 2", "from 30 to 40?"], ints],
+      [["Move 1 to 2", "move 3 to 4."], ints],
+      [["copy a/b to c/d", "copy e/f to g/h"], repos],
+      [["issue 4 in a/b", "show issue 4 in a/b"], [
+        { name: "number", shape: "int" },
+        { name: "repo", shape: "repo" },
+      ]],
+      [["show issue 4", "what's in issue 7"], [{
+        name: "number",
+        shape: "int",
+      }]],
+    ] as Array<[string[], Piece[]]>
+  ) {
+    assertEquals(
+      "pattern" in recipePattern(phrases, pieces),
+      true,
+      phrases.join(" | "),
+    );
+  }
+});
+
+Deno.test("recipe pattern: spaces in a phrase are read as the engine reads a turn", () => {
+  const withPiece = engineRegex(
+    pattern(["show  issue \t 42?"], [{ name: "number", shape: "int" }]),
+  );
+  assertEquals(withPiece.test("show issue 7"), true);
+  assertEquals(
+    engineRegex(pattern(["list   my notes"])).test("list my notes"),
+    true,
   );
 });

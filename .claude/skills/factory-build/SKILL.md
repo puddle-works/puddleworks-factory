@@ -50,7 +50,7 @@ has already agreed it; Factory does not check approvals.
 
 ## Settings
 
-Read these once, before step 1, from `factory-build.json` at the root of the swamp
+Read these before step 1, from `factory-build.json` at the root of the swamp
 repo you run from (a key it leaves out keeps its default). An argument to
 `/factory-build` (`org=acme`) overrides both for that run.
 
@@ -66,11 +66,21 @@ repo you run from (a key it leaves out keeps its default). An argument to
 D='{"org":"puddle-works","template":"puddle-works/puddle-template",
     "secrets":["SWAMP_API_KEY","SWAMP_SIGNIN_TOKEN"],"collective":"@puddleworks",
     "worktrees":"orca"}'
-S=$( [ -f factory-build.json ] && jq -s '.[0] * .[1]' <(echo "$D") factory-build.json || echo "$D")
+S=$D
+if [ -f factory-build.json ]; then
+  S=$(jq -es '(.[1] | objects) as $o | .[0] * $o | select(.secrets | arrays)' <(echo "$D") factory-build.json) ||
+    { echo "factory-build.json must be a JSON object, with secrets as a list: fix it, or delete it to use the defaults" >&2; exit 1; }
+fi
 ORG=$(jq -r .org <<<"$S"); TEMPLATE=$(jq -r .template <<<"$S")
 SECRETS=$(jq -r '.secrets | join(" ")' <<<"$S"); COLLECTIVE=$(jq -r .collective <<<"$S")
 WT=$(jq -r .worktrees <<<"$S"); command -v orca >/dev/null || WT=git
 ```
+
+Shell variables don't last from one Bash call to the next, so run this block
+again, from that repo root, at the start of every Bash call that uses `$ORG`,
+`$TEMPLATE`, `$SECRETS`, `$COLLECTIVE` or `$WT`. If it stops on
+`factory-build.json`, show the user its message and wait for the file to be
+fixed. Don't carry on with the defaults.
 
 The template must give each app a `Makefile` with `test`, `contracts-check`,
 `guardrails-check` and `publish` targets, and a `contracts.ts`.
@@ -285,7 +295,7 @@ swamp workflow run @puddleworks/puddleworks-factory-build --input spec=SPEC --in
 ```
 
 For inline JSON, quote it: `--input "spec=$(cat spec.json)"`. The draft is
-private under `@puddleworks/NAME` by default; going public is the last step,
+private under `$COLLECTIVE/NAME` by default; going public is the last step,
 after the build. The skeleton goes in the root of `W`: the extension, its test
 and the workflow under `extensions/models/` and `workflows/`, plus
 `manifest.yaml`, `README.md`, `LICENSE` and `.github/workflows/ci.yml` (the
@@ -436,12 +446,14 @@ for the same files:
 | `repository`       | required | No `https://` `repository:` in the manifest                                  |
 | `quality`          | required | Quality below 100%, even with the registry's provisional points              |
 | `secrets`          | required | A key or token is in the files (its text is never shown)                     |
+| `secrets-in-tests` | signal   | Something like a key or token is in test code                                |
 | `internal-details` | signal   | Home paths, internal hosts, private IPs or real email addresses              |
 | `audience`         | signal   | The spec's `specification` says it is internal, confidential, for "our team" |
 | `repo-visibility`  | info     | The GitHub repo and the manifest disagree; decides nothing                   |
 
 A failed `secrets` check means the secret is in git history: tell the user to
-rotate it, and remove it before anything else. Show the recommendation, every
+rotate it, and remove it before anything else. Look at each `secrets-in-tests`
+finding: most are made-up fixtures, and a real one is a failed `secrets` check. Show the recommendation, every
 check that failed, and each finding (`file:line` and its `text`, which is only
 what matched, never the line; a secret's is `(hidden)`), then ask with
 `AskUserQuestion`, the recommendation first.
@@ -566,8 +578,10 @@ all):
 - `The recipe does not answer "<phrase>"`: widen the tag's `pattern`, or fix what
   the detail says, and run this step again. Never drop a phrase to pass.
 - `No recipe answers the phrases`, or the manifest lacks the file or the
-  `puddlerouter-recipe` label: put them back. Only an input of free text means
-  no recipe: then delete the recipe file so `Recipe: none` says why.
+  `puddlerouter-recipe` label: put them back. If the draft wrote none, the
+  blocker says why: write the recipe by hand, as the app's `CLAUDE.md` says, or
+  change the spec. Only an input of free text means no recipe: then delete the
+  recipe file so `Recipe: none` says why.
 - `The entry point ... has N steps`: give it one method that does them all, or
   one that answers from the latest stored result, and point a recipe at it, as
   the app's `CLAUDE.md` says.
@@ -640,7 +654,7 @@ gh repo edit ORG/NAME --visibility public --accept-visibility-change-consequence
 cd W && make publish VISIBILITY=V
 ```
 
-Expect `published @puddleworks/NAME@VERSION (HASH)`. `make publish` never
+Expect `published $COLLECTIVE/NAME@VERSION (HASH)`. `make publish` never
 passes `--yes`; the clean dry run is its gate. If it stops, read what it lists,
 fix it, and repeat from step 8 (the report must match the new hash). A version
 that is already published needs a new `version:` in the manifest, which also

@@ -200,7 +200,12 @@ Deno.test("recipe check: a swamp that won't start is a blocker too", async () =>
 
 Deno.test("recipe check: no recipe says why, runs nothing and reports no examples", async () => {
   const seen: string[][] = [];
-  const got = await recipeReadiness(files(null), {
+  const freeText = files(null).map((f) =>
+    f.path === "workflows/workflow-my-app.yaml"
+      ? { ...f, text: `inputs:\n  required: [note]\n${f.text}` }
+      : f
+  );
+  const got = await recipeReadiness(freeText, {
     entryPointRef: "@puddleworks/my-app",
     recipe: {
       examples: ["show issue 42"],
@@ -211,7 +216,7 @@ Deno.test("recipe check: no recipe says why, runs nothing and reports no example
   assertEquals(seen, []);
   assertEquals(got.examples, undefined);
   assertEquals(got.blockers, []);
-  assertEquals(got.line, "none. It needs free text.");
+  assertStringIncludes(got.line!, 'none. The input "note" is required');
 });
 
 Deno.test("recipe check: nothing agreed runs nothing and says nothing", async () => {
@@ -462,4 +467,42 @@ Deno.test({
       await Deno.remove(dir, { recursive: true });
     }
   },
+});
+
+Deno.test("recipe check: says how many phrases were past the limit and not checked", async () => {
+  const phrases = (n: number) =>
+    Array.from({ length: n }, (_, i) => `show issue ${i}`);
+  const many = await recipeReadiness(
+    files(),
+    draft(phrases(61)),
+    fakeSwamp(),
+  );
+  assertEquals(many.examples!.length, 50);
+  assertEquals(
+    many.line,
+    "50 of 50 example phrases passed. 11 more phrases not checked",
+  );
+  const one = await recipeReadiness(files(), draft(phrases(51)), fakeSwamp());
+  assertEquals(
+    one.line,
+    "50 of 50 example phrases passed. 1 more phrase not checked",
+  );
+});
+
+Deno.test("speed: an app in a relative folder is still found from the throwaway repo", async () => {
+  const seen: string[][] = [];
+  const { run, now } = appSwamp({ seen, runSeconds: 1 });
+  const got = await recipeReadiness(
+    readingApp(),
+    draft(["show issue 42"]),
+    run,
+    { dir: "some/app", now },
+  );
+  assertEquals(got.blockers, []);
+  assertEquals(
+    seen.some((a) =>
+      a.join(" ") === `extension source add ${Deno.cwd()}/some/app --json`
+    ),
+    true,
+  );
 });
