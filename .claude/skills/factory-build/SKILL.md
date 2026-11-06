@@ -227,7 +227,7 @@ gh repo create ORG/NAME --template $TEMPLATE --private --clone=false
 gh repo clone ORG/NAME APP
 if [ -n "$SECRETS" ]; then
   ID=$(gh api repos/ORG/NAME -q .id)
-  for S in $SECRETS; do gh api -X PUT orgs/ORG/actions/secrets/$S/repositories/$ID; done
+  for N in $(echo "$SECRETS"); do gh api -X PUT orgs/ORG/actions/secrets/$N/repositories/$ID; done
 fi
 ```
 

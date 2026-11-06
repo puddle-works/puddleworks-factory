@@ -221,6 +221,76 @@ Deno.test("package: the settings block refuses a setting that isn't text and a f
   assertEquals(bad.code === 0, false, bad.stdout);
 });
 
+/** What the skill's secret grant asks of gh in this shell, after its settings block. */
+async function grantCalls(shell: string[], secrets: string[]) {
+  const skill = await Deno.readTextFile(SKILL);
+  const at = skill.indexOf('if [ -n "$SECRETS" ]; then');
+  const grant = skill.slice(at, skill.indexOf("\nfi\n", at) + "\nfi".length);
+  const dir = await Deno.makeTempDir({ prefix: "factory-grant-" });
+  try {
+    await Deno.writeTextFile(
+      `${dir}/factory-build.json`,
+      JSON.stringify({ secrets }),
+    );
+    await Deno.writeTextFile(
+      `${dir}/gh`,
+      `#!/bin/sh\n[ "$1" = api ] && [ "$2" = -X ] && echo "$# $3 $4" >>"${dir}/calls"\necho 123\n`,
+    );
+    await Deno.chmod(`${dir}/gh`, 0o755);
+    const out = await new Deno.Command(shell[0], {
+      args: [...shell.slice(1), "-c", `${await settingsBlock()}\n${grant}`],
+      cwd: dir,
+      env: { PATH: `${dir}:${Deno.env.get("PATH")}` },
+      stdout: "piped",
+      stderr: "piped",
+    }).output();
+    assertEquals(out.code, 0, new TextDecoder().decode(out.stderr));
+    const calls = await Deno.readTextFile(`${dir}/calls`).catch(() => "");
+    return calls.split("\n").filter(Boolean);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+}
+
+/** Whether this shell is installed. CI's runner has no zsh. */
+async function hasShell(name: string): Promise<boolean> {
+  try {
+    const command = new Deno.Command(name, {
+      args: ["-c", "exit 0"],
+      stdout: "null",
+      stderr: "null",
+    });
+    return (await command.output()).success;
+  } catch {
+    return false;
+  }
+}
+
+Deno.test("package: a shell that isn't installed is only skipped", async () => {
+  assertEquals(await hasShell("no-such-shell"), false);
+  assertEquals(await hasShell("bash"), true);
+});
+
+for (
+  const shell of [["bash"], ...(await hasShell("zsh") ? [["zsh", "-f"]] : [])]
+) {
+  Deno.test(`package: the skill grants each secret on its own in ${shell[0]}`, async () => {
+    const put = (s: string) =>
+      `4 PUT orgs/ORG/actions/secrets/${s}/repositories/123`;
+    assertEquals(await grantCalls(shell, ["ONE", "TWO"]), [
+      put("ONE"),
+      put("TWO"),
+    ]);
+    assertEquals(await grantCalls(shell, ["ONE"]), [put("ONE")]);
+    assertEquals(await grantCalls(shell, []), []);
+  });
+}
+
+Deno.test("package: the skill doesn't loop over an unquoted $SECRETS, which zsh leaves whole", async () => {
+  const skill = await Deno.readTextFile(SKILL);
+  assertEquals(/\bin \$SECRETS\b/.test(skill), false);
+});
+
 Deno.test("package: the settings block says when it found no factory-build.json", async () => {
   const none = await readSettings(null);
   assertEquals(none.stderr.includes("no factory-build.json"), true);
