@@ -252,14 +252,27 @@ async function grantCalls(shell: string[], secrets: string[]) {
   }
 }
 
-const hasZsh = await new Deno.Command("zsh", {
-  args: ["-f", "-c", "exit 0"],
-  stdout: "null",
-  stderr: "null",
-}).output().then((o) => o.success).catch(() => false);
+/** Whether this shell is installed. CI's runner has no zsh. */
+async function hasShell(name: string): Promise<boolean> {
+  try {
+    const command = new Deno.Command(name, {
+      args: ["-c", "exit 0"],
+      stdout: "null",
+      stderr: "null",
+    });
+    return (await command.output()).success;
+  } catch {
+    return false;
+  }
+}
+
+Deno.test("package: a shell that isn't installed is only skipped", async () => {
+  assertEquals(await hasShell("no-such-shell"), false);
+  assertEquals(await hasShell("bash"), true);
+});
 
 for (
-  const shell of [["bash"], ...(hasZsh ? [["zsh", "-f"]] : [])]
+  const shell of [["bash"], ...(await hasShell("zsh") ? [["zsh", "-f"]] : [])]
 ) {
   Deno.test(`package: the skill grants each secret on its own in ${shell[0]}`, async () => {
     const put = (s: string) =>
