@@ -130,6 +130,49 @@ Deno.test("recipe draft: the manifest lists it and carries the label", () => {
   ]);
 });
 
+/** The recipe tag drafted for a spec with this source. */
+function tagFor(source: Record<string, unknown> | undefined) {
+  const { source: _s, ...rest } = spec() as Record<string, unknown>;
+  const text = fileOf(
+    render(source ? { ...rest, source } : rest),
+    RECIPE_FILE,
+  )!;
+  const wf = parse(text) as { tags: { puddlerouterRecipe: string } };
+  return JSON.parse(wf.tags.puddlerouterRecipe);
+}
+
+Deno.test("recipe draft: the tag carries the spec's source when the engine would keep it", () => {
+  for (
+    const url of [
+      "https://example.com/requests/7",
+      "https://example.com:8443/r?x=1#a",
+      "http://localhost:8080/r/7",
+      "http://127.0.0.1/r/7",
+    ]
+  ) {
+    assertEquals(
+      tagFor({ url, version: 3, specHash: "abc" }).source,
+      { url, version: 3 },
+      url,
+    );
+    assertEquals(tagFor({ url }).source, { url }, url);
+  }
+});
+
+Deno.test("recipe draft: no source, or one the engine would refuse, leaves it out of the tag", () => {
+  assertEquals("source" in tagFor(undefined), false);
+  for (
+    const url of [
+      "http://example.com/r/7",
+      "http://localhost.example.com/r/7",
+      "http://192.168.1.5/r/7",
+      "https://user@example.com/r/7",
+      "https://user:pw@example.com/r/7",
+      "http://user@localhost/r/7",
+    ]
+  ) assertEquals("source" in tagFor({ url }), false, url);
+});
+
 Deno.test("recipe draft: CLAUDE.md says how to finish it and when to remove it", () => {
   const claude = fileOf(render(spec()), "CLAUDE.md")!.replace(/\s+/g, " ");
   for (

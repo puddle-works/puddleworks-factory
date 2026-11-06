@@ -295,7 +295,8 @@ call can answer, it also writes `workflows/workflow-NAME-recipe.yaml`, lists it
 in the manifest and adds the `puddlerouter-recipe` label. Set its `each.line`
 during the build, as the `CLAUDE.md` section says; readiness blocks until you do.
 If it can't be answered that way, there is no recipe file and that section says
-why. Don't put a `source` key in the recipe tag: the engine refuses it for now.
+why. If the spec has a `source`, the draft copies its `url` and `version` into the
+recipe tag; leave them as they are.
 
 A recipe calls one method and has 10 s to answer, because the router gives up on
 it at 15 s. If the build gives the entry point several steps, keep one method that

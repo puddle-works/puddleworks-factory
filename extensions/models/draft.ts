@@ -67,6 +67,7 @@ import {
   type RecipeFit,
   recipeFit,
   type RecipeInputs,
+  recipeSource,
 } from "../lib/recipes.ts";
 import {
   realSwamp,
@@ -537,6 +538,7 @@ function renderRecipeWorkflow(
 ): string {
   const spec = input.specification;
   const whenEmpty = spec.recipe?.whenEmpty.trim();
+  const source = recipeSource(input.source);
   const tag = JSON.stringify({
     id: n.app,
     extension: n.modelType,
@@ -547,6 +549,7 @@ function renderRecipeWorkflow(
     // Braces would be read as fields to fill in.
     template: `${spec.output.replace(/[{}]/g, "")}\n{lines}`,
     ...(whenEmpty ? { empty: whenEmpty } : {}),
+    ...(source ? { source } : {}),
   });
   const used = spec.inputs.filter((i) => i.name in fit.inputs);
   const props = used.flatMap((i) => [
