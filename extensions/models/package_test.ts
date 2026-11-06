@@ -4,8 +4,24 @@
  */
 import { assertEquals } from "jsr:@std/assert@1.0.19";
 import { parse } from "jsr:@std/yaml@1.0.12";
+import { model as draftModel } from "./draft.ts";
+import { model as webModel } from "./web.ts";
 
 const ROOT = new URL("../../", import.meta.url);
+
+// An instance only moves to a new behavior version through an upgrade entry,
+// and swamp warns at publish about a behavior that has none.
+Deno.test("package: each behavior is at the manifest's version, with an upgrade to it", async () => {
+  const { version } = parse(
+    await Deno.readTextFile(new URL("manifest.yaml", ROOT)),
+  ) as { version: string };
+  for (const model of [draftModel, webModel]) {
+    assertEquals(model.version, version, model.type);
+    assertEquals(model.upgrades.at(-1)?.toVersion, version, model.type);
+    const old = { draft: "kept" };
+    assertEquals(model.upgrades.at(-1)?.upgradeAttributes(old), old);
+  }
+});
 
 async function exists(url: URL): Promise<boolean> {
   try {
