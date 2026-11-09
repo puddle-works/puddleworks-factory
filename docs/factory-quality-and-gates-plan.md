@@ -63,26 +63,20 @@ contracts.
 
 ## Engine decision
 
-Factory will not build on `@swamp/software-factory`. It will not adopt
-Stagecraft as a runtime dependency now either. Instead, Factory applies the
-principles below in its own methods: each method that writes, opens a PR or
-publishes checks its own preconditions and fails closed. Most of the backlog
-(#48, #49, most of #50) is about `draft.ts` and `readiness.ts`, whatever
-enforces stage order. Adopting an engine would make it the owner of the process
-and the Factory a set of stage work inside someone else's definition. That cuts
-against ADR-001's independence and adds a dependency on a fast-moving extension.
+Decided in #47 on 2026-11-09:
+[ADR-002](adr/ADR-002-stagecraft-runs-the-stages.md). `@swamp/stagecraft` runs
+the stages, loop limits, journal and approvals, from a lean factory definition
+in [stagecraft/factory-build.yaml](stagecraft/factory-build.yaml). Factory will
+not build on `@swamp/software-factory`.
 
-Revisit this in #47. Write the Factory lifecycle as a Stagecraft definition,
-starting from `build-swamp-extension.yaml`, and record how well it fits. Adopt
-Stagecraft instead of building our own if the design turns out to need a stored
-stage graph with transitions, bounded loops, a journal and content-bound
-approvals: that would rebuild Stagecraft. Adopting it would also cover much of
-#46, because the Stagecraft studio Board shows work items, but only Stagecraft
-records.
+Factory's own methods still check their own preconditions and fail closed where
+Stagecraft cannot: the build target (#48) and current evidence (#50). The
+definition is data written against Stagecraft's published types; do not copy
+AGPL source into Factory.
 
-Using Stagecraft means writing a factory definition as data against its
-published types. Applying its principles means reimplementing them in Factory's
-MIT code; do not copy AGPL source into Factory.
+The principles below are now Stagecraft's job for stage order, loops and
+approvals, and still Factory's for each method that writes, opens a PR or
+publishes.
 
 ### Principles to adopt
 
