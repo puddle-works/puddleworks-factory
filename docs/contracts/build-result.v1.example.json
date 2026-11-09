@@ -7,8 +7,30 @@
   "repository": "https://github.com/example/obsidian-puddle-scanner",
   "buildRef": "draft/obsidian-puddle-scanner",
   "pullRequest": "https://github.com/example/obsidian-puddle-scanner/pull/42",
+  "source": {
+    "url": "https://capture.example.com/requests/8f0c6a52-3d1e-4b8a-9f62-0b7d4e6c2a11",
+    "version": 1,
+    "specHash": "67aa5763cfdaaed34cf7b98494a4d5a9ef462acf23b07a63db318b319961235a"
+  },
+  "published": {
+    "version": "2026.10.16.1",
+    "visibility": "private"
+  },
   "examples": [
-    { "phrase": "which notes need a request", "passed": true },
+    {
+      "phrase": "which notes need a request",
+      "passed": true,
+      "recipeId": "obsidian-puddle-scanner",
+      "router": {
+        "testedAt": "2026-10-16T09:50:00.000Z",
+        "version": "2026.10.16.1",
+        "outcome": "answered",
+        "source": {
+          "url": "https://capture.example.com/requests/8f0c6a52-3d1e-4b8a-9f62-0b7d4e6c2a11",
+          "version": 1
+        }
+      }
+    },
     {
       "phrase": "what is waiting in my vault",
       "passed": false,

@@ -66,11 +66,32 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
 
 Each entry in `examples`:
 
-| Field               | Required | Meaning                                                                         |
-| ------------------- | -------- | ------------------------------------------------------------------------------- |
-| `examples[].phrase` | yes      | The example's phrase, exactly as in the spec. 1 to 500 characters               |
-| `examples[].passed` | yes      | Whether the build answers that phrase as the example says                       |
-| `examples[].detail` | no       | What was seen, in plain words, especially when it failed. Up to 2000 characters |
+| Field                 | Required | Meaning                                                                           |
+| --------------------- | -------- | --------------------------------------------------------------------------------- |
+| `examples[].phrase`   | yes      | The example's phrase, exactly as in the spec. 1 to 500 characters                 |
+| `examples[].passed`   | yes      | Whether the build answers that phrase as the example says                         |
+| `examples[].detail`   | no       | What was seen, in plain words, especially when it failed. Up to 2000 characters   |
+| `examples[].recipeId` | no       | The `id` of the puddlerouter recipe that answered the phrase. 1 to 200 characters |
+| `examples[].router`   | no       | How the phrase went through puddlerouter, once it has been tested there (below)   |
+
+`router` is the evidence that a recipe answered the phrase through the router,
+not Claude. It has:
+
+| Field      | Required | Meaning                                                                                        |
+| ---------- | -------- | ---------------------------------------------------------------------------------------------- |
+| `testedAt` | yes      | ISO 8601 timestamp of when the phrase was sent through the router                              |
+| `version`  | yes      | The extension version installed in the desk at the time                                        |
+| `outcome`  | yes      | `answered` (a recipe that only reads answered), or `answered-after-yes` (it asked, then ran)   |
+| `source`   | yes      | The request the recipe answers, as the router's `match` returned it: `url`, optional `version` |
+
+An example the router sent to Claude, or that no recipe answered, has no
+`router`, and is not passed. Every example of one request names the same
+`recipeId`, as the agreed spec has one recipe. A reader that releases a request
+on this can check that `router.version` is the published version.
+`router.source` names the request the recipe was written for: usually this one,
+but another request's when the build reuses a recipe. `testedAt` is for people
+to read: it comes from another machine's clock, so don't compare it with
+`builtAt`.
 
 There are at most 50 entries. A reader that decides whether a request is done
 matches each `phrase` against the agreed spec. A missing example counts as not
