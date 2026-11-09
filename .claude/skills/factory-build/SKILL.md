@@ -309,7 +309,7 @@ and give the repo its own swamp `repoId`:
 
 ```bash
 git -C W rm -q --ignore-unmatch manifest.yaml README.md extensions/models/example.ts \
-  extensions/models/example_test.ts workflows/workflow-example.yaml 'swamp-extension-review/_puddleworks_puddle-template-*.json'
+  extensions/models/example_test.ts workflows/workflow-example.yaml 'swamp-extension-review/*.json'
 { head -1 W/contracts.ts; printf '\n// Maps each model instance a workflow reads with data.latest(...) to its type and the data names it writes.\nexport const CONTRACTS: Contracts = {};\n'; } > SP/contracts.ts
 mv SP/contracts.ts W/contracts.ts
 (cd W && swamp repo init --force --tool claude >/dev/null)
