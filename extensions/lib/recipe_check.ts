@@ -380,8 +380,12 @@ export async function recipeReadiness(
   app?: AppUnderCheck,
 ): Promise<RecipeReadiness> {
   const found = assessRecipe(files, draft);
-  if (found.phrases.length === 0) return { line: null, blockers: [] };
-  if (found.none) return { line: `none. ${found.none}`, blockers: [] };
+  if (found.phrases.length === 0) {
+    return { line: null, blockers: found.blockers };
+  }
+  if (found.none) {
+    return { line: `none. ${found.none}`, blockers: found.blockers };
+  }
   if (found.recipes.length === 0) {
     return { line: "not checked", blockers: found.blockers };
   }
