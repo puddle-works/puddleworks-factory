@@ -396,7 +396,7 @@ Deno.test("render: the extension declares the type, every input and every settin
   assertStringIncludes(src, "urgent: z.boolean().default(false)");
   assertStringIncludes(
     src,
-    "apiToken: z.string().min(1).meta({ sensitive: true, description:",
+    "apiToken: z.string().min(1).meta({\n    sensitive: true,\n    description:",
   );
   assertStringIncludes(src, "baseUrl: z.string().min(1)");
 });
@@ -771,11 +771,13 @@ async function deno(cwd: string, ...args: string[]): Promise<void> {
 }
 
 for (const input of [OBSIDIAN, AWKWARD]) {
-  Deno.test(`acceptance: ${input.name} draft passes deno check and its own tests`, async () => {
+  Deno.test(`acceptance: ${input.name} draft passes deno check, fmt and its own tests`, async () => {
     const dir = await Deno.makeTempDir({ prefix: "puddle-draft-" });
     try {
       await writeDraft(dir, input);
       const base = input.name.replaceAll("-", "_");
+      // swamp extension quality and push refuse source deno fmt would change.
+      await deno(dir, "fmt", "--check", "extensions/");
       await deno(
         dir,
         "check",

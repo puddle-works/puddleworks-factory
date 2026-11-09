@@ -196,6 +196,65 @@ const MODEL_EXPORT = ["export const", "model = {"].join(" ");
 /** A JSON string literal is valid TypeScript and a valid YAML scalar. */
 const q = (s: string): string => JSON.stringify(s);
 
+/**
+ * A TypeScript string literal as deno fmt writes it: double quotes, unless the
+ * text holds more double quotes than single ones.
+ */
+const tsq = (s: string): string => {
+  const json = JSON.stringify(s);
+  const doubles = s.split('"').length - 1;
+  const singles = s.split("'").length - 1;
+  if (doubles <= singles) return json;
+  return `'${json.slice(1, -1).replaceAll('\\"', '"').replaceAll("'", "\\'")}'`;
+};
+
+/** A spec value as a TypeScript literal. */
+const tsLit = (v: unknown): string =>
+  typeof v === "string" ? tsq(v) : JSON.stringify(v);
+
+/** deno fmt's line width. Generated code is laid out to need no reformatting. */
+const WIDTH = 80;
+
+const indentOf = (head: string): string => head.match(/^ */)![0];
+
+/** A one-argument call, its argument on a line of its own when too long. */
+function fitCall(head: string, arg: string, tail: string): string {
+  const line = `${head}${arg}${tail}`;
+  if (line.length <= WIDTH) return line;
+  const at = indentOf(head);
+  return `${head}\n${at}  ${arg},\n${at}${tail}`;
+}
+
+/** A call's arguments, one per line when they don't fit on one. */
+function fitArgs(head: string, args: string[], tail: string): string {
+  const line = `${head}${args.join(", ")}${tail}`;
+  if (line.length <= WIDTH) return line;
+  const at = indentOf(head);
+  return `${head}\n${args.map((a) => `${at}  ${a},\n`).join("")}${at}${tail}`;
+}
+
+/** An object or array literal, one entry per line when it doesn't fit on one. */
+function fitList(
+  head: string,
+  entries: string[],
+  tail: string,
+  [open, close, pad]: [string, string, string] = ["{", "}", " "],
+): string {
+  if (!entries.length) return `${head}${open}${close}${tail}`;
+  const line = `${head}${open}${pad}${entries.join(", ")}${pad}${close}${tail}`;
+  if (line.length <= WIDTH) return line;
+  const at = indentOf(head);
+  return `${head}${open}\n${
+    entries.map((e) => `${at}  ${e},\n`).join("")
+  }${at}${close}${tail}`;
+}
+
+/** `key: value,` as an object property, the value on its own line when too long. */
+function fitProp(indent: string, key: string, value: string): string {
+  const line = `${indent}${key}: ${value},`;
+  return line.length <= WIDTH ? line : `${indent}${key}:\n${indent}  ${value},`;
+}
+
 /** Make text safe inside a JSDoc block. */
 const docText = (s: string): string => s.replaceAll("*/", "*\\/");
 
@@ -211,6 +270,14 @@ function versionFor(now: Date): string {
 }
 
 function zodFor(i: SpecInput): string {
+  return fitCall(
+    `  ${i.name}: ${zodShape(i)}.describe(`,
+    tsq(i.description),
+    "),",
+  );
+}
+
+function zodShape(i: SpecInput): string {
   const base = {
     string: "z.string()",
     number: "z.number()",
@@ -219,8 +286,8 @@ function zodFor(i: SpecInput): string {
   }[i.type];
   const shape = i.required
     ? (i.type === "string" ? `${base}.min(1)` : base)
-    : `${base}.default(${JSON.stringify(i.default)})`;
-  return `${shape}.describe(${q(i.description)})`;
+    : `${base}.default(${tsLit(i.default)})`;
+  return shape;
 }
 
 /** A value of the input's type, for the generated tests. */
@@ -272,12 +339,17 @@ function renderExtension(input: AppSpec, n: Names): string {
   const settings = spec.settings ?? [];
   const settingLines = settings.map((s) =>
     s.sensitive
-      ? `  ${s.name}: z.string().min(1).meta({ sensitive: true, description: ${
-        q(s.description)
-      } }),`
-      : `  ${s.name}: z.string().min(1).describe(${q(s.description)}),`
+      ? fitList(`  ${s.name}: z.string().min(1).meta(`, [
+        "sensitive: true",
+        `description: ${tsq(s.description)}`,
+      ], "),")
+      : fitCall(
+        `  ${s.name}: z.string().min(1).describe(`,
+        tsq(s.description),
+        "),",
+      )
   );
-  const inputLines = spec.inputs.map((i) => `  ${i.name}: ${zodFor(i)},`);
+  const inputLines = spec.inputs.map(zodFor);
 
   const header = jsdoc([
     `${n.modelType} — ${input.title}`,
@@ -352,7 +424,7 @@ ${MODEL_EXPORT}
   globalArguments: GlobalArgsSchema,
   resources: {
     result: {
-      description: ${q(spec.output)},
+${fitProp("      ", "description", tsq(spec.output))}
       schema: ResultSchema,
       lifetime: "infinite" as const,
       garbageCollection: 20,
@@ -360,7 +432,7 @@ ${MODEL_EXPORT}
   },
   methods: {
     run: {
-      description: ${q(spec.purpose)},
+${fitProp("      ", "description", tsq(spec.purpose))}
       arguments: RunArgsSchema,
       execute: async (args: RunArgs, context: MethodContext) => {
         const items = await behaviour.run(args, context.globalArgs);
@@ -379,16 +451,30 @@ function renderTests(input: AppSpec, n: Names): string {
   const settings = spec.settings ?? [];
   const required = spec.inputs.filter((i) => i.required);
   const optional = spec.inputs.filter((i) => !i.required);
-  const obj = (entries: string[]) =>
-    entries.length ? `{ ${entries.join(", ")} }` : "{}";
-
-  const requiredObj = obj(required.map((i) => `${i.name}: ${sampleFor(i)}`));
-  const defaultsObj = obj([
-    ...(required.length ? ["...REQUIRED"] : []),
-    ...optional.map((i) => `${i.name}: ${JSON.stringify(i.default)}`),
-  ]);
-  const settingsObj = obj(settings.map((s) => `${s.name}: "example"`));
-  const names = spec.inputs.map((i) => q(i.name)).sort().join(", ");
+  const requiredConst = fitList(
+    "const REQUIRED = ",
+    required.map((i) => `${i.name}: ${sampleFor(i)}`),
+    ";",
+  );
+  const defaultsLine = fitList(
+    "  assertEquals(RunArgsSchema.parse(REQUIRED), ",
+    [
+      ...(required.length ? ["...REQUIRED"] : []),
+      ...optional.map((i) => `${i.name}: ${tsLit(i.default)}`),
+    ],
+    ");",
+  );
+  const settingsConst = fitList(
+    "const SETTINGS: GlobalArgs = ",
+    settings.map((s) => `${s.name}: "example"`),
+    ";",
+  );
+  const namesLine = fitList(
+    "  assertEquals(Object.keys(RunArgsSchema.shape).sort(), ",
+    spec.inputs.map((i) => q(i.name)).sort(),
+    ");",
+    ["[", "]", ""],
+  );
 
   const tests: string[] = [];
   tests.push(`Deno.test("model type matches the app spec", () => {
@@ -396,17 +482,22 @@ function renderTests(input: AppSpec, n: Names): string {
 });`);
   tests.push(
     `Deno.test("run arguments are exactly the specification inputs", () => {
-  assertEquals(Object.keys(RunArgsSchema.shape).sort(), [${names}]);
+${namesLine}
 });`,
   );
   tests.push(
     `Deno.test("run arguments apply the specification defaults", () => {
-  assertEquals(RunArgsSchema.parse(REQUIRED), ${defaultsObj});
+${defaultsLine}
 });`,
   );
   for (const i of required) {
     tests.push(`Deno.test(${q(`run arguments require ${i.name}`)}, () => {
-  assertEquals(RunArgsSchema.safeParse({ ...REQUIRED, ${i.name}: undefined }).success, false);
+${
+      fitArgs("  assertEquals(", [
+        `RunArgsSchema.safeParse({ ...REQUIRED, ${i.name}: undefined }).success`,
+        "false",
+      ], ");")
+    }
 });`);
   }
   if (spec.inputs.length) {
@@ -417,7 +508,11 @@ function renderTests(input: AppSpec, n: Names): string {
 ${rows.join("\n")}
   ];
   for (const [name, value] of wrong) {
-    assertEquals(RunArgsSchema.safeParse({ ...REQUIRED, [name]: value }).success, false, name);
+    assertEquals(
+      RunArgsSchema.safeParse({ ...REQUIRED, [name]: value }).success,
+      false,
+      name,
+    );
   }
 });`,
     );
@@ -475,13 +570,13 @@ import {
 } from "./${n.fileBase}.ts";
 
 /** Values for the required inputs. */
-const REQUIRED = ${requiredObj};
+${requiredConst}
 
 /**
  * Placeholders that only need to pass the schema: these tests stub \`run\`.
  * Tests of the real behaviour call \`run\` with working settings of their own.
  */
-const SETTINGS: GlobalArgs = ${settingsObj};
+${settingsConst}
 
 ${tests.join("\n\n")}
 `;
