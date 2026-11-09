@@ -203,6 +203,15 @@ interface AppCheck {
   note?: string;
 }
 
+/** What a passed example says was checked, so the result doesn't claim more. */
+function passedDetail(seconds: number | undefined): string {
+  return seconds === undefined
+    ? "The recipe engine routed this phrase to the app; the app was not run."
+    : `The recipe engine routed this phrase to the app, which ran in ${
+      seconds.toFixed(1)
+    } s; its answer was not checked.`;
+}
+
 /** The method each recipe calls that the app's type doesn't have. */
 async function missingMethods(
   recipes: Array<Record<string, unknown>>,
@@ -230,13 +239,17 @@ async function missingMethods(
   return blockers;
 }
 
-/** Run an app that only reads for each phrase, and see if it answers in time. */
+/**
+ * Run an app that only reads for each phrase, and see if it answers in time.
+ * `ran` gets how long each phrase's run took, for each one that ran.
+ */
 async function timeRuns(
   recipes: Array<Record<string, unknown>>,
   phrases: string[],
   dir: string,
   run: SwampRun,
   now: () => number,
+  ran: Map<string, number>,
 ): Promise<AppCheck> {
   const notTimed = (why: string) => ({
     blockers: [],
@@ -289,6 +302,7 @@ async function timeRuns(
       return notTimed(String(done.error || "the run failed"));
     }
     const seconds = (now() - started) / 1000;
+    ran.set(phrase, seconds);
     if (seconds > RECIPE_BUDGET_SECONDS) {
       return tooSlow(phrase, `took ${seconds.toFixed(1)} s`);
     }
@@ -310,6 +324,7 @@ async function checkApp(
   dir: string,
   run: SwampRun,
   app: AppUnderCheck,
+  ran: Map<string, number>,
 ): Promise<AppCheck> {
   try {
     // Swamp runs from the throwaway repo, so a relative path wouldn't reach it.
@@ -341,6 +356,7 @@ async function checkApp(
       dir,
       run,
       app.now ?? (() => performance.now()),
+      ran,
     );
   } catch (e) {
     return {
@@ -358,6 +374,7 @@ async function checkExamples(
   run: SwampRun,
   app?: AppUnderCheck,
 ): Promise<{ examples: ExampleCheck[]; app: AppCheck }> {
+  const ran = new Map<string, number>();
   const dir = await Deno.makeTempDir({ prefix: "factory-recipe-check-" });
   try {
     // Made here because a first run would make it, and say so ahead of its JSON.
@@ -385,9 +402,14 @@ async function checkExamples(
     }
     // A phrase that doesn't reach the app already blocks, so the app can wait.
     const checked = app && examples.every((e) => e.passed)
-      ? await checkApp(files, recipes, phrases, dir, run, app)
+      ? await checkApp(files, recipes, phrases, dir, run, app, ran)
       : { blockers: [] };
-    return { examples, app: checked };
+    return {
+      examples: examples.map((e) =>
+        e.passed ? { ...e, detail: passedDetail(ran.get(e.phrase)) } : e
+      ),
+      app: checked,
+    };
   } finally {
     await Deno.remove(dir, { recursive: true }).catch(() => {});
   }
