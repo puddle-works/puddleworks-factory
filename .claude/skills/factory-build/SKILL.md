@@ -156,6 +156,15 @@ swamp model get puddleworks-factory --json 2>&1 | jq -r '.type // .error'
 swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory --global-arg "typeScope=\\$COLLECTIVE" --json | jq -r .type
 ```
 
+Every Factory workflow below is run with `--json` and piped through `jq`, so a
+run that prints nothing at all looks like one that did nothing wrong. It is
+not: no status means the run didn't happen. Check with
+`swamp workflow history get WORKFLOW --json | jq -r '[.id, .status, .startedAt // ""] | join(" ")'`
+(`WORKFLOW` is the `@puddleworks/...` name in the command): a run that started
+before this one, or none, confirms it. Then run the same command once more. If it
+prints nothing again, stop and tell the user, with `swamp --version`. This has
+happened once, straight after swamp updated itself and ran `swamp repo upgrade`.
+
 ## Step 1a: Prefill an app spec from an outcome spec
 
 Skip this for an app spec. Let `OUTCOME` be the absolute path of the outcome spec file. If the user gave a URL or pasted
