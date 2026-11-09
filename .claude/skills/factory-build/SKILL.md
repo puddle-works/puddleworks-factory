@@ -293,6 +293,15 @@ puddle-tooling version) and loses the example entry. `swamp repo init --force`
 only rewrites its own managed section of `CLAUDE.md`; the template's "Puddle
 repo" section stays.
 
+**Where you write.** From here on, change files only in `W` and `SP`, commit and
+push only from `W`, and only to `draft/NAME` on `REPO`. Never edit, commit or
+push in the Factory's own checkout, even to fix something you find in it: tell
+the user, and leave Factory changes to separate work they ask for. Use `W`'s
+real path (`W=$(realpath W)`): `render`, `visibility` and `readiness` refuse a
+path through a symlink, a folder inside the checkout, a checkout of any repo
+but `REPO`, and the Factory's checkout. They check only what they themselves
+read and write, so these rules are yours to keep everywhere else.
+
 ## Step 3: Generate the skeleton
 
 ```bash

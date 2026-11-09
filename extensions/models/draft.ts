@@ -1127,7 +1127,11 @@ const VisibilityArgsSchema = z.object({
   provisionalQuality: z.number().int().min(0).max(100).default(0),
   /** The app repo's visibility on GitHub. */
   repoVisibility: z.enum(["public", "private"]),
-  /** The app repo checkout to check. Defaults to where the draft was written. */
+  /**
+   * The app repo checkout to check. Defaults to where the draft was written.
+   * Either way it must pass the same checks as render's targetDir, against
+   * the draft's repository.
+   */
   targetDir: optional(z.string().min(1)),
 });
 
@@ -1142,7 +1146,11 @@ const ReadinessArgsSchema = z.object({
   pullRequest: optional(z.string()),
   /** The reviewed commit, shown in the summary. */
   commit: optional(z.string()),
-  /** The app repo checkout to check. Defaults to where the draft was written. */
+  /**
+   * The app repo checkout to check. Defaults to where the draft was written.
+   * Either way it must pass the same checks as render's targetDir, against
+   * the draft's repository.
+   */
   targetDir: optional(z.string().min(1)),
 });
 
@@ -1359,6 +1367,25 @@ function method<A>(
       throw safeError(e);
     }
   };
+}
+
+/**
+ * Check a checkout against the repository its draft was rendered for, as
+ * render checked it. A draft recorded before render took a repository has
+ * nothing to check the origin against, so it is refused.
+ */
+async function checkDraftTarget(
+  root: string,
+  draft: { name: string; repository?: string },
+): Promise<void> {
+  if (draft.repository === undefined) {
+    throw new Error(
+      `The draft of "${draft.name}" was recorded without its repository, so ` +
+        `${root} can't be shown to be its checkout. Run ` +
+        "@puddleworks/puddleworks-factory-build for it again with repository set.",
+    );
+  }
+  await checkTarget(root, draft.repository);
 }
 
 /** Write text to path, creating its directory first when it names one. */
@@ -1947,6 +1974,7 @@ export const model = {
           /\/+$/,
           "",
         );
+        await checkDraftTarget(root, draft.data);
         context.logger.debug("Scanning {targetDir}", { targetDir: root });
         const { files, notRead } = await textFiles(root);
         warnNotRead(context, notRead);
@@ -2011,6 +2039,7 @@ export const model = {
           /\/+$/,
           "",
         );
+        await checkDraftTarget(root, draft.data);
         const reviewFile = args.review.startsWith("/")
           ? args.review
           : `${root}/${args.review}`;

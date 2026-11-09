@@ -177,7 +177,7 @@ Deno.test("visibility: lists symlinks it did not follow", async () => {
 
 Deno.test("visibility: targetDir overrides where the draft was written", async () => {
   await withDraft(async (_dir, ctx) => {
-    const other = await Deno.makeTempDir({ prefix: "factory-visibility-" });
+    const other = await appCheckout(REPO, "factory-visibility-");
     try {
       await model.methods.visibility.execute(args({ targetDir: other }), ctx);
       const data = ctx.store.get(`visibility-${NAME}`)!;

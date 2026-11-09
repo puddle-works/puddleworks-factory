@@ -163,10 +163,13 @@ broken rule. Existing files are kept unless you pass `--input overwrite=true`.
 The drafted package is private; whether it goes public is decided once it is
 built (below).
 
-These checks bind what `render` writes. They do not confine the agent that
-drives a build: its own edits, `git` and `gh` commands run with whatever the
-agent's tools allow. Run the build from the app's checkout with its tools
-limited to that checkout, and change the Factory itself only as separate work.
+`visibility` and `readiness` run the same checks on the checkout they read,
+against the repository the draft was rendered for, so a later check can't be
+pointed at another repo or at the Factory. These checks bind what the Factory's
+own methods read and write. They do not confine the agent that drives a build:
+its own edits, `git` and `gh` commands run with whatever the agent's tools
+allow. Run the build from the app's checkout with its tools limited to that
+checkout, and change the Factory itself only as separate work.
 
 If the spec has a `specification.recipe`, the phrases agreed for the app, and
 one method call can answer them, the draft also writes

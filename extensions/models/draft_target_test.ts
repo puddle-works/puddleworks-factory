@@ -11,14 +11,20 @@ const REPO = "https://github.com/example/obsidian-puddle-scanner";
 
 function makeContext() {
   const writes: string[] = [];
+  const store = new Map<string, Record<string, unknown>>();
   return {
     globalArgs: { typeScope: "@puddleworks" },
     logger: { debug: () => {}, info: () => {}, warning: () => {} },
-    writeResource(_spec: string, name: string) {
+    writeResource(_spec: string, name: string, data: Record<string, unknown>) {
       writes.push(name);
+      store.set(name, data);
       return Promise.resolve({ name });
     },
+    readResource(name: string) {
+      return Promise.resolve(store.get(name) ?? null);
+    },
     writes,
+    store,
   };
 }
 
@@ -190,4 +196,120 @@ Deno.test("target: a draft file whose folder is a symlink out of the checkout wr
     await Deno.remove(dir, { recursive: true });
     await Deno.remove(outside, { recursive: true });
   }
+});
+
+const NAME = "obsidian-puddle-scanner";
+
+/** The checks a person runs after render, each on a chosen checkout. */
+const CHECKS = {
+  visibility: (ctx: ReturnType<typeof makeContext>, targetDir?: string) =>
+    model.methods.visibility.execute(
+      model.methods.visibility.arguments.parse({
+        name: NAME,
+        quality: 100,
+        repoVisibility: "private",
+        ...(targetDir ? { targetDir } : {}),
+      }),
+      ctx,
+    ),
+  readiness: (ctx: ReturnType<typeof makeContext>, targetDir?: string) =>
+    model.methods.readiness.execute(
+      model.methods.readiness.arguments.parse({
+        name: NAME,
+        review: "swamp-extension-review/report.json",
+        ...(targetDir ? { targetDir } : {}),
+      }),
+      ctx,
+    ),
+};
+
+/** Render into a fresh app checkout, then run fn with it and the context. */
+async function withDraft(
+  fn: (dir: string, ctx: ReturnType<typeof makeContext>) => Promise<void>,
+) {
+  const dir = await appCheckout(REPO);
+  try {
+    const ctx = makeContext();
+    await render(dir, {}, ctx);
+    ctx.writes.length = 0;
+    await fn(dir, ctx);
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+  }
+}
+
+for (const [method, check] of Object.entries(CHECKS)) {
+  Deno.test(`target: ${method} refuses a targetDir that is the Factory's checkout`, async () => {
+    await withDraft(async (_dir, ctx) => {
+      const factory = await appCheckout(REPO, "factory-");
+      try {
+        await Deno.writeTextFile(
+          `${factory}/manifest.yaml`,
+          'name: "@puddleworks/puddleworks-factory"\n',
+        );
+        await assertRejects(
+          () => check(ctx, factory),
+          Error,
+          "the Factory's own checkout",
+        );
+        assertEquals(ctx.writes, []);
+      } finally {
+        await Deno.remove(factory, { recursive: true });
+      }
+    });
+  });
+
+  Deno.test(`target: ${method} refuses a targetDir that is a checkout of another repo`, async () => {
+    await withDraft(async (_dir, ctx) => {
+      const other = await appCheckout("https://github.com/example/other-app");
+      try {
+        await assertRejects(
+          () => check(ctx, other),
+          Error,
+          "example/other-app, not example/obsidian-puddle-scanner",
+        );
+        assertEquals(ctx.writes, []);
+      } finally {
+        await Deno.remove(other, { recursive: true });
+      }
+    });
+  });
+
+  Deno.test(`target: ${method} checks the draft's own checkout again, as it is now`, async () => {
+    await withDraft(async (dir, ctx) => {
+      // The checkout's origin was changed after the draft was rendered.
+      const config = await Deno.readTextFile(`${dir}/.git/config`);
+      await Deno.writeTextFile(
+        `${dir}/.git/config`,
+        config.replace("example/obsidian-puddle-scanner", "example/moved"),
+      );
+      await assertRejects(() => check(ctx), Error, "example/moved, not");
+      assertEquals(ctx.writes, []);
+    });
+  });
+
+  Deno.test(`target: ${method} refuses a draft recorded without its repository`, async () => {
+    await withDraft(async (_dir, ctx) => {
+      const { repository: _, ...old } = ctx.store.get(NAME)!;
+      ctx.store.set(NAME, old);
+      await assertRejects(
+        () => check(ctx),
+        Error,
+        "recorded without its repository",
+      );
+      assertEquals(ctx.writes, []);
+    });
+  });
+}
+
+Deno.test("target: visibility accepts another checkout of the same repo", async () => {
+  await withDraft(async (_dir, ctx) => {
+    const worktree = await appCheckout(REPO, "worktree-");
+    try {
+      await CHECKS.visibility(ctx, worktree);
+      assertEquals(ctx.writes, [`visibility-${NAME}`]);
+    } finally {
+      await Deno.remove(worktree, { recursive: true });
+    }
+  });
 });
