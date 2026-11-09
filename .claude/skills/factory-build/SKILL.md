@@ -161,7 +161,22 @@ each method that might do the job, judge five fit checks, true or false:
 - `output`: it can be shown as text with `each`, `template` and `empty`; for a
   schedule, it is the outcome asked for, with nothing added.
 
-Write them to `SP/candidates.json` (`[]` if the search found nothing):
+Check for a recipe already written too. In the swamp repo where
+`@puddleworks/recipes` is installed (its model is usually named `recipes`),
+refresh the index of every pack labelled `puddlerouter-recipe` with
+`swamp workflow run @puddleworks/recipes-sync`, then for each phrase in the
+spec's `recipe.examples` run
+`swamp behavior run recipes match --input "text=PHRASE" --json` and read the
+`match` it stores (`matched`, `recipeId`). That covers the built-in recipes,
+every pack and the local `puddlerouter.yaml`. Write one line per phrase to
+`SP/matches.json`, with `extension` the one the recipe's tag names:
+
+```json
+[{"phrase": "open prs in acme/widgets", "recipe": "github-open-prs", "extension": "@webframp/github"},
+ {"phrase": "does this repo have a licence", "recipe": null, "extension": null}]
+```
+
+Write the candidates to `SP/candidates.json` (`[]` if the search found nothing):
 
 ```json
 [{"extension": "@webframp/github", "type": "@webframp/github", "method": "get_repo_info",
@@ -174,15 +189,29 @@ app name you would suggest in step 1a):
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-assess --input outcomeSpec=OUTCOME \
-  --input candidates=SP/candidates.json --input delivery=DELIVERY --input name=A --json | jq -r .status
+  --input candidates=SP/candidates.json --input matches=SP/matches.json \
+  --input delivery=DELIVERY --input name=A --json | jq -r .status
 swamp data query 'behavior("puddleworks-factory") && name == "assessment-A"' \
-  --select content --json | jq '.results[0] | {verdict, reason, chosen, candidates: [.candidates[] | {extension, method, owner, failed}]}'
+  --select content --json | jq '.results[0] | {verdict, reason, chosen, matches, candidates: [.candidates[] | {extension, method, owner, failed}]}'
 ```
 
-Show the user the verdict, its reason and each candidate with the checks it
+Leave out `--input matches=…` when the spec has no recipe examples; with
+examples, a phrase with no line in it stops the run. Show the user the verdict,
+its reason, the recipe each phrase matched and each candidate with the checks it
 failed, and ask with `AskUserQuestion` whether to act on it; choosing someone
 else's extension over a new build is their call. `build-functionality`, or a
-no, carries on to step 1a. Otherwise write one workflow and no model code:
+no, carries on to step 1a. `done` means a recipe already answers every phrase:
+build nothing. Record it in Capture as a build result for the extension that
+already does it: write a build-result/v1 by hand (`docs/contracts/build-result.md`)
+with `extension` the package the recipe calls, `entryPointRef` the recipe's
+workflow, `repository` and `path` that package's repo and the recipe file,
+`buildRef` its published commit, `published` its version and visibility,
+`examples` from running `match` and `execute` on each phrase, and `source` the
+outcome spec's `request.url`, `specification.version` and `agreement.specHash`.
+Run Capture's `record_build_result` with it, as the outcome owner or a builder
+on the request. Then tell the user the recipe, the extension, and links to it
+on `https://swamp-club.com/extensions/EXTENSION` and in its git repo. Otherwise
+write one workflow and no model code:
 
 | Verdict                     | Write                                   | Where                                       |
 | --------------------------- | --------------------------------------- | ------------------------------------------- |

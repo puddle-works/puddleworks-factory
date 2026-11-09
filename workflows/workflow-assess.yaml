@@ -3,7 +3,8 @@ name: "@puddleworks/puddleworks-factory-assess"
 description: >-
   Before anything is built, decide whether an existing extension already does
   exactly what an agreed outcome spec asks, from the candidate methods the
-  builder found and the fit checks each passed. The verdict, and every
+  builder found and the fit checks each passed, and whether an existing
+  recipe already answers every example phrasing (then the verdict is done). The verdict, and every
   candidate with whose it is and what it failed, are recorded as an
   assessment resource on the puddleworks-factory model. It changes nothing:
   the builder shows the verdict and asks before acting on it.
@@ -23,6 +24,13 @@ inputs:
         A JSON file listing each candidate: extension, type, method, checks
         (wholeJob, readOnly, inputs, settings and output, each true or false)
         and a note. [] when the search found none.
+    matches:
+      type: string
+      description: >-
+        A JSON file with what @puddleworks/recipes match picked for each
+        example phrasing in the spec: [{phrase, recipe, extension}], recipe
+        null when none matched. Leave blank when the spec has no examples.
+      default: ""
     delivery:
       type: string
       enum: [packaged_script, scheduled_workflow]
@@ -61,5 +69,6 @@ jobs:
           inputs:
             outcomeSpec: ${{ inputs.outcomeSpec }}
             candidates: ${{ inputs.candidates }}
+            matches: ${{ inputs.matches }}
             delivery: ${{ inputs.delivery }}
             name: ${{ inputs.name }}

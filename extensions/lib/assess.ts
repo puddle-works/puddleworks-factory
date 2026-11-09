@@ -56,7 +56,19 @@ export type Candidate = z.infer<typeof CandidateSchema>;
 /** How the app would be run: a recipe answers a phrase, a schedule a timer. */
 export type Delivery = "packaged_script" | "scheduled_workflow";
 
+export const MatchSchema = z.object({
+  /** An example phrasing from the spec. */
+  phrase: z.string().min(1),
+  /** The recipe `match` picked for it, or null when none did. */
+  recipe: z.string().nullable(),
+  /** The extension that recipe calls, when one was picked. */
+  extension: z.string().nullable().default(null),
+});
+
+export type Match = z.infer<typeof MatchSchema>;
+
 export const VERDICTS = [
+  "done",
   "recipe-in-our-extension",
   "recipe-in-pack",
   "workflow-in-our-extension",
@@ -93,17 +105,21 @@ export interface Assessment {
   candidates: Array<
     Candidate & { owner: "ours" | "external"; fits: boolean; failed: string[] }
   >;
+  /** What `match` picked for each example phrasing. */
+  matches: Match[];
   /** Why this verdict, in one sentence. */
   reason: string;
 }
 
 /**
- * The verdict for the candidates: an exact fit in our own extension first,
- * then an external one; with none, build it.
+ * The verdict: done when one existing recipe answers every example phrasing;
+ * otherwise an exact fit in our own extension first, then an external one;
+ * with none, build it.
  */
 export function assess(
   candidates: Candidate[],
   delivery: Delivery,
+  matches: Match[] = [],
   ours: readonly string[] = OUR_COLLECTIVES,
 ): Assessment {
   const rows = candidates.map((c) => {
@@ -115,6 +131,22 @@ export function assess(
       failed,
     };
   });
+  const recipes = [...new Set(matches.map((m) => m.recipe))];
+  if (
+    delivery === "packaged_script" && recipes.length === 1 &&
+    recipes[0] !== null
+  ) {
+    const extension = matches[0].extension;
+    return {
+      verdict: "done",
+      chosen: null,
+      candidates: rows,
+      matches,
+      reason: `The recipe ${recipes[0]}${
+        extension ? ` (${extension})` : ""
+      } already answers every example phrasing, so build nothing.`,
+    };
+  }
   const fit = rows.find((r) => r.fits && r.owner === "ours") ??
     rows.find((r) => r.fits);
   if (!fit) {
@@ -122,6 +154,7 @@ export function assess(
       verdict: "build-functionality",
       chosen: null,
       candidates: rows,
+      matches,
       reason: rows.length
         ? `None of the ${rows.length} candidates fits exactly, so build it.`
         : "No existing extension was found, so build it.",
@@ -143,6 +176,7 @@ export function assess(
     verdict,
     chosen: { extension: fit.extension, type: fit.type, method: fit.method },
     candidates: rows,
+    matches,
     reason:
       `${fit.extension} ${fit.method} fits exactly, so write ${what} ${where}.`,
   };

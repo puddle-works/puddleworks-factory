@@ -51,7 +51,7 @@ import {
   type SpecIo,
 } from "../lib/spec_source.ts";
 import { prefillAppSpec, slugFrom } from "../lib/prefill.ts";
-import { assess, CandidateSchema } from "../lib/assess.ts";
+import { assess, CandidateSchema, MatchSchema } from "../lib/assess.ts";
 import {
   reservedNameProblem,
   reservedPrefix,
@@ -1122,6 +1122,12 @@ const AssessArgsSchema = z.object({
    * which fit checks it passed. An empty list means none was found.
    */
   candidates: z.string().min(1),
+  /**
+   * A JSON file with what `@puddleworks/recipes` `match` picked for each
+   * example phrasing in the spec: `[{phrase, recipe, extension}]`, recipe
+   * null when none matched. Leave blank when the spec has no examples.
+   */
+  matches: optional(z.string().min(1)),
   /** packaged_script for an app a phrase starts, scheduled_workflow for a timer. */
   delivery: z.enum(["packaged_script", "scheduled_workflow"]),
   /** The name to file it under. Defaults to the request's title as a slug. */
@@ -1384,6 +1390,30 @@ async function writeFileIn(path: string, text: string): Promise<void> {
   await Deno.writeTextFile(path, text);
 }
 
+/** A JSON file holding a list, each item checked against schema. */
+async function readList<T extends z.ZodType>(
+  path: string,
+  schema: T,
+  what: string,
+): Promise<z.infer<T>[]> {
+  if (!(await exists(path))) {
+    throw new Error(`Could not read the ${what}: ${path} does not exist.`);
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await Deno.readTextFile(path));
+  } catch {
+    throw new Error(`${path} is not JSON.`);
+  }
+  const parsed = z.array(schema).safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(
+      `${path} is not a list of ${what}: ${parsed.error.message}`,
+    );
+  }
+  return parsed.data;
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await Deno.stat(path);
@@ -1639,25 +1669,29 @@ export const model = {
           source: from,
         });
         const { spec: outcome } = await loadOutcomeSpec(args.outcomeSpec, io);
-        if (!(await exists(args.candidates))) {
+        const candidates = await readList(
+          args.candidates,
+          CandidateSchema,
+          "candidates",
+        );
+        const matches = args.matches
+          ? await readList(args.matches, MatchSchema, "matches")
+          : [];
+        const phrases = (outcome.specification.recipe?.examples ?? []).map((
+          e,
+        ) => e.phrase);
+        const missing = phrases.filter((p) =>
+          !matches.some((m) => m.phrase === p)
+        );
+        if (missing.length) {
           throw new Error(
-            `Could not read the candidates: ${args.candidates} does not exist.`,
-          );
-        }
-        let raw: unknown;
-        try {
-          raw = JSON.parse(await Deno.readTextFile(args.candidates));
-        } catch {
-          throw new Error(`${args.candidates} is not JSON.`);
-        }
-        const parsed = z.array(CandidateSchema).safeParse(raw);
-        if (!parsed.success) {
-          throw new Error(
-            `${args.candidates} is not a list of candidates: ${parsed.error.message}`,
+            `No match result for ${
+              missing.map((p) => `"${p}"`).join(", ")
+            }: run match with every example phrasing in the spec.`,
           );
         }
         const name = args.name ?? slugFrom(outcome.request.title);
-        const assessment = assess(parsed.data, args.delivery);
+        const assessment = assess(candidates, args.delivery, matches);
         const record = checkedResource("assessment", {
           name,
           specSource: from,

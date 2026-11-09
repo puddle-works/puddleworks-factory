@@ -11,7 +11,7 @@
 import { z } from "npm:zod@4";
 import { SpecSourceSchema } from "../contracts/app_spec_v1.ts";
 import { BuildExamplesSchema } from "../contracts/build_result_v1.ts";
-import { CandidateSchema, VERDICTS } from "./assess.ts";
+import { CandidateSchema, MatchSchema, VERDICTS } from "./assess.ts";
 
 export const DraftSchema = z.object({
   /** The app spec's name. */
@@ -155,6 +155,8 @@ export const AssessmentSchema = z.object({
     fits: z.boolean(),
     failed: z.array(z.string()),
   })),
+  /** What `match` picked for each example phrasing. */
+  matches: z.array(MatchSchema),
   reason: z.string(),
   assessedAt: z.iso.datetime(),
 });

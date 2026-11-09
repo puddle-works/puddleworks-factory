@@ -28,14 +28,21 @@ function makeContext() {
   };
 }
 
+const NONE_MATCHED = JSON.stringify([
+  { phrase: "what needs reordering this week", recipe: null },
+  { phrase: "what should I reorder", recipe: null },
+]);
+
 async function withCandidates(
   text: string,
-  fn: (file: string) => Promise<void>,
+  fn: (file: string, matches: string) => Promise<void>,
+  matches = NONE_MATCHED,
 ) {
   const dir = await Deno.makeTempDir({ prefix: "factory-assess-" });
   try {
     await Deno.writeTextFile(`${dir}/candidates.json`, text);
-    await fn(`${dir}/candidates.json`);
+    await Deno.writeTextFile(`${dir}/matches.json`, matches);
+    await fn(`${dir}/candidates.json`, `${dir}/matches.json`);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
@@ -65,9 +72,9 @@ Deno.test("assess: records the verdict under the request's title as a slug", asy
     },
     note: "No file path in the answer",
   }];
-  await withCandidates(JSON.stringify(candidates), async (file) => {
+  await withCandidates(JSON.stringify(candidates), async (file, matches) => {
     const ctx = makeContext();
-    await run(ctx, { candidates: file });
+    await run(ctx, { candidates: file, matches });
     const [w] = ctx.writes;
     assertEquals(w.specName, "assessment");
     assertEquals(
@@ -86,10 +93,52 @@ Deno.test("assess: records the verdict under the request's title as a slug", asy
 
 Deno.test("assess: refuses candidates that aren't a list of them", async () => {
   for (const text of ["not json", '[{"extension":"@a/b"}]', "{}"]) {
-    await withCandidates(text, async (file) => {
+    await withCandidates(text, async (file, matches) => {
       const ctx = makeContext();
-      await assertRejects(() => run(ctx, { candidates: file }), Error);
+      await assertRejects(() => run(ctx, { candidates: file, matches }), Error);
       assertEquals(ctx.writes, []);
     });
   }
+});
+
+Deno.test("assess: done needs a match result for every example phrasing", async () => {
+  const one = JSON.stringify([
+    { phrase: "what needs reordering this week", recipe: "reorder-list" },
+  ]);
+  await withCandidates("[]", async (file, matches) => {
+    const ctx = makeContext();
+    await assertRejects(
+      () => run(ctx, { candidates: file, matches }),
+      Error,
+      '"what should I reorder"',
+    );
+    await assertRejects(
+      () => run(ctx, { candidates: file }),
+      Error,
+      "No match result",
+    );
+    assertEquals(ctx.writes, []);
+  }, one);
+});
+
+Deno.test("assess: an existing recipe for every phrasing is done", async () => {
+  const both = JSON.stringify([
+    {
+      phrase: "what needs reordering this week",
+      recipe: "reorder-list",
+      extension: "@puddleworks/stock",
+    },
+    {
+      phrase: "what should I reorder",
+      recipe: "reorder-list",
+      extension: "@puddleworks/stock",
+    },
+  ]);
+  await withCandidates("[]", async (file, matches) => {
+    const ctx = makeContext();
+    await run(ctx, { candidates: file, matches });
+    const data = ctx.writes[0].data as { verdict: string; matches: unknown[] };
+    assertEquals(data.verdict, "done");
+    assertEquals(data.matches.length, 2);
+  }, both);
 });
