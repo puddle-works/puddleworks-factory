@@ -171,7 +171,7 @@ criteria) and **propose** a value for each `toDecide` field, in one message:
 
 - `name`: short, lowercase, hyphens. The suggestion is the title as a slug and
   is often too long. It must not start with `prefill-`, `build-result-`,
-  `visibility-` or `readiness-`: the Factory keeps those for its own records,
+  `visibility-`, `readiness-` or `plan-review-`: the Factory keeps those for its own records,
   and `render` refuses them.
 - `specification.purpose`: one bounded sentence.
 - `specification.inputs`: what the person enters each run, each with `name`
@@ -384,7 +384,45 @@ and assumptions are scope lines. Write a short plan to `SP/plan.md`:
 
 If the behaviour cannot be built within these limits, or the spec leaves a
 choice open that changes what the user gets, stop and ask; do not build on a
-guess. Otherwise carry straight on.
+guess.
+
+Then have the plan reviewed by an agent that didn't write it. Start it with the
+`Agent` tool, `subagent_type: "general-purpose"` (never `fork`, which carries
+this conversation), with `SPEC` and `SP` filled in:
+
+```text
+Review a build plan before anything is built. You did not write it; judge it
+only by the spec. Read SP/plan.md, SPEC, and W/spec/outcome-spec.v*.json (the
+highest version) when there is one. Change no file.
+
+Does the plan meet the spec: every acceptance criterion has a test or a
+verification step, nothing is on the out-of-scope list, no input or setting is
+renamed, added or removed? Is it a good plan? Start your reply with PASS or
+CONCERNS on a line of its own, then say why in under 200 words.
+```
+
+Write its reply to `SP/plan-review.txt` and record it, with `VERDICT` as `pass`
+or `concerns` from the reply's first line:
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-plan-review --input name=NAME \
+  --input plan=SP/plan.md --input verdict=VERDICT --input response=SP/plan-review.txt --json | jq -r .status
+```
+
+If the agent can't be started or gives no verdict, record `verdict=failed` with
+the reason in the response file, or `verdict=pending` with no response if
+you'll review it later. That doesn't stop the build. The review is advisory:
+show the user the verdict and any concerns, and change the plan only if they
+agree. Each change to `SP/plan.md` needs a new review. A review counts only for
+the plan as it is now:
+
+```bash
+swamp data query "behavior(\"puddleworks-factory\") && name == \"plan-review-NAME\"" \
+  --select content --json | jq -r --arg h "sha256:$(sha256sum SP/plan.md | cut -d' ' -f1)" \
+  '.results[0] | if .planHash == $h then .verdict + ": " + .response else "no review of this plan yet" end'
+```
+
+Then carry straight on.
 
 ## Step 5: Build it test-first
 

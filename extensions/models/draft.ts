@@ -76,6 +76,7 @@ import {
 } from "../lib/recipe_check.ts";
 import {
   DraftSchema,
+  PlanReviewSchema,
   PrefillSchema,
   ReadinessSchema,
   VisibilitySchema,
@@ -1127,6 +1128,19 @@ const VisibilityArgsSchema = z.object({
 
 type VisibilityArgs = z.infer<typeof VisibilityArgsSchema>;
 
+const PlanReviewArgsSchema = z.object({
+  /** The app spec's name, as drafted by `render` on this instance. */
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+  /** The build plan the review is of, as an absolute path. */
+  plan: z.string().min(1),
+  /** The reviewer's verdict, or pending or failed when there is none. */
+  verdict: z.enum(["pass", "concerns", "pending", "failed"]),
+  /** A file holding the reviewer's reply, or why there is no review. */
+  response: optional(z.string().min(1)),
+});
+
+type PlanReviewArgs = z.infer<typeof PlanReviewArgsSchema>;
+
 const ReadinessArgsSchema = z.object({
   /** The app spec's name, as drafted by `render` on this instance. */
   name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
@@ -1278,6 +1292,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
   buildResult: BuildResultSchema,
   visibility: VisibilitySchema,
   readiness: ReadinessSchema,
+  planReview: PlanReviewSchema,
 };
 
 /**
@@ -1362,6 +1377,16 @@ async function writeFileIn(path: string, text: string): Promise<void> {
   await Deno.writeTextFile(path, text);
 }
 
+/** `sha256:` and the hex digest of text, as the plan review records it. */
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(text),
+  );
+  return "sha256:" + [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await Deno.stat(path);
@@ -1375,6 +1400,7 @@ async function exists(path: string): Promise<boolean> {
 /**
  * The `@puddleworks/puddleworks-factory/draft` model: `prefill` starts an app spec
  * from an outcome spec, `render` writes a first draft from an app spec,
+ * `planReview` records a review of the build plan against the spec,
  * `visibility` recommends publishing it publicly or privately, `readiness`
  * says whether the reviewed app is ready to publish, and `result` says where
  * that build went.
@@ -1555,6 +1581,13 @@ export const model = {
       lifetime: "infinite" as const,
       garbageCollection: 20,
     },
+    planReview: {
+      description:
+        "The last review of an app's build plan against its spec: which version of the plan, the verdict and the reviewer's reply. Earlier versions keep the reviews of earlier plans.",
+      schema: PlanReviewSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
     readiness: {
       description:
         "The last check that an app is ready to publish: the review's verdicts, each acceptance criterion and its tests, the blockers, and a one-screen summary.",
@@ -1566,10 +1599,10 @@ export const model = {
   checks: {
     "draft-rendered": {
       description:
-        "Before result, visibility and readiness: this instance has rendered a draft. " +
+        "Before result, planReview, visibility and readiness: this instance has rendered a draft. " +
         "Which app's draft is the method's own check, since checks get no arguments.",
       labels: ["policy"],
-      appliesTo: ["result", "visibility", "readiness"],
+      appliesTo: ["result", "planReview", "visibility", "readiness"],
       execute: async (context: CheckContext): Promise<CheckResult> => {
         let names: string[];
         try {
@@ -1911,6 +1944,64 @@ export const model = {
           "buildResult",
           resultName(args.name),
           result,
+        );
+        return { dataHandles: [handle] };
+      }),
+    },
+    planReview: {
+      description:
+        "Record a review of an app's build plan against its agreed spec, by a reviewer " +
+        "that did not write the plan: the verdict (pass, concerns, pending or failed), " +
+        "the reply, and the plan's hash, so a review stays with the version it was of. " +
+        "Advisory: it blocks nothing. Records the planReview resource.",
+      arguments: PlanReviewArgsSchema,
+      execute: method(async (args: PlanReviewArgs, context: MethodContext) => {
+        context.logger.info("Recording the plan review for {name}: {verdict}", {
+          name: args.name,
+          verdict: args.verdict,
+        });
+        const raw = context.readResource
+          ? await context.readResource(args.name)
+          : null;
+        if (!raw || !DraftSchema.safeParse(raw).success) {
+          throw new Error(
+            `No draft of "${args.name}" has been rendered by this model instance. ` +
+              "Run @puddleworks/puddleworks-factory-build for the spec first.",
+          );
+        }
+        if (!(await exists(args.plan))) {
+          throw new Error(
+            `Could not read the plan: ${args.plan} does not exist.`,
+          );
+        }
+        const plan = await Deno.readTextFile(args.plan);
+        if (args.response && !(await exists(args.response))) {
+          throw new Error(
+            `Could not read the response: ${args.response} does not exist.`,
+          );
+        }
+        const response = args.response
+          ? (await Deno.readTextFile(args.response)).trim()
+          : "";
+        if (
+          !response && (args.verdict === "pass" || args.verdict === "concerns")
+        ) {
+          throw new Error(
+            `A ${args.verdict} verdict needs the reviewer's reply: pass response.`,
+          );
+        }
+        const record = checkedResource("planReview", {
+          name: args.name,
+          plan: args.plan,
+          planHash: await sha256(plan),
+          verdict: args.verdict,
+          response,
+          reviewedAt: new Date().toISOString(),
+        });
+        const handle = await context.writeResource(
+          "planReview",
+          `${RESOURCE_PREFIX.planReview}${args.name}`,
+          record,
         );
         return { dataHandles: [handle] };
       }),
