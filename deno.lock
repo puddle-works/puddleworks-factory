@@ -7,6 +7,8 @@
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "jsr:@std/testing@1.0.21": "1.0.21",
     "jsr:@std/yaml@1.0.12": "1.0.12",
+    "npm:preact-render-to-string@6.8.2": "6.8.2_preact@10.27.3",
+    "npm:preact@10.27.3": "10.27.3",
     "npm:zod@4": "4.6.5"
   },
   "jsr": {
@@ -33,8 +35,23 @@
     }
   },
   "npm": {
+    "preact-render-to-string@6.8.2_preact@10.27.3": {
+      "integrity": "sha512-Hdx7cKD3AMYgt795TdddBpUbuGEFoL/VeA6s7VrBt9Gjt0r6rCy5wMp5xkDjQ9cbKj62frHsEx1x8yV6EjoOpg==",
+      "dependencies": [
+        "preact"
+      ]
+    },
+    "preact@10.27.3": {
+      "integrity": "sha512-ZieIP3zQHiQsNF3BA+SNVS8dcuRIg/nsxlkFbCMBLS2L1Ww4Bkxd9n6Md2A1crfTZsEbQPADV0neYmh/EElgeQ=="
+    },
     "zod@4.6.5": {
       "integrity": "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q=="
     }
+  },
+  "workspace": {
+    "dependencies": [
+      "npm:preact-render-to-string@6.8.2",
+      "npm:preact@10.27.3"
+    ]
   }
 }
