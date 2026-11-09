@@ -28,6 +28,7 @@ import {
 } from "./draft.ts";
 import type { AppSpec } from "../contracts/app_spec_v1.ts";
 import { scanFile } from "../lib/visibility.ts";
+import { appCheckout } from "../lib/target_testing.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
@@ -879,7 +880,7 @@ Deno.test("method: an app name that reads as a secret writes no file and no reso
     assertEquals(ctx.writes, []);
     const names = [];
     for await (const e of Deno.readDir(dir)) names.push(e.name);
-    assertEquals(names, [".swamp.yaml"]);
+    assertEquals(names.sort(), [".git", ".swamp.yaml"]);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }
@@ -903,6 +904,7 @@ Deno.test("method: a file that can't be written leaves the checkout as it was", 
     const walk = async (d: string, at: string) => {
       for await (const e of Deno.readDir(d)) {
         const rel = at ? `${at}/${e.name}` : e.name;
+        if (rel === ".git") continue;
         if (e.isDirectory) await walk(`${d}/${e.name}`, rel);
         else left.push(rel);
       }
@@ -960,10 +962,8 @@ function makeContext() {
 }
 
 /** A swamp repo with nothing in it yet, like one just made from a template. */
-async function appRepo(): Promise<string> {
-  const dir = await Deno.makeTempDir({ prefix: "app-repo-" });
-  await Deno.writeTextFile(`${dir}/.swamp.yaml`, "tools:\n  - claude\n");
-  return dir;
+function appRepo(): Promise<string> {
+  return appCheckout(REPO);
 }
 
 const renderArgs = (
@@ -991,7 +991,7 @@ Deno.test("method: a reserved app name writes no file and no resource", async ()
       assertEquals(ctx.writes, []);
       const names = [];
       for await (const e of Deno.readDir(dir)) names.push(e.name);
-      assertEquals(names, [".swamp.yaml"]);
+      assertEquals(names.sort(), [".git", ".swamp.yaml"]);
     } finally {
       await Deno.remove(dir, { recursive: true });
     }

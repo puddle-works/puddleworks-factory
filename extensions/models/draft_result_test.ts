@@ -14,6 +14,7 @@ import {
 } from "jsr:@std/assert@1.0.19";
 import { model } from "./draft.ts";
 import { parseBuildResult } from "../contracts/build_result_v1.ts";
+import { appCheckout } from "../lib/target_testing.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
@@ -50,9 +51,8 @@ async function withDraft(
   fn: (dir: string, ctx: ReturnType<typeof makeContext>) => Promise<void>,
   spec = EXAMPLE_TEXT,
 ) {
-  const dir = await Deno.makeTempDir({ prefix: "puddle-apps-" });
+  const dir = await appCheckout(REPO, "puddle-apps-");
   try {
-    await Deno.writeTextFile(`${dir}/.swamp.yaml`, "tools:\n  - claude\n");
     const ctx = makeContext();
     await model.methods.render.execute(
       {
@@ -175,6 +175,7 @@ Deno.test("result: a blank pull request or out is left out", async () => {
     const data = ctx.store.get("build-result-obsidian-puddle-scanner")!;
     assertEquals("pullRequest" in data, false);
     assertEquals([...Deno.readDirSync(dir)].map((e) => e.name).sort(), [
+      ".git",
       ".github",
       ".swamp.yaml",
       "CLAUDE.md",

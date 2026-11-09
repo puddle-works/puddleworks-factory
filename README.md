@@ -148,15 +148,25 @@ logs and shows the URL without it. Swamp itself keeps workflow inputs as given
 in its run records under `.swamp/`, so prefer a spec URL that needs no token, or
 download the spec and pass the file.
 
-`targetDir` must be a swamp repo (it has a `.swamp.yaml`), such as one made from
-your `template`. The draft goes in its root: the extension and its test in
-`extensions/models/`, the workflow in `workflows/`, and `manifest.yaml`,
-`README.md`, `LICENSE`, `.github/workflows/ci.yml` and an app section in
-`CLAUDE.md`. An existing `LICENSE` or `.github/workflows/ci.yml` is kept, and
-the rest of `CLAUDE.md` is left alone. A spec that breaks the contract writes
-nothing and lists every broken rule. Existing files are kept unless you pass
-`--input overwrite=true`. The drafted package is private; whether it goes public
-is decided once it is built (below).
+`targetDir` must be the real path of the root of a checkout or worktree of the
+app's own swamp repo: it has a `.swamp.yaml`, its git origin is `repository`,
+and with `--input branch=…` it has that branch checked out. A path through a
+symlink or `..`, a folder inside a checkout, a checkout of another repo, and the
+Factory's own checkout, or anything inside it, are refused before anything is
+written. So is a draft file whose path inside the checkout is a symlink. The
+draft goes in its root: the extension and its test in `extensions/models/`, the
+workflow in `workflows/`, and `manifest.yaml`, `README.md`, `LICENSE`,
+`.github/workflows/ci.yml` and an app section in `CLAUDE.md`. An existing
+`LICENSE` or `.github/workflows/ci.yml` is kept, and the rest of `CLAUDE.md` is
+left alone. A spec that breaks the contract writes nothing and lists every
+broken rule. Existing files are kept unless you pass `--input overwrite=true`.
+The drafted package is private; whether it goes public is decided once it is
+built (below).
+
+These checks bind what `render` writes. They do not confine the agent that
+drives a build: its own edits, `git` and `gh` commands run with whatever the
+agent's tools allow. Run the build from the app's checkout with its tools
+limited to that checkout, and change the Factory itself only as separate work.
 
 If the spec has a `specification.recipe`, the phrases agreed for the app, and
 one method call can answer them, the draft also writes

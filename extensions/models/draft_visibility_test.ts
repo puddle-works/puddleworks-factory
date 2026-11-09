@@ -13,6 +13,7 @@ import {
   assertStringIncludes,
 } from "jsr:@std/assert@1.0.19";
 import { model } from "./draft.ts";
+import { appCheckout } from "../lib/target_testing.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
@@ -48,9 +49,8 @@ function makeContext() {
 async function withDraft(
   fn: (dir: string, ctx: ReturnType<typeof makeContext>) => Promise<void>,
 ) {
-  const dir = await Deno.makeTempDir({ prefix: "factory-visibility-" });
+  const dir = await appCheckout(REPO, "factory-visibility-");
   try {
-    await Deno.writeTextFile(`${dir}/.swamp.yaml`, "tools:\n  - claude\n");
     const ctx = makeContext();
     await model.methods.render.execute(
       model.methods.render.arguments.parse({
@@ -94,7 +94,7 @@ Deno.test("visibility: a fresh draft is recommended public", async () => {
 Deno.test("visibility: reads the repo's files, not .git or .swamp", async () => {
   await withDraft(async (dir, ctx) => {
     for (const d of [".git", ".swamp"]) {
-      await Deno.mkdir(`${dir}/${d}`);
+      await Deno.mkdir(`${dir}/${d}`, { recursive: true });
       await Deno.writeTextFile(`${dir}/${d}/notes`, "/Users/alice/x/\n");
     }
     await Deno.mkdir(`${dir}/spec`);

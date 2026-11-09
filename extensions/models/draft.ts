@@ -60,6 +60,7 @@ import {
 import { assessVisibility } from "../lib/visibility.ts";
 import { linkProblem, safeData, safeText } from "../lib/redact.ts";
 import { assessReadiness } from "../lib/readiness.ts";
+import { checkOutputPath, checkTarget } from "../lib/target.ts";
 import {
   DRAFT_LINE,
   RECIPE_BUDGET_SECONDS,
@@ -1067,26 +1068,31 @@ const PrefillArgsSchema = z.object({
 
 type PrefillArgs = z.infer<typeof PrefillArgsSchema>;
 
+/** Workflows pass "" for an input left blank; treat it as not given. */
+const optional = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
+
 const RenderArgsSchema = z.object({
   /**
    * A puddleworks.dev/app-spec/v1 spec: a file path, an https URL, or the
    * spec itself as inline JSON.
    */
   spec: z.string().min(1),
-  /** Absolute path of a checkout of the app's own repo. */
+  /**
+   * Absolute real path of the root of a checkout of the app's own repo, whose
+   * origin is `repository`. Never the Factory's own checkout.
+   */
   targetDir: z.string().min(1),
   /** `https://` URL of the app's repo, written into the manifest. */
   repository: z.string().min(1),
+  /** The branch the checkout must have checked out, when given. */
+  branch: optional(z.string().min(1)),
   overwrite: z.boolean().default(false),
   /** "private" (the default) keeps the package off the public registry until it is decided otherwise. */
   visibility: z.enum(["public", "private"]).default("private"),
 });
 
 type RenderArgs = z.infer<typeof RenderArgsSchema>;
-
-/** Workflows pass "" for an input left blank; treat it as not given. */
-const optional = <T extends z.ZodType>(schema: T) =>
-  z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
 
 const ResultArgsSchema = z.object({
   /** The app spec's name, as drafted by `render` on this instance. */
@@ -1667,12 +1673,10 @@ export const model = {
               "Use a checkout path without it.",
           );
         }
-        if (!(await exists(`${root}/.swamp.yaml`))) {
-          throw new Error(
-            `${root} does not look like an app repo checkout: it has no .swamp.yaml. ` +
-              "Pass targetDir as the path of a checkout of the app's own swamp repo, e.g. a git worktree of it.",
-          );
-        }
+        context.logger.debug("Checking {targetDir} is the app's checkout", {
+          targetDir: root,
+        });
+        await checkTarget(root, args.repository, args.branch);
 
         context.logger.debug("Reading the app spec from {source}", {
           source: from,
@@ -1692,6 +1696,7 @@ export const model = {
         > = [];
         const present: string[] = [];
         for (const f of files) {
+          await checkOutputPath(root, f.path);
           const path = `${root}/${f.path}`;
           const old = (await exists(path))
             ? await Deno.readTextFile(path)
