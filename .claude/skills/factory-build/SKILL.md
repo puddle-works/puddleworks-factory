@@ -293,10 +293,19 @@ puddle-tooling version) and loses the example entry. `swamp repo init --force`
 only rewrites its own managed section of `CLAUDE.md`; the template's "Puddle
 repo" section stays.
 
+**Where you write.** From here on, change files only in `W` and `SP`, commit and
+push only from `W`, and only to `draft/NAME` on `REPO`. Never edit, commit or
+push in the Factory's own checkout, even to fix something you find in it: tell
+the user, and leave Factory changes to separate work they ask for. Use `W`'s
+real path (`W=$(realpath W)`): `render`, `visibility` and `readiness` refuse a
+path through a symlink, a folder inside the checkout, a checkout of any repo
+but `REPO`, and the Factory's checkout. They check only what they themselves
+read and write, so these rules are yours to keep everywhere else.
+
 ## Step 3: Generate the skeleton
 
 ```bash
-swamp workflow run @puddleworks/puddleworks-factory-build --input spec=SPEC --input targetDir=W --input repository=REPO --json \
+swamp workflow run @puddleworks/puddleworks-factory-build --input spec=SPEC --input targetDir=W --input repository=REPO --input branch=draft/NAME --json \
   | jq -r '.status + " " + ([.jobs[].steps[] | select(.status=="failed") | .error] | join(" | "))'
 ```
 
@@ -338,6 +347,10 @@ message says in plain words and stop:
 | `has no swamp workflow to draft`                        | Delivery is `external_app` or `manual_process` | Nothing to draft; this skill does not apply             |
 | `Refusing to overwrite files that already exist`        | A draft is already on this branch              | Re-run with `--input overwrite=true` if the user agrees |
 | `does not look like an app repo checkout`               | `targetDir` has no `.swamp.yaml`               | Point it at the app repo worktree from step 2           |
+| `the Factory's own checkout` / `inside the Factory's checkout` / `the Factory's own repo` | `targetDir` is the Factory, not the app | Point it at the app repo worktree from step 2; never draft into the Factory |
+| `is a checkout of …, not …` / `has no GitHub origin`    | `targetDir`'s origin is not `REPO`             | Use the checkout of `REPO`, or fix `REPO`               |
+| `goes through a symlink or '..'` / `is not the root of a git checkout` / `is a symlink` | `targetDir` is not the checkout's real root, or a draft path leads out of it | Pass `realpath W`; remove the symlink                   |
+| `checked out, not draft/NAME`                           | Another branch is checked out in `W`           | `git -C W switch draft/NAME`                            |
 | `repository "…" … Pass the plain https URL` | `repository` is not https, has a login, a query or fragment, or no path | Pass `REPO`, e.g. `https://github.com/ORG/NAME` |
 
 Then commit the skeleton untouched (with `spec/` when it came from an outcome

@@ -42,6 +42,7 @@ Deno.test("build workflow: the description names the ci.yml it drafts", () => {
 
 Deno.test("build workflow: takes a spec, a target and its repository, nothing else required", () => {
   assertEquals(Object.keys(workflow.inputs.properties).sort(), [
+    "branch",
     "overwrite",
     "repository",
     "spec",

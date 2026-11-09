@@ -13,6 +13,7 @@ import { model, renderDraft } from "./draft.ts";
 import { DRAFT_LINE, recipeFromWorkflow } from "../lib/recipes.ts";
 import { parseAppSpec } from "../contracts/app_spec_v1.ts";
 import { REVIEW_DIMENSIONS } from "../lib/readiness.ts";
+import { appCheckout } from "../lib/target_testing.ts";
 
 const EXAMPLE = JSON.parse(
   await Deno.readTextFile(
@@ -271,9 +272,8 @@ async function drafted(
   fn: (dir: string, ctx: ReturnType<typeof makeContext>) => Promise<void>,
   swampCalls: string[][] = [],
 ) {
-  const dir = await Deno.makeTempDir({ prefix: "factory-recipe-" });
+  const dir = await appCheckout(REPO, "factory-recipe-");
   try {
-    await Deno.writeTextFile(`${dir}/.swamp.yaml`, "tools:\n  - claude\n");
     const ctx = makeContext(swampCalls);
     await model.methods.render.execute(
       model.methods.render.arguments.parse({
