@@ -39,6 +39,12 @@ export const OutcomeSpecSchema = z.object({
     constraints: z.array(z.string()),
     assumptions: z.array(z.string()),
     acceptanceCriteria: z.array(z.object({ id: z.string(), text: z.string() })),
+    /**
+     * Why this version differs from the one before it, when the revision
+     * said. Optional: missing on v1, on older exports, and on a revision made
+     * without a reason, so its absence doesn't mean version 1.
+     */
+    changeSummary: z.string().optional(),
     /** The phrases that must reach the app. Optional; older specs have none. */
     recipe: RecipeSchema.optional(),
   }),

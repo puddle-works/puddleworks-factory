@@ -1433,7 +1433,12 @@ function checkContext(names: string[] | Error, methodName = "readiness") {
 Deno.test("check draft-rendered: a policy check before result, visibility and readiness", () => {
   const check = model.checks["draft-rendered"];
   assertEquals(check.labels, ["policy"]);
-  assertEquals(check.appliesTo, ["result", "visibility", "readiness"]);
+  assertEquals(check.appliesTo, [
+    "result",
+    "revise",
+    "visibility",
+    "readiness",
+  ]);
 });
 
 Deno.test("check draft-rendered: passes once a draft has been rendered", async () => {

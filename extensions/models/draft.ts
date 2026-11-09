@@ -51,6 +51,11 @@ import {
   type SpecIo,
 } from "../lib/spec_source.ts";
 import { prefillAppSpec } from "../lib/prefill.ts";
+import { changePlan, specChanges } from "../lib/revision.ts";
+import {
+  type OutcomeSpec,
+  parseOutcomeSpec,
+} from "../contracts/outcome_spec_v1.ts";
 import {
   builtInRecipeProblem,
   reservedNameProblem,
@@ -1140,6 +1145,20 @@ const VisibilityArgsSchema = z.object({
 
 type VisibilityArgs = z.infer<typeof VisibilityArgsSchema>;
 
+const ReviseArgsSchema = z.object({
+  /** The app spec's name, as drafted by `render` on this instance. */
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+  /**
+   * The newly agreed puddleworks.dev/outcome-spec/v1 for the same request: a
+   * file path, an https URL, or the spec itself as inline JSON.
+   */
+  outcomeSpec: z.string().min(1),
+  /** The app repo checkout to revise. Defaults to where the draft was written. */
+  targetDir: optional(z.string().min(1)),
+});
+
+type ReviseArgs = z.infer<typeof ReviseArgsSchema>;
+
 const ReadinessArgsSchema = z.object({
   /** The app spec's name, as drafted by `render` on this instance. */
   name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
@@ -1398,6 +1417,32 @@ async function writeFileIn(path: string, text: string): Promise<void> {
   await Deno.writeTextFile(path, text);
 }
 
+/** The highest-version outcome spec in a spec/ folder, or null when none parses. */
+async function latestOutcomeIn(
+  dir: string,
+): Promise<{ path: string; spec: OutcomeSpec } | null> {
+  let best: { path: string; spec: OutcomeSpec } | null = null;
+  if (!(await exists(dir))) return null;
+  for await (const e of Deno.readDir(dir)) {
+    if (!e.isFile || !/^outcome-spec\..*\.json$/.test(e.name)) continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(await Deno.readTextFile(`${dir}/${e.name}`));
+    } catch {
+      continue;
+    }
+    const parsed = parseOutcomeSpec(value);
+    if (!parsed.ok) continue;
+    if (
+      !best ||
+      parsed.spec.specification.version > best.spec.specification.version
+    ) {
+      best = { path: `${dir}/${e.name}`, spec: parsed.spec };
+    }
+  }
+  return best;
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await Deno.stat(path);
@@ -1411,6 +1456,7 @@ async function exists(path: string): Promise<boolean> {
 /**
  * The `@puddleworks/puddleworks-factory/draft` model: `prefill` starts an app spec
  * from an outcome spec, `render` writes a first draft from an app spec,
+ * `revise` takes an app already built to a newly agreed version of its spec,
  * `visibility` recommends publishing it publicly or privately, `readiness`
  * says whether the reviewed app is ready to publish, and `result` says where
  * that build went.
@@ -1602,10 +1648,10 @@ export const model = {
   checks: {
     "draft-rendered": {
       description:
-        "Before result, visibility and readiness: this instance has rendered a draft. " +
+        "Before result, revise, visibility and readiness: this instance has rendered a draft. " +
         "Which app's draft is the method's own check, since checks get no arguments.",
       labels: ["policy"],
-      appliesTo: ["result", "visibility", "readiness"],
+      appliesTo: ["result", "revise", "visibility", "readiness"],
       execute: async (context: CheckContext): Promise<CheckResult> => {
         let names: string[];
         try {
@@ -1947,6 +1993,124 @@ export const model = {
           resultName(args.name),
           result,
         );
+        return { dataHandles: [handle] };
+      }),
+    },
+    revise: {
+      description:
+        "Take an app already built to a newly agreed version of its outcome spec, for the " +
+        "same request: write the new outcome spec into spec/, bring spec/app-spec.json's " +
+        "source, out of scope and recipe phrases up to it, write spec/change-plan.vN.md " +
+        "(what changed and what it affects), and record the new source on the draft. It " +
+        "never touches the app's code, tests, manifest or docs: the builder works from the plan.",
+      arguments: ReviseArgsSchema,
+      execute: method(async (args: ReviseArgs, context: MethodContext) => {
+        context.logger.info("Revising {name} from {source}", {
+          name: args.name,
+          source: sourceLabel(args.outcomeSpec),
+        });
+        const raw = context.readResource
+          ? await context.readResource(args.name)
+          : null;
+        const draft = raw ? DraftSchema.safeParse(raw) : null;
+        if (!draft?.success) {
+          throw new Error(
+            `No draft of "${args.name}" has been rendered by this model instance. ` +
+              "Run @puddleworks/puddleworks-factory-build for the spec first.",
+          );
+        }
+        const root = (args.targetDir ?? draft.data.targetDir).replace(
+          /\/+$/,
+          "",
+        );
+        await checkDraftTarget(root, draft.data);
+        const { spec: now } = await loadOutcomeSpec(args.outcomeSpec, io);
+        const old = await latestOutcomeIn(`${root}/spec`);
+        if (!old) {
+          throw new Error(
+            `${root}/spec has no outcome-spec.v*.json, so there is no agreed version to ` +
+              "revise from. Build it from the outcome spec instead.",
+          );
+        }
+        if (old.spec.request.id !== now.request.id) {
+          throw new Error(
+            `The outcome spec is for request ${now.request.id}, but ${args.name} was built ` +
+              `for request ${old.spec.request.id}.`,
+          );
+        }
+        const from = old.spec.specification.version;
+        const to = now.specification.version;
+        if (to <= from) {
+          throw new Error(
+            `${args.name} already meets version ${from} of the spec; this is version ${to}.`,
+          );
+        }
+        const appSpecPath = `${root}/spec/app-spec.json`;
+        if (!(await exists(appSpecPath))) {
+          throw new Error(`Could not read ${appSpecPath}: it does not exist.`);
+        }
+        const appSpec = JSON.parse(await Deno.readTextFile(appSpecPath));
+        const changes = specChanges(old.spec, now);
+        const source = {
+          url: now.request.url,
+          version: to,
+          specHash: now.agreement.specHash,
+        };
+        const examples = now.specification.recipe?.examples ?? [];
+        const s = appSpec.specification ?? {};
+        const revised = {
+          ...appSpec,
+          specification: {
+            ...s,
+            outOfScope: now.specification.scope.out,
+            ...(examples.length
+              ? {
+                recipe: {
+                  ...(s.recipe ?? {}),
+                  examples,
+                  whenEmpty: now.specification.recipe?.whenEmpty ??
+                    s.recipe?.whenEmpty ?? "",
+                },
+              }
+              : {}),
+          },
+          source,
+        };
+        if (!examples.length) delete revised.specification.recipe;
+        const record = checkedResource("draft", {
+          ...draft.data,
+          source,
+          ...(draft.data.recipe
+            ? {
+              recipe: {
+                ...draft.data.recipe,
+                examples: examples.map((e) => e.phrase),
+              },
+            }
+            : {}),
+          // A readiness check from before now was of the old phrases.
+          renderedAt: new Date().toISOString(),
+        });
+        const files: Array<[string, string]> = [
+          [
+            `spec/outcome-spec.v${to}.json`,
+            JSON.stringify(now, null, 2) + "\n",
+          ],
+          ["spec/app-spec.json", JSON.stringify(revised, null, 2) + "\n"],
+          [
+            `spec/change-plan.v${to}.md`,
+            changePlan(args.name, old.spec, now, changes),
+          ],
+        ];
+        for (const [path, text] of files) {
+          await writeFileIn(`${root}/${path}`, text);
+        }
+        context.logger.info("Revised {name} from version {from} to {to}", {
+          name: args.name,
+          from,
+          to,
+        });
+        const handle = await context.writeResource("draft", args.name, record);
         return { dataHandles: [handle] };
       }),
     },

@@ -134,6 +134,12 @@ jq -r '.format // .apiVersion' SPEC_FILE   # or: curl -fsSL SPEC_URL | jq -r '.f
 - `puddleworks.dev/app-spec/v1`: already an app spec
   (`docs/contracts/app-spec.md`). Its `name` is the app name. Skip step 1a.
 
+An outcome spec at version 2 or more may be for a request that already has an
+app: its Capture page lists a build result with the repo. Check with
+`jq -r .request.id APP/spec/outcome-spec.v1.json`, which must equal the
+export's `request.id` (the `request.url` may differ). If it does, follow
+**Revising an app that is already built** below instead of steps 1a to 3.
+
 Below, `NAME` is the app name, `SPEC` is the app spec to build from, `REPO` is
 the app repo's https URL (`https://github.com/ORG/NAME`), `W` is the
 worktree step 2 makes for the build (with Orca, `~/orca/workspaces/NAME/draft-NAME`; with git, `NAME-draft` beside `APP`),
@@ -806,3 +812,54 @@ and each passed example's `detail` says whether the app ran. So say if a recipe'
 answers were not tried for real, and if `Recipe: none` says there is no recipe,
 say why. If the spec had a `source`, the build result
 names the request, version and hash, so it can be matched to the request later.
+
+## Revising an app that is already built
+
+When an agreed outcome spec is a newer version for a request that already has
+an app (see Input), don't draft a new skeleton: that would replace the finished
+code. Change the existing app on a branch instead, from a change plan.
+
+Make the branch from the app's `main`, as step 2 does, but name it
+`revise/NAME-vN` (`N` is the export's `specification.version`), and use its
+worktree as `W`. Skip the template clean-up. Then, from the swamp repo of step 1:
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-revise --input name=NAME \
+  --input outcomeSpec=OUTCOME --input targetDir=W --json \
+  | jq -r '.status + " " + ([.jobs[].steps[] | select(.status=="failed") | .error] | join(" | "))'
+```
+
+`succeeded` means it wrote `W/spec/outcome-spec.vN.json` and
+`W/spec/change-plan.vN.md`, and brought `W/spec/app-spec.json`'s `source`,
+out-of-scope list and recipe phrases up to version `N`. It changes no code,
+tests, manifest or docs. On `failed`: `is for request` means the export is for
+another request; `already meets version` means the app is at that version or
+newer; `No draft` means this swamp repo's model didn't build the app, so run it
+from the one that did.
+
+Commit what it wrote untouched, so the diff shows the spec change and the plan:
+
+```bash
+git -C W add spec/
+git -C W commit -q -m "Take NAME to spec version N"
+```
+
+Show the user the plan. If it changes inputs, settings, output or delivery,
+agree them with the user and write them into `W/spec/app-spec.json`, as step 1a
+does. Then do step 4 with the plan as its starting point, and steps 5 to 11,
+changing the finished code only where the plan says. Update the app's section
+of `W/CLAUDE.md` and `W/README.md`, and give the manifest a new `version:`.
+Wherever a step says `draft/NAME`, use the revision branch. The build result
+names version `N` and its hash, which is what Capture checks.
+
+### Proposing a revision from the build side
+
+If building shows the agreed spec has to change, propose the change in Capture
+rather than building past it. Edit `W/spec/outcome-spec.vN.json` (the highest
+version), and in the swamp repo where Capture runs, run its
+`revise_specification` method with `outcomeSpec` set to that file's
+**absolute** path (Capture reads a relative path from its own repo), a
+one-sentence `reason`, and `as` the builder's email. The builder must already be
+on the request in Capture. Capture saves it as version `N+1` with the reason
+and proposes it to the outcome owner. Once they agree it and it is exported,
+revise the app from that export as above.

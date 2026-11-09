@@ -1,0 +1,55 @@
+id: 140a1578-5edf-484d-947e-fdd5380e1234
+name: "@puddleworks/puddleworks-factory-revise"
+description: >-
+  Take an app that is already built to a newly agreed version of its outcome
+  spec, for the same request. It writes the new outcome spec and a change plan
+  into the app's spec/ folder, brings spec/app-spec.json up to the new version,
+  and records the new version and hash on the puddleworks-factory model. It
+  changes no code, tests, manifest or docs: the builder works from the plan.
+version: 1
+
+inputs:
+  type: object
+  properties:
+    name:
+      type: string
+      description: >-
+        The app's name, as drafted by @puddleworks/puddleworks-factory-build
+        on this swamp repo's puddleworks-factory model.
+    outcomeSpec:
+      type: string
+      description: >-
+        The newly agreed puddleworks.dev/outcome-spec/v1 for the same request:
+        a file path, an https URL, or the JSON itself.
+    targetDir:
+      type: string
+      description: >-
+        The app repo checkout to revise, on its revision branch. Leave blank
+        to use the one the draft was written to.
+      default: ""
+  required:
+    - name
+    - outcomeSpec
+
+jobs:
+  - name: revise
+    description: >-
+      Bring the app's spec up to the new version and write the change plan.
+    dependsOn: []
+    weight: 0
+    steps:
+      - name: revise
+        description: >-
+          Write the new spec and change plan, and record the new source on
+          the puddleworks-factory model.
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+        task:
+          type: model_method
+          modelIdOrName: puddleworks-factory
+          methodName: revise
+          inputs:
+            name: ${{ inputs.name }}
+            outcomeSpec: ${{ inputs.outcomeSpec }}
+            targetDir: ${{ inputs.targetDir }}
