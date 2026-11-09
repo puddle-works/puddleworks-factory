@@ -189,6 +189,30 @@ criteria) and **propose** a value for each `toDecide` field, in one message:
 - `delivery.method`: usually `packaged_script`; `scheduled_workflow` if it runs
   on a timer; `external_app` or `manual_process` mean there is nothing to draft.
 
+Before the user agrees these, check the request is still at the version it was
+agreed at. Whoever handed over the spec may have revised it in the tool it came
+from since, and that tool then refuses a build result for the old version, after
+the whole build. This is the cheapest point to stop. Get the request's outcome
+spec again the way you got `OUTCOME` (the same URL, or a new export from the
+tool, such as Capture's `export_outcome_spec` or its request page), and save it
+as `SP/outcome-spec.latest.json`. Factory shares no code with that tool, so it
+reads only what the tool exports. Then:
+
+```bash
+jq -nr --slurpfile a SP/app-spec.json --slurpfile l SP/outcome-spec.latest.json '$a[0].source as $s | $l[0] as $n |
+  if $s.version == null then "no agreed version to check against"
+  elif $n.specification.version == $s.version and $n.agreement.specHash == $s.specHash
+  then "still version \($s.version)"
+  else "changed: this build is of version \($s.version) (\($s.specHash[:12])), the request is now at version \($n.specification.version) (\($n.agreement.specHash[:12]))\n" | halt_error(1)
+  end'
+```
+
+`still version N` means go on. `changed: …`, or a tool that won't export it
+because it is no longer agreed, means the request was revised: stop, tell the
+user both versions, and ask whether to start again from the new one (step 1a
+with it as `OUTCOME`) or wait. Don't build the old one. `no agreed version`
+means the spec's `source` names none, so there is nothing to check.
+
 Use `AskUserQuestion` for choices with real alternatives, and wait for the user
 to confirm or change every field. Do not build on your own guesses. Write the
 agreed values into `SP/app-spec.json` (keep `source` as it is), then check it:
@@ -664,7 +688,25 @@ swamp data query 'behavior("puddleworks-factory") && name == "readiness-NAME"' \
   --select content --json | jq -r '.results[0] | .ready, .summary'
 ```
 
-Ask only if it says `true`. Show the `summary` exactly as it is, in a code
+Then check the request is still at the agreed version, as in step 1a: get its
+outcome spec again into `SP/outcome-spec.latest.json`, and run:
+
+```bash
+jq -nr --slurpfile a W/spec/app-spec.json --slurpfile l SP/outcome-spec.latest.json '$a[0].source as $s | $l[0] as $n |
+  if $s.version == null then "no agreed version to check against"
+  elif $n.specification.version == $s.version and $n.agreement.specHash == $s.specHash
+  then "still version \($s.version)"
+  else "changed: this build is of version \($s.version) (\($s.specHash[:12])), the request is now at version \($n.specification.version) (\($n.agreement.specHash[:12]))\n" | halt_error(1)
+  end'
+```
+
+This is the last point to stop before anything is pushed to the registry. On
+`changed: …`, don't publish: tell the user both versions and stop, as the build
+is of a version that is no longer agreed. Updating it to the new version is a
+new build. Skip this for an app spec with no `source`.
+
+Ask only if readiness says `true` and the request is still at its version. Show
+the `summary` exactly as it is, in a code
 block: the package and version, the visibility against the recommendation, the
 PR and commit, the review's verdicts, and each acceptance criterion with its
 tests. Add that it is published from that commit on `draft/NAME`, before the PR
