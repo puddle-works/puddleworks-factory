@@ -62,7 +62,7 @@ const TOKEN = {
 };
 
 /** Turns no recipe is for, as the engine tries them to refuse a catch-all. */
-const ANY_TURN_PROBES = [
+export const ANY_TURN_PROBES = [
   "",
   "x",
   "please fix the bug in this file",
