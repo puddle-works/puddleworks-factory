@@ -202,7 +202,7 @@ Deno.test("package: the settings block keeps the arguments of /factory-build ove
   assertEquals(skill.includes("O='{}'"), true, "the arguments line");
 });
 
-Deno.test("package: the settings block refuses a setting that isn't text and a file with two objects", async () => {
+Deno.test("package: the settings block refuses a setting it can't use, and a file with two objects", async () => {
   for (
     const bad of [
       '{"org":null}',
@@ -210,6 +210,14 @@ Deno.test("package: the settings block refuses a setting that isn't text and a f
       '{"template":5}',
       '{"worktrees":["git"]}',
       '{"org":"a"}\n{"org":"b"}',
+      // Text, but not a value the skill can use (issue #97).
+      '{"collective":"acme"}',
+      '{"collective":"@Acme"}',
+      '{"worktrees":"banana"}',
+      '{"org":"acme/apps"}',
+      '{"template":"puddle-template"}',
+      '{"secrets":["ONE TWO"]}',
+      '{"secrets":[1]}',
     ]
   ) {
     const got = await readSettings(bad);
@@ -219,6 +227,11 @@ Deno.test("package: the settings block refuses a setting that isn't text and a f
   }
   const bad = await readSettings("{}", '{"org":null}');
   assertEquals(bad.code === 0, false, bad.stdout);
+  const good = await readSettings(
+    '{"org":"Acme-2","template":"acme/app.template","collective":"@acme-2","worktrees":"git","secrets":["A_1"]}',
+  );
+  assertEquals(good.code, 0, good.stderr);
+  assertEquals(good.stdout, "Acme-2|acme/app.template|A_1|@acme-2");
 });
 
 /** What the skill's secret grant asks of gh in this shell, after its settings block. */
