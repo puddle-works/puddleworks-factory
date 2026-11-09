@@ -85,10 +85,8 @@ const plural = (n: number, one: string, many = `${one}s`) =>
 const STAGE = Object.fromEntries(STAGES.map((s) => [s.stage, s]));
 
 function badge(stage: Stage): string {
-  const { badge, heading } = STAGE[stage];
-  return `<span class="badge badge-${badge}">${
-    esc(stage === "ready" ? "Ready to publish" : heading)
-  }</span>`;
+  const { badge, label } = STAGE[stage];
+  return `<span class="badge badge-${badge}">${esc(label)}</span>`;
 }
 
 const LOGO =
@@ -131,21 +129,21 @@ ${body}
 function cardNote(app: App, stage: Stage): string | undefined {
   const { prefill, draft, visibility, readiness, buildResult } = app;
   switch (stage) {
-    case "to_decide":
+    case "agree":
       return prefill && prefill.toDecide.length > 0
         ? `${plural(prefill.toDecide.length, "thing")} to decide`
         : "nothing left to decide";
-    case "drafted":
+    case "implement":
       return draft ? plural(draft.files.length, "file") : undefined;
-    case "visibility_checked":
+    case "visibility":
       return visibility && `recommends ${visibility.recommendation}`;
-    case "blocked":
+    case "review":
       return readiness && plural(readiness.blockers.length, "blocker");
-    case "ready":
+    case "publish":
       return buildResult?.pullRequest || readiness?.pullRequest
         ? "PR open"
         : "no pull request yet";
-    case "released":
+    case "record":
       return buildResult?.published &&
         `${buildResult.published.version}, ${buildResult.published.visibility}`;
   }
@@ -187,7 +185,7 @@ ${rest.map(card).join("\n")}
     waiting > 0
       ? `<p class="waiting-note">${
         plural(waiting, "app")
-      } waiting on you: each one needs a decision or a fix before it can move on.</p>`
+      } waiting on you: each one needs your decision before it can move on.</p>`
       : "",
     apps.length === 0
       ? `<p class="empty">No apps yet. Start one with <code>swamp workflow run @puddleworks/puddleworks-factory-prefill</code>.</p>`

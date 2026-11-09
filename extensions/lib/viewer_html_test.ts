@@ -78,16 +78,22 @@ Deno.test("viewer html: the overview lists the groups in Factory order", () => {
   ]);
   const html = overviewPage(apps, READ_AT);
   assertReadOnly(html);
-  const order = ["To decide", "Blocked", "Released"].map((h) =>
-    html.indexOf(`>${h}</h2>`)
+  const order = ["Agree and select target", "Independent review", "Record"].map(
+    (
+      h,
+    ) => html.indexOf(`>${h}</h2>`),
   );
   assert(order.every((i) => i > 0), "every group has a heading");
   assertEquals([...order].sort((a, b) => a - b), order);
-  assert(!html.includes(">Drafted</h2>"), "an empty group is left out");
+  assert(
+    !html.includes(">Generate and implement</h2>"),
+    "an empty group is left out",
+  );
   assertStringIncludes(html, 'href="/apps/idea"');
   assertStringIncludes(html, "1 thing to decide");
   assertStringIncludes(html, "2 blockers");
-  assertStringIncludes(html, 'class="badge badge-delivered">Released<');
+  assertStringIncludes(html, 'class="badge badge-delivered">Published<');
+  assertStringIncludes(html, 'class="badge badge-closed">Blocked<');
   assertStringIncludes(html, "Read ");
 });
 
