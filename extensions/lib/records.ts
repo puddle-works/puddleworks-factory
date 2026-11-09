@@ -11,6 +11,7 @@
 import { z } from "npm:zod@4";
 import { SpecSourceSchema } from "../contracts/app_spec_v1.ts";
 import { BuildExamplesSchema } from "../contracts/build_result_v1.ts";
+import { CandidateSchema, VERDICTS } from "./assess.ts";
 
 export const DraftSchema = z.object({
   /** The app spec's name. */
@@ -134,6 +135,32 @@ export const ReadinessSchema = z.object({
   commit: z.string().nullable(),
   assessedAt: z.iso.datetime(),
 });
+
+export const AssessmentSchema = z.object({
+  /** The app name the assessment is filed under. */
+  name: z.string(),
+  /** `inline`, or the path or URL the outcome spec was read from. */
+  specSource: z.string(),
+  delivery: z.enum(["packaged_script", "scheduled_workflow"]),
+  verdict: z.enum(VERDICTS),
+  /** The candidate the verdict uses, when it uses one. */
+  chosen: z.object({
+    extension: z.string(),
+    type: z.string(),
+    method: z.string(),
+  }).nullable(),
+  /** Every candidate looked at, whose it is, and the checks it failed. */
+  candidates: z.array(CandidateSchema.extend({
+    owner: z.enum(["ours", "external"]),
+    fits: z.boolean(),
+    failed: z.array(z.string()),
+  })),
+  reason: z.string(),
+  assessedAt: z.iso.datetime(),
+});
+
+/** An assessment record: what needs building, and the evidence. */
+export type AssessmentRecord = z.infer<typeof AssessmentSchema>;
 
 /** A draft record: which files were written where. */
 export type DraftRecord = z.infer<typeof DraftSchema>;
