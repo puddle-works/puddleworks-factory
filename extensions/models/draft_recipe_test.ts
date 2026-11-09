@@ -370,9 +370,12 @@ Deno.test("recipe through the model: readiness checks it and the build result re
     await finish(dir);
     const readiness = await readinessOf(dir, ctx);
     assertEquals(readiness.blockers, []);
+    // The app may change things, so it isn't run, and each example says so.
+    const detail =
+      "The recipe engine routed this phrase to the app; the app was not run.";
     assertEquals(readiness.examples, [
-      { phrase: "show issue 42?", passed: true },
-      { phrase: "what's in issue 7", passed: true },
+      { phrase: "show issue 42?", passed: true, detail },
+      { phrase: "what's in issue 7", passed: true, detail },
     ]);
     assertStringIncludes(
       readiness.recipe as string,

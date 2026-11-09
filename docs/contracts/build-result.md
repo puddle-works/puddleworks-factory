@@ -35,15 +35,17 @@ When the spec has a recipe, `examples` comes from the latest readiness check,
 which sends each phrase through the recipe engine, as long as that check came
 after the latest render. That check runs the app only if its manifest says
 `effects-read`, and then only to time it: it says a phrase reaches the app with
-inputs it takes, not that the answer is right. If you have checked more than
-that, pass your own outcomes instead. Pass them on every later run too, because
-each run replaces the last:
+inputs it takes, not that the answer is right. So each passed example's `detail`
+says what was checked: that the app was not run, or, for a phrase it timed, how
+long the app took and that its answer was not checked. If you have checked more
+than that, pass your own outcomes instead, with a `detail` that says what you
+saw. Pass them on every later run too, because each run replaces the last:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result \
   --input name=obsidian-puddle-scanner \
   --input buildRef=draft/obsidian-puddle-scanner \
-  --input 'examples:json=[{"phrase":"which notes need a request","passed":true}]'
+  --input 'examples:json=[{"phrase":"which notes need a request","passed":true,"detail":"Ran it on my vault; it listed the three notes I expected."}]'
 ```
 
 ## Shape
@@ -64,13 +66,16 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
 | `examples`      | no       | One entry per example in the agreed spec's recipe, once the build has been checked against them |
 | `builtAt`       | yes      | ISO 8601 timestamp of when the result was written                                               |
 
+A private publish is still published: `published` says the version is in the
+registry, and `visibility` says who can see it.
+
 Each entry in `examples`:
 
-| Field               | Required | Meaning                                                                         |
-| ------------------- | -------- | ------------------------------------------------------------------------------- |
-| `examples[].phrase` | yes      | The example's phrase, exactly as in the spec. 1 to 500 characters               |
-| `examples[].passed` | yes      | Whether the build answers that phrase as the example says                       |
-| `examples[].detail` | no       | What was seen, in plain words, especially when it failed. Up to 2000 characters |
+| Field               | Required | Meaning                                                                                                 |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
+| `examples[].phrase` | yes      | The example's phrase, exactly as in the spec. 1 to 500 characters                                       |
+| `examples[].passed` | yes      | Whether the build answers that phrase as the example says                                               |
+| `examples[].detail` | no       | What was seen, in plain words: why it failed, or what was checked when it passed. Up to 2000 characters |
 
 There are at most 50 entries. A reader that decides whether a request is done
 matches each `phrase` against the agreed spec. A missing example counts as not

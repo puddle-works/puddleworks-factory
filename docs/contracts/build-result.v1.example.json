@@ -8,7 +8,11 @@
   "buildRef": "draft/obsidian-puddle-scanner",
   "pullRequest": "https://github.com/example/obsidian-puddle-scanner/pull/42",
   "examples": [
-    { "phrase": "which notes need a request", "passed": true },
+    {
+      "phrase": "which notes need a request",
+      "passed": true,
+      "detail": "The recipe engine routed this phrase to the app; the app was not run."
+    },
     {
       "phrase": "what is waiting in my vault",
       "passed": false,

@@ -118,7 +118,10 @@ const draft = (examples = ["show issue 42", "show issue 7?"]) => ({
   },
 });
 
-Deno.test("recipe check: every phrase answered, one passed example each", async () => {
+const NOT_RUN =
+  "The recipe engine routed this phrase to the app; the app was not run.";
+
+Deno.test("recipe check: every phrase answered, one passed example each, saying the app was not run", async () => {
   const seen: string[][] = [];
   const got = await recipeReadiness(
     files(),
@@ -127,8 +130,8 @@ Deno.test("recipe check: every phrase answered, one passed example each", async 
   );
   assertEquals(got.blockers, []);
   assertEquals(got.examples, [
-    { phrase: "show issue 42", passed: true },
-    { phrase: "show issue 7?", passed: true },
+    { phrase: "show issue 42", passed: true, detail: NOT_RUN },
+    { phrase: "show issue 7?", passed: true, detail: NOT_RUN },
   ]);
   assertEquals(got.line, "2 of 2 example phrases passed");
   const flat = seen.map((a) => a.join(" "));
@@ -326,6 +329,32 @@ Deno.test("speed: an app that only reads is run once for each phrase and timed",
   );
   assertStringIncludes(got.line!, "1 of 1 example phrases passed");
   assertStringIncludes(got.line!, "Slowest run 2.5 s");
+  assertEquals(got.examples, [{
+    phrase: "show issue 42",
+    passed: true,
+    detail:
+      "The recipe engine routed this phrase to the app, which ran in 2.5 s; its answer was not checked.",
+  }]);
+});
+
+Deno.test("speed: a run that stops part way says which phrases ran", async () => {
+  // The first phrase runs; the engine won't run the second, so timing stops.
+  let runs = 0;
+  const { run, now } = appSwamp({ runSeconds: 1 });
+  const once: SwampRun = (args, cwd, timeoutMs) =>
+    args.includes("execute") && timeoutMs !== undefined && ++runs > 1
+      ? Promise.resolve(
+        ok({ action: "would-ask", ok: true, text: "Would ask.", error: "" }),
+      )
+      : run(args, cwd, timeoutMs);
+  const got = await recipeReadiness(readingApp(), draft(), once, {
+    dir: "/w/app",
+    now,
+  });
+  assertEquals(got.examples?.map((e) => e.detail), [
+    "The recipe engine routed this phrase to the app, which ran in 1.0 s; its answer was not checked.",
+    NOT_RUN,
+  ]);
 });
 
 Deno.test("speed: a run over the budget blocks, and says what to do", async () => {
@@ -397,6 +426,7 @@ Deno.test("speed: an app that may change things is never run", async () => {
   assertEquals(got.blockers, []);
   assertStringIncludes(got.line!, "Speed not timed");
   assertStringIncludes(got.line!, "may change things");
+  assertEquals(got.examples?.map((e) => e.detail), [NOT_RUN, NOT_RUN]);
 });
 
 Deno.test("speed: only effects-read without effects-write counts as only reading", async () => {

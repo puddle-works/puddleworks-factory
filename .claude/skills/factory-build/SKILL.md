@@ -684,6 +684,7 @@ Tell the user: the package and version, its visibility and why, the PR (which
 they merge), the build result file, how long the run took, and anything
 skipped (the real run, a check). The build result takes `examples` from the
 last readiness check, which shows a phrase reaches the app without running it,
-so say if a recipe's answers were not tried for real, and if `Recipe: none` says
-there is no recipe, say why. If the spec had a `source`, the build result
+and each passed example's `detail` says whether the app ran. So say if a recipe's
+answers were not tried for real, and if `Recipe: none` says there is no recipe,
+say why. If the spec had a `source`, the build result
 names the request, version and hash, so it can be matched to the request later.
