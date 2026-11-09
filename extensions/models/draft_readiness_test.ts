@@ -15,6 +15,7 @@ import {
 } from "jsr:@std/assert@1.0.19";
 import { model } from "./draft.ts";
 import { REVIEW_DIMENSIONS } from "../lib/readiness.ts";
+import { appCheckout } from "../lib/target_testing.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
@@ -52,9 +53,8 @@ function makeContext() {
 async function withReviewedDraft(
   fn: (dir: string, ctx: ReturnType<typeof makeContext>) => Promise<void>,
 ) {
-  const dir = await Deno.makeTempDir({ prefix: "factory-readiness-" });
+  const dir = await appCheckout(REPO, "factory-readiness-");
   try {
-    await Deno.writeTextFile(`${dir}/.swamp.yaml`, "tools:\n  - claude\n");
     const ctx = makeContext();
     await model.methods.render.execute(
       model.methods.render.arguments.parse({

@@ -52,7 +52,13 @@ import {
 } from "../lib/spec_source.ts";
 import { prefillAppSpec, slugFrom } from "../lib/prefill.ts";
 import { assess, CandidateSchema, MatchSchema } from "../lib/assess.ts";
+import { changePlan, specChanges } from "../lib/revision.ts";
 import {
+  type OutcomeSpec,
+  parseOutcomeSpec,
+} from "../contracts/outcome_spec_v1.ts";
+import {
+  builtInRecipeProblem,
   reservedNameProblem,
   reservedPrefix,
   RESOURCE_PREFIX,
@@ -61,6 +67,7 @@ import {
 import { assessVisibility } from "../lib/visibility.ts";
 import { linkProblem, safeData, safeText } from "../lib/redact.ts";
 import { assessReadiness } from "../lib/readiness.ts";
+import { checkOutputPath, checkTarget } from "../lib/target.ts";
 import {
   DRAFT_LINE,
   RECIPE_BUDGET_SECONDS,
@@ -78,6 +85,7 @@ import {
 import {
   AssessmentSchema,
   DraftSchema,
+  PlanReviewSchema,
   PrefillSchema,
   ReadinessSchema,
   VisibilitySchema,
@@ -955,6 +963,8 @@ export function renderDraft(
   }
   const prefix = reservedPrefix(name);
   if (prefix) throw new Error(reservedNameProblem(name, prefix));
+  const builtIn = builtInRecipeProblem(name);
+  if (builtIn) throw new Error(builtIn);
   const secretName = secretNameProblem("The app name", name);
   if (secretName) throw new Error(secretName);
   if (!DRAFTABLE.includes(delivery.method)) {
@@ -1069,16 +1079,25 @@ const PrefillArgsSchema = z.object({
 
 type PrefillArgs = z.infer<typeof PrefillArgsSchema>;
 
+/** Workflows pass "" for an input left blank; treat it as not given. */
+const optional = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
+
 const RenderArgsSchema = z.object({
   /**
    * A puddleworks.dev/app-spec/v1 spec: a file path, an https URL, or the
    * spec itself as inline JSON.
    */
   spec: z.string().min(1),
-  /** Absolute path of a checkout of the app's own repo. */
+  /**
+   * Absolute real path of the root of a checkout of the app's own repo, whose
+   * origin is `repository`. Never the Factory's own checkout.
+   */
   targetDir: z.string().min(1),
   /** `https://` URL of the app's repo, written into the manifest. */
   repository: z.string().min(1),
+  /** The branch the checkout must have checked out, when given. */
+  branch: optional(z.string().min(1)),
   overwrite: z.boolean().default(false),
   /** "private" (the default) keeps the package off the public registry until it is decided otherwise. */
   visibility: z.enum(["public", "private"]).default("private"),
@@ -1086,16 +1105,12 @@ const RenderArgsSchema = z.object({
 
 type RenderArgs = z.infer<typeof RenderArgsSchema>;
 
-/** Workflows pass "" for an input left blank; treat it as not given. */
-const optional = <T extends z.ZodType>(schema: T) =>
-  z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
-
 const ResultArgsSchema = z.object({
   /** The app spec's name, as drafted by `render` on this instance. */
   name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   /** https URL of the repository the draft was pushed to. Defaults to the draft's. */
   repository: optional(z.string().min(1)),
-  /** Branch or commit the build is on, e.g. `draft/<name>`. */
+  /** Branch or commit the build is on, e.g. `draft/<name>`; once published, its commit. */
   buildRef: z.string().min(1),
   /** https URL of the pull request, once there is one. */
   pullRequest: optional(z.string()),
@@ -1148,11 +1163,42 @@ const VisibilityArgsSchema = z.object({
   provisionalQuality: z.number().int().min(0).max(100).default(0),
   /** The app repo's visibility on GitHub. */
   repoVisibility: z.enum(["public", "private"]),
-  /** The app repo checkout to check. Defaults to where the draft was written. */
+  /**
+   * The app repo checkout to check. Defaults to where the draft was written.
+   * Either way it must pass the same checks as render's targetDir, against
+   * the draft's repository.
+   */
   targetDir: optional(z.string().min(1)),
 });
 
 type VisibilityArgs = z.infer<typeof VisibilityArgsSchema>;
+
+const ReviseArgsSchema = z.object({
+  /** The app spec's name, as drafted by `render` on this instance. */
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+  /**
+   * The newly agreed puddleworks.dev/outcome-spec/v1 for the same request: a
+   * file path, an https URL, or the spec itself as inline JSON.
+   */
+  outcomeSpec: z.string().min(1),
+  /** The app repo checkout to revise. Defaults to where the draft was written. */
+  targetDir: optional(z.string().min(1)),
+});
+
+type ReviseArgs = z.infer<typeof ReviseArgsSchema>;
+
+const PlanReviewArgsSchema = z.object({
+  /** The app spec's name, as drafted by `render` on this instance. */
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+  /** The build plan the review is of, as an absolute path. */
+  plan: z.string().min(1),
+  /** The reviewer's verdict, or pending or failed when there is none. */
+  verdict: z.enum(["pass", "concerns", "pending", "failed"]),
+  /** A file holding the reviewer's reply, or why there is no review. */
+  response: optional(z.string().min(1)),
+});
+
+type PlanReviewArgs = z.infer<typeof PlanReviewArgsSchema>;
 
 const ReadinessArgsSchema = z.object({
   /** The app spec's name, as drafted by `render` on this instance. */
@@ -1163,7 +1209,11 @@ const ReadinessArgsSchema = z.object({
   pullRequest: optional(z.string()),
   /** The reviewed commit, shown in the summary. */
   commit: optional(z.string()),
-  /** The app repo checkout to check. Defaults to where the draft was written. */
+  /**
+   * The app repo checkout to check. Defaults to where the draft was written.
+   * Either way it must pass the same checks as render's targetDir, against
+   * the draft's repository.
+   */
   targetDir: optional(z.string().min(1)),
 });
 
@@ -1306,6 +1356,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
   buildResult: BuildResultSchema,
   visibility: VisibilitySchema,
   readiness: ReadinessSchema,
+  planReview: PlanReviewSchema,
 };
 
 /**
@@ -1383,6 +1434,25 @@ function method<A>(
   };
 }
 
+/**
+ * Check a checkout against the repository its draft was rendered for, as
+ * render checked it. A draft recorded before render took a repository has
+ * nothing to check the origin against, so it is refused.
+ */
+async function checkDraftTarget(
+  root: string,
+  draft: { name: string; repository?: string },
+): Promise<void> {
+  if (draft.repository === undefined) {
+    throw new Error(
+      `The draft of "${draft.name}" was recorded without its repository, so ` +
+        `${root} can't be shown to be its checkout. Run ` +
+        "@puddleworks/puddleworks-factory-build for it again with repository set.",
+    );
+  }
+  await checkTarget(root, draft.repository);
+}
+
 /** Write text to path, creating its directory first when it names one. */
 async function writeFileIn(path: string, text: string): Promise<void> {
   const slash = path.lastIndexOf("/");
@@ -1414,6 +1484,42 @@ async function readList<T extends z.ZodType>(
   return parsed.data;
 }
 
+/** `sha256:` and the hex digest of text, as the plan review records it. */
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(text),
+  );
+  return "sha256:" + [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** The highest-version outcome spec in a spec/ folder, or null when none parses. */
+async function latestOutcomeIn(
+  dir: string,
+): Promise<{ path: string; spec: OutcomeSpec } | null> {
+  let best: { path: string; spec: OutcomeSpec } | null = null;
+  if (!(await exists(dir))) return null;
+  for await (const e of Deno.readDir(dir)) {
+    if (!e.isFile || !/^outcome-spec\..*\.json$/.test(e.name)) continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(await Deno.readTextFile(`${dir}/${e.name}`));
+    } catch {
+      continue;
+    }
+    const parsed = parseOutcomeSpec(value);
+    if (!parsed.ok) continue;
+    if (
+      !best ||
+      parsed.spec.specification.version > best.spec.specification.version
+    ) {
+      best = { path: `${dir}/${e.name}`, spec: parsed.spec };
+    }
+  }
+  return best;
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await Deno.stat(path);
@@ -1428,6 +1534,8 @@ async function exists(path: string): Promise<boolean> {
  * The `@puddleworks/puddleworks-factory/draft` model: `assess` decides whether
  * an existing extension already does the job, `prefill` starts an app spec
  * from an outcome spec, `render` writes a first draft from an app spec,
+ * `revise` takes an app already built to a newly agreed version of its spec,
+ * `planReview` records a review of the build plan against the spec,
  * `visibility` recommends publishing it publicly or privately, `readiness`
  * says whether the reviewed app is ready to publish, and `result` says where
  * that build went.
@@ -1615,6 +1723,13 @@ export const model = {
       lifetime: "infinite" as const,
       garbageCollection: 20,
     },
+    planReview: {
+      description:
+        "The last review of an app's build plan against its spec: which version of the plan, the verdict and the reviewer's reply. Earlier versions keep the reviews of earlier plans.",
+      schema: PlanReviewSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
     readiness: {
       description:
         "The last check that an app is ready to publish: the review's verdicts, each acceptance criterion and its tests, the blockers, and a one-screen summary.",
@@ -1626,10 +1741,10 @@ export const model = {
   checks: {
     "draft-rendered": {
       description:
-        "Before result, visibility and readiness: this instance has rendered a draft. " +
+        "Before result, revise, planReview, visibility and readiness: this instance has rendered a draft. " +
         "Which app's draft is the method's own check, since checks get no arguments.",
       labels: ["policy"],
-      appliesTo: ["result", "visibility", "readiness"],
+      appliesTo: ["result", "revise", "planReview", "visibility", "readiness"],
       execute: async (context: CheckContext): Promise<CheckResult> => {
         let names: string[];
         try {
@@ -1782,12 +1897,10 @@ export const model = {
               "Use a checkout path without it.",
           );
         }
-        if (!(await exists(`${root}/.swamp.yaml`))) {
-          throw new Error(
-            `${root} does not look like an app repo checkout: it has no .swamp.yaml. ` +
-              "Pass targetDir as the path of a checkout of the app's own swamp repo, e.g. a git worktree of it.",
-          );
-        }
+        context.logger.debug("Checking {targetDir} is the app's checkout", {
+          targetDir: root,
+        });
+        await checkTarget(root, args.repository, args.branch);
 
         context.logger.debug("Reading the app spec from {source}", {
           source: from,
@@ -1807,6 +1920,7 @@ export const model = {
         > = [];
         const present: string[] = [];
         for (const f of files) {
+          await checkOutputPath(root, f.path);
           const path = `${root}/${f.path}`;
           const old = (await exists(path))
             ? await Deno.readTextFile(path)
@@ -2030,6 +2144,182 @@ export const model = {
         return { dataHandles: [handle] };
       }),
     },
+    revise: {
+      description:
+        "Take an app already built to a newly agreed version of its outcome spec, for the " +
+        "same request: write the new outcome spec into spec/, bring spec/app-spec.json's " +
+        "source, out of scope and recipe phrases up to it, write spec/change-plan.vN.md " +
+        "(what changed and what it affects), and record the new source on the draft. It " +
+        "never touches the app's code, tests, manifest or docs: the builder works from the plan.",
+      arguments: ReviseArgsSchema,
+      execute: method(async (args: ReviseArgs, context: MethodContext) => {
+        context.logger.info("Revising {name} from {source}", {
+          name: args.name,
+          source: sourceLabel(args.outcomeSpec),
+        });
+        const raw = context.readResource
+          ? await context.readResource(args.name)
+          : null;
+        const draft = raw ? DraftSchema.safeParse(raw) : null;
+        if (!draft?.success) {
+          throw new Error(
+            `No draft of "${args.name}" has been rendered by this model instance. ` +
+              "Run @puddleworks/puddleworks-factory-build for the spec first.",
+          );
+        }
+        const root = (args.targetDir ?? draft.data.targetDir).replace(
+          /\/+$/,
+          "",
+        );
+        await checkDraftTarget(root, draft.data);
+        const { spec: now } = await loadOutcomeSpec(args.outcomeSpec, io);
+        const old = await latestOutcomeIn(`${root}/spec`);
+        if (!old) {
+          throw new Error(
+            `${root}/spec has no outcome-spec.v*.json, so there is no agreed version to ` +
+              "revise from. Build it from the outcome spec instead.",
+          );
+        }
+        if (old.spec.request.id !== now.request.id) {
+          throw new Error(
+            `The outcome spec is for request ${now.request.id}, but ${args.name} was built ` +
+              `for request ${old.spec.request.id}.`,
+          );
+        }
+        const from = old.spec.specification.version;
+        const to = now.specification.version;
+        if (to <= from) {
+          throw new Error(
+            `${args.name} already meets version ${from} of the spec; this is version ${to}.`,
+          );
+        }
+        const appSpecPath = `${root}/spec/app-spec.json`;
+        if (!(await exists(appSpecPath))) {
+          throw new Error(`Could not read ${appSpecPath}: it does not exist.`);
+        }
+        const appSpec = JSON.parse(await Deno.readTextFile(appSpecPath));
+        const changes = specChanges(old.spec, now);
+        const source = {
+          url: now.request.url,
+          version: to,
+          specHash: now.agreement.specHash,
+        };
+        const examples = now.specification.recipe?.examples ?? [];
+        const s = appSpec.specification ?? {};
+        const revised = {
+          ...appSpec,
+          specification: {
+            ...s,
+            outOfScope: now.specification.scope.out,
+            ...(examples.length
+              ? {
+                recipe: {
+                  ...(s.recipe ?? {}),
+                  examples,
+                  whenEmpty: now.specification.recipe?.whenEmpty ??
+                    s.recipe?.whenEmpty ?? "",
+                },
+              }
+              : {}),
+          },
+          source,
+        };
+        if (!examples.length) delete revised.specification.recipe;
+        const record = checkedResource("draft", {
+          ...draft.data,
+          source,
+          ...(draft.data.recipe
+            ? {
+              recipe: {
+                ...draft.data.recipe,
+                examples: examples.map((e) => e.phrase),
+              },
+            }
+            : {}),
+          // A readiness check from before now was of the old phrases.
+          renderedAt: new Date().toISOString(),
+        });
+        const files: Array<[string, string]> = [
+          [
+            `spec/outcome-spec.v${to}.json`,
+            JSON.stringify(now, null, 2) + "\n",
+          ],
+          ["spec/app-spec.json", JSON.stringify(revised, null, 2) + "\n"],
+          [
+            `spec/change-plan.v${to}.md`,
+            changePlan(args.name, old.spec, now, changes),
+          ],
+        ];
+        for (const [path, text] of files) {
+          await writeFileIn(`${root}/${path}`, text);
+        }
+        context.logger.info("Revised {name} from version {from} to {to}", {
+          name: args.name,
+          from,
+          to,
+        });
+        const handle = await context.writeResource("draft", args.name, record);
+        return { dataHandles: [handle] };
+      }),
+    },
+    planReview: {
+      description:
+        "Record a review of an app's build plan against its agreed spec, by a reviewer " +
+        "that did not write the plan: the verdict (pass, concerns, pending or failed), " +
+        "the reply, and the plan's hash, so a review stays with the version it was of. " +
+        "Advisory: it blocks nothing. Records the planReview resource.",
+      arguments: PlanReviewArgsSchema,
+      execute: method(async (args: PlanReviewArgs, context: MethodContext) => {
+        context.logger.info("Recording the plan review for {name}: {verdict}", {
+          name: args.name,
+          verdict: args.verdict,
+        });
+        const raw = context.readResource
+          ? await context.readResource(args.name)
+          : null;
+        if (!raw || !DraftSchema.safeParse(raw).success) {
+          throw new Error(
+            `No draft of "${args.name}" has been rendered by this model instance. ` +
+              "Run @puddleworks/puddleworks-factory-build for the spec first.",
+          );
+        }
+        if (!(await exists(args.plan))) {
+          throw new Error(
+            `Could not read the plan: ${args.plan} does not exist.`,
+          );
+        }
+        const plan = await Deno.readTextFile(args.plan);
+        if (args.response && !(await exists(args.response))) {
+          throw new Error(
+            `Could not read the response: ${args.response} does not exist.`,
+          );
+        }
+        const response = args.response
+          ? (await Deno.readTextFile(args.response)).trim()
+          : "";
+        if (
+          !response && (args.verdict === "pass" || args.verdict === "concerns")
+        ) {
+          throw new Error(
+            `A ${args.verdict} verdict needs the reviewer's reply: pass response.`,
+          );
+        }
+        const record = checkedResource("planReview", {
+          name: args.name,
+          plan: args.plan,
+          planHash: await sha256(plan),
+          verdict: args.verdict,
+          response,
+          reviewedAt: new Date().toISOString(),
+        });
+        const handle = await context.writeResource(
+          "planReview",
+          `${RESOURCE_PREFIX.planReview}${args.name}`,
+          record,
+        );
+        return { dataHandles: [handle] };
+      }),
+    },
     visibility: {
       description:
         "Check the app's repo before publishing and recommend public or private: licence, " +
@@ -2057,6 +2347,7 @@ export const model = {
           /\/+$/,
           "",
         );
+        await checkDraftTarget(root, draft.data);
         context.logger.debug("Scanning {targetDir}", { targetDir: root });
         const { files, notRead } = await textFiles(root);
         warnNotRead(context, notRead);
@@ -2121,6 +2412,7 @@ export const model = {
           /\/+$/,
           "",
         );
+        await checkDraftTarget(root, draft.data);
         const reviewFile = args.review.startsWith("/")
           ? args.review
           : `${root}/${args.review}`;

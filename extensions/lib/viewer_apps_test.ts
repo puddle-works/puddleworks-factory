@@ -12,6 +12,7 @@ import {
   appsFromRecords,
   grouped,
   stageOf,
+  STAGES,
   timeline,
   updatedAt,
   waitingOnPerson,
@@ -125,15 +126,15 @@ Deno.test("viewer apps: an app is placed by its newest record, not its furthest"
     buildResult(NAME, PUBLISHED),
   );
   const cases: Array<[string, unknown[], string]> = [
-    ["drafted again after readiness", [redraft, passed], "drafted"],
-    ["drafted again after visibility", [redraft, checked], "drafted"],
-    ["drafted again after being blocked", [redraft, blocked], "drafted"],
+    ["drafted again after readiness", [redraft, passed], "implement"],
+    ["drafted again after visibility", [redraft, checked], "implement"],
+    ["drafted again after being blocked", [redraft, blocked], "implement"],
     [
       "drafted again after all the checks",
       [redraft, checked, passed],
-      "drafted",
+      "implement",
     ],
-    ["drafted again after release", [redraft, released], "drafted"],
+    ["drafted again after release", [redraft, released], "implement"],
     [
       "checked again after the new draft",
       [
@@ -145,7 +146,7 @@ Deno.test("viewer apps: an app is placed by its newest record, not its furthest"
         ),
         passed,
       ],
-      "visibility_checked",
+      "visibility",
     ],
     [
       "ready again after the new draft",
@@ -158,7 +159,7 @@ Deno.test("viewer apps: an app is placed by its newest record, not its furthest"
           readiness(NAME, { assessedAt: LATEST }),
         ),
       ],
-      "ready",
+      "publish",
     ],
     [
       "released again after the new draft",
@@ -170,7 +171,7 @@ Deno.test("viewer apps: an app is placed by its newest record, not its furthest"
           buildResult(NAME, { ...PUBLISHED, builtAt: LATEST }),
         ),
       ],
-      "released",
+      "record",
     ],
     [
       "visibility checked again after readiness",
@@ -183,7 +184,7 @@ Deno.test("viewer apps: an app is placed by its newest record, not its furthest"
         ),
         passed,
       ],
-      "visibility_checked",
+      "visibility",
     ],
     [
       "visibility checked again after release",
@@ -196,7 +197,7 @@ Deno.test("viewer apps: an app is placed by its newest record, not its furthest"
         ),
         released,
       ],
-      "released",
+      "record",
     ],
     [
       "records written at the same moment, in Factory order",
@@ -213,7 +214,7 @@ Deno.test("viewer apps: an app is placed by its newest record, not its furthest"
           readiness(NAME, { assessedAt: LATER }),
         ),
       ],
-      "ready",
+      "publish",
     ],
   ];
   for (const [label, records, stage] of cases) {
@@ -243,21 +244,21 @@ Deno.test("viewer apps: each combination of records is in the right stage", () =
     [
       "prefill only",
       [record("prefill", `prefill-${NAME}`, prefill(NAME))],
-      "to_decide",
+      "agree",
     ],
     [
       "prefill with nothing left to decide",
       [record("prefill", `prefill-${NAME}`, prefill(NAME, { toDecide: [] }))],
-      "to_decide",
+      "agree",
     ],
-    ["draft only", [record("draft", NAME, draft(NAME))], "drafted"],
+    ["draft only", [record("draft", NAME, draft(NAME))], "implement"],
     [
       "prefill and draft",
       [
         record("prefill", `prefill-${NAME}`, prefill(NAME)),
         record("draft", NAME, draft(NAME)),
       ],
-      "drafted",
+      "implement",
     ],
     [
       "visibility",
@@ -265,7 +266,7 @@ Deno.test("viewer apps: each combination of records is in the right stage", () =
         record("draft", NAME, draft(NAME)),
         record("visibility", `visibility-${NAME}`, visibility(NAME)),
       ],
-      "visibility_checked",
+      "visibility",
     ],
     [
       "readiness with blockers",
@@ -277,7 +278,7 @@ Deno.test("viewer apps: each combination of records is in the right stage", () =
           readiness(NAME, { ready: false, blockers: ["AC1 has no test"] }),
         ),
       ],
-      "blocked",
+      "review",
     ],
     [
       "readiness passed",
@@ -285,7 +286,7 @@ Deno.test("viewer apps: each combination of records is in the right stage", () =
         record("draft", NAME, draft(NAME)),
         record("readiness", `readiness-${NAME}`, readiness(NAME)),
       ],
-      "ready",
+      "publish",
     ],
     [
       "a build result that isn't published",
@@ -294,7 +295,7 @@ Deno.test("viewer apps: each combination of records is in the right stage", () =
         record("readiness", `readiness-${NAME}`, readiness(NAME)),
         record("buildResult", `build-result-${NAME}`, buildResult(NAME)),
       ],
-      "ready",
+      "publish",
     ],
     [
       "a published build result",
@@ -308,12 +309,12 @@ Deno.test("viewer apps: each combination of records is in the right stage", () =
           }),
         ),
       ],
-      "released",
+      "record",
     ],
     [
       "an unpublished build result and nothing else",
       [record("buildResult", `build-result-${NAME}`, buildResult(NAME))],
-      "drafted",
+      "implement",
     ],
   ];
   for (const [label, records, stage] of cases) {
@@ -321,11 +322,26 @@ Deno.test("viewer apps: each combination of records is in the right stage", () =
   }
 });
 
-Deno.test("viewer apps: to decide and blocked are waiting on a person", () => {
-  assertEquals(waitingOnPerson("to_decide"), true);
-  assertEquals(waitingOnPerson("blocked"), true);
-  assertEquals(waitingOnPerson("drafted"), false);
-  assertEquals(waitingOnPerson("ready"), false);
+// A blocked readiness check is the builder's to fix; publishing needs a person.
+Deno.test("viewer apps: agreeing and publishing are waiting on a person", () => {
+  for (const { stage } of STAGES) {
+    assertEquals(
+      waitingOnPerson(stage),
+      stage === "agree" || stage === "publish",
+      stage,
+    );
+  }
+});
+
+Deno.test("viewer apps: the groups are the plan's stages that leave a record", () => {
+  assertEquals(STAGES.map((s) => s.heading), [
+    "Agree and select target",
+    "Generate and implement",
+    "Decide visibility",
+    "Independent review",
+    "PR and publication",
+    "Record",
+  ]);
 });
 
 Deno.test("viewer apps: an app is updated at its newest record", () => {
@@ -356,12 +372,12 @@ Deno.test("viewer apps: groups come in Factory order, newest first, and empty on
   ]);
   const groups = grouped(apps);
   assertEquals(groups.map((g) => g.stage), [
-    "to_decide",
-    "drafted",
-    "released",
+    "agree",
+    "implement",
+    "record",
   ]);
   assertEquals(groups[1].apps.map((a) => a.name), ["new", "old"]);
-  assertEquals(groups[0].heading, "To decide");
+  assertEquals(groups[0].heading, "Agree and select target");
 });
 
 Deno.test("viewer apps: the timeline shows every stage, done up to the last record", () => {

@@ -19,5 +19,7 @@ workflows:
   - workflow-prefill.yaml
   - workflow-visibility.yaml
   - workflow-readiness.yaml
+  - workflow-revise.yaml
+  - workflow-plan-review.yaml
 skills:
   - factory-build

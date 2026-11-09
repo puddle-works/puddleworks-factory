@@ -1,6 +1,7 @@
 /**
  * The records the draft model keeps for each app, one resource each: the
- * prefill, the draft, the visibility check and the readiness check. The build
+ * prefill, the draft, the plan review, the visibility check and the readiness
+ * check. The build
  * result is a puddleworks.dev/build-result/v1 (contracts/build_result_v1.ts).
  *
  * The draft model writes them and the viewer reads them, so both use these
@@ -136,6 +137,23 @@ export const ReadinessSchema = z.object({
   assessedAt: z.iso.datetime(),
 });
 
+export const PlanReviewSchema = z.object({
+  name: z.string(),
+  /** Where the plan was read from. */
+  plan: z.string(),
+  /** `sha256:` and the hex digest of the plan's text: the version reviewed. */
+  planHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  /**
+   * `pass`: the plan meets the spec and is a good plan. `concerns`: the
+   * reviewer found something to change. `pending`: no review yet. `failed`:
+   * the reviewer could not review it. Advisory: none of them stops the build.
+   */
+  verdict: z.enum(["pass", "concerns", "pending", "failed"]),
+  /** What the reviewer replied, or why there is no review. */
+  response: z.string(),
+  reviewedAt: z.iso.datetime(),
+});
+
 export const AssessmentSchema = z.object({
   /** The app name the assessment is filed under. */
   name: z.string(),
@@ -168,6 +186,8 @@ export type AssessmentRecord = z.infer<typeof AssessmentSchema>;
 export type DraftRecord = z.infer<typeof DraftSchema>;
 /** A prefill record: the starter app spec and what is left to decide. */
 export type PrefillRecord = z.infer<typeof PrefillSchema>;
+/** A plan review record: the verdict on one version of the build plan. */
+export type PlanReviewRecord = z.infer<typeof PlanReviewSchema>;
 /** A visibility record: the recommendation and its checks. */
 export type VisibilityRecord = z.infer<typeof VisibilitySchema>;
 /** A readiness record: the review, the criteria and the blockers. */

@@ -123,6 +123,12 @@ const CASES: Array<{
     mustNot: ["issue x in a/b", "issue 42 in a", "in a/b issue 42"],
   },
   {
+    what: "a phrase with a space before its question mark",
+    phrases: ["show issue ?"],
+    must: [["show issue", []], ["show issue?", []], ["Show issue ?!", []]],
+    mustNot: ["show issue ", "show issues", "show issue x"],
+  },
+  {
     what: "digits that are part of the phrase, when no piece wants them",
     phrases: ["top 10 tasks"],
     must: [["top 10 tasks", []]],

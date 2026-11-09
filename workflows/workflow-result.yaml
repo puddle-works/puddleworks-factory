@@ -28,7 +28,8 @@ inputs:
     buildRef:
       type: string
       description: >-
-        Branch or commit the build is on, e.g. draft/<name>.
+        Branch or commit the build is on, e.g. draft/<name>. Once it is
+        published, the commit it was published from.
     pullRequest:
       type: string
       description: >-

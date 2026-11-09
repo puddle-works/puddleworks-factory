@@ -18,6 +18,7 @@ export const RESOURCE_PREFIX = {
   visibility: "visibility-",
   readiness: "readiness-",
   assessment: "assessment-",
+  planReview: "plan-review-",
 } as const;
 
 /** The reserved prefix an app name starts with, or undefined if none. */
@@ -29,6 +30,21 @@ export function reservedPrefix(name: string): string | undefined {
 export function reservedNameProblem(name: string, prefix: string): string {
   return `App name "${name}" starts with "${prefix}", which the Factory keeps ` +
     "for its own records; pick another name.";
+}
+
+/**
+ * The ids of the recipes `@puddleworks/recipes` ships with. An app's recipe
+ * takes the app's name as its id, and the engine drops a recipe whose id is
+ * already taken, so an app with one of these names could never be reached.
+ * Kept in step with `RECIPES` in puddlerecipes `extensions/models/_lib/recipes.ts`.
+ */
+export const BUILT_IN_RECIPE_IDS = ["git-status", "git-log", "git-branch"];
+
+/** Why an app name can't be used because a built-in recipe has it, or undefined. */
+export function builtInRecipeProblem(name: string): string | undefined {
+  if (!BUILT_IN_RECIPE_IDS.includes(name)) return undefined;
+  return `App name "${name}" is the id of a recipe the recipe engine ships ` +
+    "with, so it would drop this app's recipe; pick another name.";
 }
 
 /**

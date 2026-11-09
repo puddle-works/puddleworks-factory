@@ -6,6 +6,7 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { stub } from "jsr:@std/testing@1.0.21/mock";
 import { guarded, model } from "./draft.ts";
+import { appCheckout } from "../lib/target_testing.ts";
 
 const APP_SPEC = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
@@ -78,9 +79,8 @@ function context(events: string[], store: Map<string, unknown>) {
 async function withCheckout(
   fn: (dir: string, store: Map<string, unknown>) => Promise<void>,
 ) {
-  const dir = await Deno.makeTempDir({ prefix: "factory-start-log-" });
+  const dir = await appCheckout(REPO, "factory-start-log-");
   try {
-    await Deno.writeTextFile(`${dir}/.swamp.yaml`, "tools:\n  - claude\n");
     await Deno.writeTextFile(`${dir}/app.json`, APP_SPEC);
     await Deno.writeTextFile(`${dir}/outcome.json`, OUTCOME_SPEC);
     const store = new Map<string, unknown>();

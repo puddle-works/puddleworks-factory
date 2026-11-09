@@ -33,31 +33,54 @@ config:
     padding: 24
 ---
 flowchart LR
-    describe["Describe"]
-    build["Build"]
+    intake["Intake and reuse"]
+    agree["Agree and select target"]
+    implement["Generate and implement"]
+    validate["Validate"]
+    visibility["Decide visibility"]
+    review["Independent review"]
+    publish["PR and publication"]
     record["Record"]
 
-    describe --> build
-    build --> record
+    intake --> agree --> implement --> validate
+    validate --> visibility --> review --> publish --> record
 ```
 
-1. **Describe** what the app should do.
-2. **Build** a starter app in the app's own repo.
-3. **Record** a receipt of where it went.
+1. **Intake and reuse**: read the spec and check it against its contract.
+   Looking for an existing extension to reuse is not built yet.
+2. **Agree and select target**: from an outcome spec, prefill an app spec and
+   agree its open choices; make the app's own repo and a draft branch in it.
+3. **Generate and implement**: generate a starter app that passes its own tests,
+   | Workflow | `@puddleworks/puddleworks-factory-assess` | Runs `assess`:
+   before anything is built, records whether an existing extension method fits
+   the outcome exactly, and so whether to write a recipe or workflow for it or
+   build an app | then build the behaviour test-first.
+4. **Validate**: format, tests, contracts, guardrails and quality all pass.
+5. **Decide visibility**: Factory recommends public or private; you decide.
+6. **Independent review**: a reviewer that didn't build it checks it against the
+   spec, and readiness checks that nothing is left.
+7. **PR and publication**: a pull request to the app's repo, then publishing
+   once you confirm the readiness summary.
+8. **Record**: a build result says where the build went and what was published.
+
+These are the stages in
+[the quality and gates plan](https://github.com/puddle-works/puddleworks-factory/blob/main/docs/factory-quality-and-gates-plan.md#lifecycle-and-gates),
+which says what each must have before the next.
 
 ## What is in the package
 
-| Kind     | Name                                          | What it does                                                                                                                                                                                                                      |
-| -------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Model    | `@puddleworks/puddleworks-factory/draft`      | `render` reads a spec and writes the extension, its tests, a workflow, the manifest, the app docs and a CI workflow; `visibility` recommends publishing it publicly or privately; `readiness` checks the review before publishing |
-| Model    | `@puddleworks/puddleworks-factory/web`        | `serve` shows every app by stage, and each app's records, on a read-only page on 127.0.0.1                                                                                                                                        |
-| Workflow | `@puddleworks/puddleworks-factory-assess`     | Runs `assess`: before anything is built, records whether an existing extension method fits the outcome exactly, and so whether to write a recipe or workflow for it or build an app                                               |
-| Workflow | `@puddleworks/puddleworks-factory-prefill`    | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                                                                                                                                           |
-| Workflow | `@puddleworks/puddleworks-factory-build`      | Runs `render` on the `puddleworks-factory` instance                                                                                                                                                                               |
-| Workflow | `@puddleworks/puddleworks-factory-visibility` | Runs `visibility`: checks the built app's repo and recommends public or private                                                                                                                                                   |
-| Workflow | `@puddleworks/puddleworks-factory-readiness`  | Runs `readiness`: checks the review report and that each acceptance criterion has a test, and writes a one-screen summary                                                                                                         |
-| Workflow | `@puddleworks/puddleworks-factory-result`     | Runs `result`: writes a `build-result/v1` for the last draft of a spec, with what was published                                                                                                                                   |
-| Skill    | `factory-build`                               | Takes a spec to a published extension: agree the spec, make the app repo, generate, build test-first, check, decide visibility, publish                                                                                           |
+| Kind     | Name                                           | What it does                                                                                                                                                                                                                                                                       |
+| -------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Model    | `@puddleworks/puddleworks-factory/draft`       | `render` reads a spec and writes the extension, its tests, a workflow, the manifest, the app docs and a CI workflow; `planReview` records a review of the build plan; `visibility` recommends publishing it publicly or privately; `readiness` checks the review before publishing |
+| Model    | `@puddleworks/puddleworks-factory/web`         | `serve` shows every app by stage, and each app's records, on a read-only page on 127.0.0.1                                                                                                                                                                                         |
+| Workflow | `@puddleworks/puddleworks-factory-prefill`     | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                                                                                                                                                                                            |
+| Workflow | `@puddleworks/puddleworks-factory-build`       | Runs `render` on the `puddleworks-factory` instance                                                                                                                                                                                                                                |
+| Workflow | `@puddleworks/puddleworks-factory-revise`      | Runs `revise`: takes an app already built to a newly agreed version of its spec, writing the new spec and a change plan, never the code                                                                                                                                            |
+| Workflow | `@puddleworks/puddleworks-factory-visibility`  | Runs `visibility`: checks the built app's repo and recommends public or private                                                                                                                                                                                                    |
+| Workflow | `@puddleworks/puddleworks-factory-plan-review` | Runs `planReview`: records a review of the build plan against the spec, with the plan's hash, so it stays with that version of the plan                                                                                                                                            |
+| Workflow | `@puddleworks/puddleworks-factory-readiness`   | Runs `readiness`: checks the review report and that each acceptance criterion has a test, and writes a one-screen summary                                                                                                                                                          |
+| Workflow | `@puddleworks/puddleworks-factory-result`      | Runs `result`: writes a `build-result/v1` for the last draft of a spec, with what was published                                                                                                                                                                                    |
+| Skill    | `factory-build`                                | Takes a spec to a published extension: agree the spec, make the app repo, generate, build test-first, check, decide visibility, publish                                                                                                                                            |
 
 ## Use
 
@@ -149,15 +172,28 @@ logs and shows the URL without it. Swamp itself keeps workflow inputs as given
 in its run records under `.swamp/`, so prefer a spec URL that needs no token, or
 download the spec and pass the file.
 
-`targetDir` must be a swamp repo (it has a `.swamp.yaml`), such as one made from
-your `template`. The draft goes in its root: the extension and its test in
-`extensions/models/`, the workflow in `workflows/`, and `manifest.yaml`,
-`README.md`, `LICENSE`, `.github/workflows/ci.yml` and an app section in
-`CLAUDE.md`. An existing `LICENSE` or `.github/workflows/ci.yml` is kept, and
-the rest of `CLAUDE.md` is left alone. A spec that breaks the contract writes
-nothing and lists every broken rule. Existing files are kept unless you pass
-`--input overwrite=true`. The drafted package is private; whether it goes public
-is decided once it is built (below).
+`targetDir` must be the real path of the root of a checkout or worktree of the
+app's own swamp repo: it has a `.swamp.yaml`, its git origin is `repository`,
+and with `--input branch=…` it has that branch checked out. A path through a
+symlink or `..`, a folder inside a checkout, a checkout of another repo, and the
+Factory's own checkout, or anything inside it, are refused before anything is
+written. So is a draft file whose path inside the checkout is a symlink. The
+draft goes in its root: the extension and its test in `extensions/models/`, the
+workflow in `workflows/`, and `manifest.yaml`, `README.md`, `LICENSE`,
+`.github/workflows/ci.yml` and an app section in `CLAUDE.md`. An existing
+`LICENSE` or `.github/workflows/ci.yml` is kept, and the rest of `CLAUDE.md` is
+left alone. A spec that breaks the contract writes nothing and lists every
+broken rule. Existing files are kept unless you pass `--input overwrite=true`.
+The drafted package is private; whether it goes public is decided once it is
+built (below).
+
+`visibility` and `readiness` run the same checks on the checkout they read,
+against the repository the draft was rendered for, so a later check can't be
+pointed at another repo or at the Factory. These checks bind what the Factory's
+own methods read and write. They do not confine the agent that drives a build:
+its own edits, `git` and `gh` commands run with whatever the agent's tools
+allow. Run the build from the app's checkout with its tools limited to that
+checkout, and change the Factory itself only as separate work.
 
 If the spec has a `specification.recipe`, the phrases agreed for the app, and
 one method call can answer them, the draft also writes
@@ -226,14 +262,16 @@ fits on one screen: confirm publishing against it.
 
 Write the build result once the draft is pushed. Add `pullRequest` once the pull
 request is open, and `publishedVersion` with `publishedVisibility` once it is
-published. When the spec has a recipe, readiness has already sent each phrase
-through the recipe engine, in a throwaway swamp repo so your checkout stays as
-it is, and the result reports how each went. To do that it starts `swamp` as a
-subprocess, without a shell, and needs network access. It shows a phrase reaches
-the app, and that the method the recipe calls exists. It runs the app only if
-the manifest says `effects-read`, to block a recipe slower than 10 s; any other
-app isn't run, and the summary says its speed wasn't timed. If you have checked
-the answers too, pass your own, for example
+published. Then `buildRef` is the commit it was published from, not the branch,
+which can move or go once the pull request is merged. When the spec has a
+recipe, readiness has already sent each phrase through the recipe engine, in a
+throwaway swamp repo so your checkout stays as it is, and the result reports how
+each went. To do that it starts `swamp` as a subprocess, without a shell, and
+needs network access. It shows a phrase reaches the app, and that the method the
+recipe calls exists. It runs the app only if the manifest says `effects-read`,
+to block a recipe slower than 10 s; any other app isn't run, and the summary
+says its speed wasn't timed. If you have checked the answers too, pass your own,
+for example
 `--input 'examples:json=[{"phrase":"which notes need a request","passed":true}]'`:
 
 ```bash
@@ -242,6 +280,13 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
   --input buildRef=draft/obsidian-puddle-scanner \
   --input out=$HOME/obsidian-puddle-scanner.build-result.json
 ```
+
+The last step is to record the file against the request, in the tool the spec
+came from. Factory doesn't call that tool; the builder runs the tool's own
+method for it. Record the first result too, written once the draft is pushed, so
+the request shows the build is under way. A tool that matches a result to its
+request by `source`, version and spec hash can't take a build from a
+hand-written app spec, which has no `source`.
 
 ## See what the Factory has done
 
@@ -258,23 +303,26 @@ the run logs the address. It shows the draft behavior named
 `puddleworks-factory`; set `draft` on `factory-viewer` to show another.
 
 `/` lists every app under the stage its records put it at, in Factory order,
-newest first. To decide and Blocked are marked as waiting on you:
+newest first. These are the stages in How it works that leave a record; Intake
+and reuse and Validate leave none. Each card's badge says what its records show.
+Agreeing and publishing are marked as waiting on you:
 
-| Group              | When                                                         |
-| ------------------ | ------------------------------------------------------------ |
-| To decide          | prefilled, no draft yet                                      |
-| Drafted            | a draft, no visibility check since                           |
-| Visibility checked | a visibility check, no readiness check since                 |
-| Blocked            | the latest readiness check has blockers                      |
-| Ready to publish   | the latest readiness check passed, and nothing published yet |
-| Released           | the build result records what was published                  |
+| Group                   | Badge              | When                                                            |
+| ----------------------- | ------------------ | --------------------------------------------------------------- |
+| Agree and select target | To decide          | prefilled, no draft yet                                         |
+| Generate and implement  | Drafted            | a draft, no visibility check since                              |
+| Decide visibility       | Visibility checked | a visibility check, no readiness check since                    |
+| Independent review      | Blocked            | the latest readiness check has blockers, for the builder to fix |
+| PR and publication      | Ready to publish   | the latest readiness check passed, and nothing published yet    |
+| Record                  | Published          | the build result records what was published                     |
 
-Released means the build result has `published`, not just that there is a build
+Record means the build result has `published`, not just that there is a build
 result: `result` is first run when the draft is pushed, before it is published.
 
 A record older than the app's newest draft doesn't count, so a new draft puts
-the app back at Drafted, even after a release, until the later steps run again.
-A readiness check older than the newest visibility check doesn't count either.
+the app back at Generate and implement, even after a release, until the later
+steps run again. A readiness check older than the newest visibility check
+doesn't count either.
 
 `/apps/<name>` shows one app: its stages (prefill, draft, visibility, readiness,
 pull request, published), then each record in that order, with links to the
