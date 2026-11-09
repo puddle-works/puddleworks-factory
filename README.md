@@ -225,14 +225,16 @@ fits on one screen: confirm publishing against it.
 
 Write the build result once the draft is pushed. Add `pullRequest` once the pull
 request is open, and `publishedVersion` with `publishedVisibility` once it is
-published. When the spec has a recipe, readiness has already sent each phrase
-through the recipe engine, in a throwaway swamp repo so your checkout stays as
-it is, and the result reports how each went. To do that it starts `swamp` as a
-subprocess, without a shell, and needs network access. It shows a phrase reaches
-the app, and that the method the recipe calls exists. It runs the app only if
-the manifest says `effects-read`, to block a recipe slower than 10 s; any other
-app isn't run, and the summary says its speed wasn't timed. If you have checked
-the answers too, pass your own, for example
+published. Then `buildRef` is the commit it was published from, not the branch,
+which can move or go once the pull request is merged. When the spec has a
+recipe, readiness has already sent each phrase through the recipe engine, in a
+throwaway swamp repo so your checkout stays as it is, and the result reports how
+each went. To do that it starts `swamp` as a subprocess, without a shell, and
+needs network access. It shows a phrase reaches the app, and that the method the
+recipe calls exists. It runs the app only if the manifest says `effects-read`,
+to block a recipe slower than 10 s; any other app isn't run, and the summary
+says its speed wasn't timed. If you have checked the answers too, pass your own,
+for example
 `--input 'examples:json=[{"phrase":"which notes need a request","passed":true}]'`:
 
 ```bash

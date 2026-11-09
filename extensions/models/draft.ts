@@ -1093,7 +1093,7 @@ const ResultArgsSchema = z.object({
   name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   /** https URL of the repository the draft was pushed to. Defaults to the draft's. */
   repository: optional(z.string().min(1)),
-  /** Branch or commit the build is on, e.g. `draft/<name>`. */
+  /** Branch or commit the build is on, e.g. `draft/<name>`; once published, its commit. */
   buildRef: z.string().min(1),
   /** https URL of the pull request, once there is one. */
   pullRequest: optional(z.string()),

@@ -20,8 +20,11 @@ rendered for the same `name`. It records the result as a `buildResult` resource
 (`build-result-<name>`) and, with `out`, writes it to a JSON file. Run it after
 the draft branch is pushed, again once the pull request is open, and again once
 the extension is published (`publishedVersion` and `publishedVisibility`, always
-together); the latest one wins. `repository` defaults to the one the draft was
-built with; pass `--input repository=<url>` only to record another.
+together); the latest one wins. Until it is published, `buildRef` is the draft
+branch. Once it is, `buildRef` is the commit it was published from, because the
+branch can move after the publish, or go when the pull request is merged.
+`repository` defaults to the one the draft was built with; pass
+`--input repository=<url>` only to record another.
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result \
@@ -57,7 +60,7 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
 | `entryPointRef` | yes      | The workflow to run the app with, `@<scope>/<slug>`                                             |
 | `repository`    | yes      | `https://` URL of the repository the build was written to                                       |
 | `path`          | no       | Where in the repository the app's manifest is, if not at the root. Relative                     |
-| `buildRef`      | yes      | Branch or commit the build is on                                                                |
+| `buildRef`      | yes      | Branch or commit the build is on; the commit once it is published                               |
 | `pullRequest`   | no       | `https://` URL of the pull request that proposes the build, once there is one                   |
 | `published`     | no       | What was pushed to the registry, once it is: `version` and `visibility` (`public` or `private`) |
 | `source`        | no       | The app spec's `source`, when it had one: where the spec was agreed                             |
