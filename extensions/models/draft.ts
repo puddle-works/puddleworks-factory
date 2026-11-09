@@ -50,7 +50,8 @@ import {
   sourceLabel,
   type SpecIo,
 } from "../lib/spec_source.ts";
-import { prefillAppSpec } from "../lib/prefill.ts";
+import { prefillAppSpec, slugFrom } from "../lib/prefill.ts";
+import { assess, CandidateSchema } from "../lib/assess.ts";
 import { changePlan, specChanges } from "../lib/revision.ts";
 import {
   type OutcomeSpec,
@@ -82,6 +83,7 @@ import {
   type SwampRun,
 } from "../lib/recipe_check.ts";
 import {
+  AssessmentSchema,
   DraftSchema,
   PlanReviewSchema,
   PrefillSchema,
@@ -1124,6 +1126,25 @@ const ResultArgsSchema = z.object({
 
 type ResultArgs = z.infer<typeof ResultArgsSchema>;
 
+const AssessArgsSchema = z.object({
+  /**
+   * A puddleworks.dev/outcome-spec/v1: a file path, an https URL, or the
+   * spec itself as inline JSON.
+   */
+  outcomeSpec: z.string().min(1),
+  /**
+   * A JSON file listing each candidate method the builder looked at, with
+   * which fit checks it passed. An empty list means none was found.
+   */
+  candidates: z.string().min(1),
+  /** packaged_script for an app a phrase starts, scheduled_workflow for a timer. */
+  delivery: z.enum(["packaged_script", "scheduled_workflow"]),
+  /** The name to file it under. Defaults to the request's title as a slug. */
+  name: optional(z.string().regex(/^[a-z0-9][a-z0-9-]*$/)),
+});
+
+type AssessArgs = z.infer<typeof AssessArgsSchema>;
+
 const VisibilityArgsSchema = z.object({
   /** The app spec's name, as drafted by `render` on this instance. */
   name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
@@ -1323,6 +1344,7 @@ interface CheckResult {
 
 /** Each resource's schema, by its spec name. */
 const SCHEMAS: Record<string, z.ZodType> = {
+  assessment: AssessmentSchema,
   prefill: PrefillSchema,
   draft: DraftSchema,
   buildResult: BuildResultSchema,
@@ -1479,7 +1501,8 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /**
- * The `@puddleworks/puddleworks-factory/draft` model: `prefill` starts an app spec
+ * The `@puddleworks/puddleworks-factory/draft` model: `assess` decides whether
+ * an existing extension already does the job, `prefill` starts an app spec
  * from an outcome spec, `render` writes a first draft from an app spec,
  * `revise` takes an app already built to a newly agreed version of its spec,
  * `planReview` records a review of the build plan against the spec,
@@ -1635,6 +1658,13 @@ export const model = {
   ],
   globalArguments: GlobalArgsSchema,
   resources: {
+    assessment: {
+      description:
+        "The last check of what an outcome needs built: each existing extension method looked at, whose it is, the fit checks it passed and failed, and the verdict.",
+      schema: AssessmentSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
     prefill: {
       description:
         "The last starter app spec prefilled from an outcome spec: where it was written and what the builder still has to decide.",
@@ -1711,6 +1741,57 @@ export const model = {
     },
   },
   methods: {
+    assess: {
+      description:
+        "Before anything is built, decide from the candidate methods the builder found " +
+        "whether one fits an agreed outcome spec exactly: a recipe (or, for a schedule, a " +
+        "workflow) in our own extension's repo or in an external pack or app repo, or " +
+        "build-functionality when none fits. Changes nothing; records the assessment resource.",
+      arguments: AssessArgsSchema,
+      execute: method(async (args: AssessArgs, context: MethodContext) => {
+        const from = sourceLabel(args.outcomeSpec);
+        context.logger.info("Assessing what {source} needs built", {
+          source: from,
+        });
+        const { spec: outcome } = await loadOutcomeSpec(args.outcomeSpec, io);
+        if (!(await exists(args.candidates))) {
+          throw new Error(
+            `Could not read the candidates: ${args.candidates} does not exist.`,
+          );
+        }
+        let raw: unknown;
+        try {
+          raw = JSON.parse(await Deno.readTextFile(args.candidates));
+        } catch {
+          throw new Error(`${args.candidates} is not JSON.`);
+        }
+        const parsed = z.array(CandidateSchema).safeParse(raw);
+        if (!parsed.success) {
+          throw new Error(
+            `${args.candidates} is not a list of candidates: ${parsed.error.message}`,
+          );
+        }
+        const name = args.name ?? slugFrom(outcome.request.title);
+        const assessment = assess(parsed.data, args.delivery);
+        const record = checkedResource("assessment", {
+          name,
+          specSource: from,
+          delivery: args.delivery,
+          ...assessment,
+          assessedAt: new Date().toISOString(),
+        });
+        context.logger.info("Assessment for {name}: {verdict}", {
+          name,
+          verdict: assessment.verdict,
+        });
+        const handle = await context.writeResource(
+          "assessment",
+          `${RESOURCE_PREFIX.assessment}${name}`,
+          record,
+        );
+        return { dataHandles: [handle] };
+      }),
+    },
     prefill: {
       description:
         "Write a starter app spec from an agreed outcome spec (puddleworks.dev/outcome-spec/v1), " +

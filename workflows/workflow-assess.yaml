@@ -1,0 +1,65 @@
+id: b293da14-9f3e-49fc-af3e-667d676013fe
+name: "@puddleworks/puddleworks-factory-assess"
+description: >-
+  Before anything is built, decide whether an existing extension already does
+  exactly what an agreed outcome spec asks, from the candidate methods the
+  builder found and the fit checks each passed. The verdict, and every
+  candidate with whose it is and what it failed, are recorded as an
+  assessment resource on the puddleworks-factory model. It changes nothing:
+  the builder shows the verdict and asks before acting on it.
+version: 1
+
+inputs:
+  type: object
+  properties:
+    outcomeSpec:
+      type: string
+      description: >-
+        The agreed puddleworks.dev/outcome-spec/v1: a file path, an https URL,
+        or the JSON itself.
+    candidates:
+      type: string
+      description: >-
+        A JSON file listing each candidate: extension, type, method, checks
+        (wholeJob, readOnly, inputs, settings and output, each true or false)
+        and a note. [] when the search found none.
+    delivery:
+      type: string
+      enum: [packaged_script, scheduled_workflow]
+      description: >-
+        packaged_script when a phrase starts it, so a recipe can answer;
+        scheduled_workflow when it runs on a timer.
+    name:
+      type: string
+      description: >-
+        The name to file the assessment under. Leave blank for the request's
+        title as a slug.
+      default: ""
+  required:
+    - outcomeSpec
+    - candidates
+    - delivery
+
+jobs:
+  - name: assess
+    description: >-
+      Decide what the outcome needs built.
+    dependsOn: []
+    weight: 0
+    steps:
+      - name: assess
+        description: >-
+          Check the candidates and write the assessment resource on the
+          puddleworks-factory model.
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+        task:
+          type: model_method
+          modelIdOrName: puddleworks-factory
+          methodName: assess
+          inputs:
+            outcomeSpec: ${{ inputs.outcomeSpec }}
+            candidates: ${{ inputs.candidates }}
+            delivery: ${{ inputs.delivery }}
+            name: ${{ inputs.name }}

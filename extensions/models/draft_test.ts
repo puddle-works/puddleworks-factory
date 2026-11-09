@@ -680,7 +680,14 @@ Deno.test("render: refuses an app name that is not a slug", () => {
 
 // The draft resource is stored under the bare app name, and the other
 // resources under a prefix plus the app name (issue #38).
-const RESERVED = ["prefill-", "build-result-", "visibility-", "readiness-"];
+const RESERVED = [
+  "prefill-",
+  "build-result-",
+  "visibility-",
+  "readiness-",
+  "plan-review-",
+  "assessment-",
+];
 
 Deno.test("render: refuses an app name that starts with a reserved prefix", () => {
   for (const prefix of RESERVED) {

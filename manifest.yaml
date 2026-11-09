@@ -13,6 +13,7 @@ models:
   - draft.ts
   - web.ts
 workflows:
+  - workflow-assess.yaml
   - workflow-build.yaml
   - workflow-result.yaml
   - workflow-prefill.yaml

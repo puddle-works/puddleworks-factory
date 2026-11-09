@@ -51,7 +51,10 @@ flowchart LR
 2. **Agree and select target**: from an outcome spec, prefill an app spec and
    agree its open choices; make the app's own repo and a draft branch in it.
 3. **Generate and implement**: generate a starter app that passes its own tests,
-   then build the behaviour test-first.
+   | Workflow | `@puddleworks/puddleworks-factory-assess` | Runs `assess`:
+   before anything is built, records whether an existing extension method fits
+   the outcome exactly, and so whether to write a recipe or workflow for it or
+   build an app | then build the behaviour test-first.
 4. **Validate**: format, tests, contracts, guardrails and quality all pass.
 5. **Decide visibility**: Factory recommends public or private; you decide.
 6. **Independent review**: a reviewer that didn't build it checks it against the

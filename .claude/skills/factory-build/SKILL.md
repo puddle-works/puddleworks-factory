@@ -171,6 +171,87 @@ before this one, or none, confirms it. Then run the same command once more. If i
 prints nothing again, stop and tell the user, with `swamp --version`. This has
 happened once, straight after swamp updated itself and ran `swamp repo upgrade`.
 
+## Step 1b: Check whether an existing extension already does it
+
+Do this for an outcome spec, before step 1a and before any repo is made. An app
+spec has already been through it; skip to step 2.
+
+Read the outcome spec's desired outcome, scope, inputs it implies and recipe
+examples. Decide `DELIVERY`: `packaged_script` if someone asks for it with a
+phrase, `scheduled_workflow` if it runs on a timer. Then search, `@swamp/*`
+first: `swamp extension search QUERY --json` for the registry,
+`swamp behavior type search QUERY --json` for what is installed, and
+`swamp behavior type describe TYPE --json` for each likely type's methods. For
+each method that might do the job, judge five fit checks, true or false:
+
+- `wholeJob`: it produces the spec's outcome from its inputs. Nothing on the
+  spec's out-of-scope list may be added to make it fit.
+- `readOnly`: it changes nothing (a recipe runs nothing else).
+- `inputs`: each input maps to a method argument as `int`, `repo` or `word`, or
+  is fixed in the step.
+- `settings`: each setting maps to the extension's model definition, a
+  sensitive one by `vault.get(...)`.
+- `output`: it can be shown as text with `each`, `template` and `empty`; for a
+  schedule, it is the outcome asked for, with nothing added.
+
+Write them to `SP/candidates.json` (`[]` if the search found nothing):
+
+```json
+[{"extension": "@webframp/github", "type": "@webframp/github", "method": "get_repo_info",
+  "checks": {"wholeJob": false, "readOnly": true, "inputs": true, "settings": true, "output": false},
+  "note": "covers only a named GitHub repo; no file path"}]
+```
+
+Then record the verdict, with `A` a short lowercase name for the request (the
+app name you would suggest in step 1a):
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-assess --input outcomeSpec=OUTCOME \
+  --input candidates=SP/candidates.json --input delivery=DELIVERY --input name=A --json | jq -r .status
+swamp data query 'behavior("puddleworks-factory") && name == "assessment-A"' \
+  --select content --json | jq '.results[0] | {verdict, reason, chosen, candidates: [.candidates[] | {extension, method, owner, failed}]}'
+```
+
+Show the user the verdict, its reason and each candidate with the checks it
+failed, and ask with `AskUserQuestion` whether to act on it; choosing someone
+else's extension over a new build is their call. `build-functionality`, or a
+no, carries on to step 1a. Otherwise write one workflow and no model code:
+
+| Verdict                     | Write                                   | Where                                       |
+| --------------------------- | --------------------------------------- | ------------------------------------------- |
+| `recipe-in-our-extension`   | a recipe for `chosen.method`            | `chosen.extension`'s own repo               |
+| `recipe-in-pack`            | a recipe for `chosen.method`            | `ORG/recipes-external`                      |
+| `workflow-in-our-extension` | a scheduled workflow for `chosen.method` | `chosen.extension`'s own repo               |
+| `workflow-app`              | a scheduled workflow for `chosen.method` | a new `ORG/NAME` that holds only it         |
+
+For `recipe-in-pack`, check the pack exists with
+`gh repo view ORG/recipes-external --json visibility -q .visibility`. On
+`Could not resolve to a Repository`, this is the first external recipe: make
+the pack the way step 2 makes an app repo (ask first, then `gh repo create`
+from `$TEMPLATE` with the secrets), but **public**, unlike an app: pass
+`--public` in place of `--private`. Remove the template's placeholders, and give
+it a `manifest.yaml` named `$COLLECTIVE/recipes-external` with
+`visibility: public` (and the same in `ci.yml`), the `puddlerouter-recipe`
+label, a README with an empty recipe table, and only `workflows:` (no models).
+Step 7's visibility check still runs on it, and a failed required check still
+stops it going public.
+
+A recipe is a workflow with one `model_method` step and a `puddlerouterRecipe`
+tag, like `workflows/workflow-github-open-prs.yaml` in the `puddlerecipes`
+repo's `packs/github/`. On a branch of that repo: add it under `workflows/`,
+list it in `manifest.yaml`, add the `puddlerouter-recipe` label if it is
+missing, and add a row to the README's recipe table. Run its `make test`,
+`make contracts-check` and `make guardrails-check`, run the workflow by hand
+against a model definition of the extension, and for a recipe run
+`@puddleworks/recipes` `match` and `execute` with each phrase in the spec. An
+extension outside `@swamp/*`, `@mesgme/*`, `@webframp/*` and `@puddleworks/*`
+also needs an `allow:` entry in the user's `puddlerouter.yaml`: say so, and
+don't edit it. Then do steps 8 to 11 against that repo, asking before creating
+a repo, opening the PR and publishing. The `result` workflow needs a draft, so
+write the build-result/v1 by hand (`docs/contracts/build-result.md`):
+`extension` is the package the workflow went into, `entryPointRef` the
+workflow, `path` its file, and `repository` and `pullRequest` that repo's.
+
 ## Step 1a: Prefill an app spec from an outcome spec
 
 Skip this for an app spec. Let `OUTCOME` be the absolute path of the outcome spec file. If the user gave a URL or pasted
@@ -204,10 +285,11 @@ criteria) and **propose** a value for each `toDecide` field, in one message:
 
 - `name`: short, lowercase, hyphens. The suggestion is the title as a slug and
   is often too long. It must not start with `prefill-`, `build-result-`,
-  `visibility-`, `readiness-` or `plan-review-`: the Factory keeps those for
-  its own records, and `render` refuses them. It must not be `git-status`,
-  `git-log` or `git-branch` either: the app's recipe takes its name as its id,
-  and the recipe engine drops a recipe whose id one of its own recipes has.
+  `visibility-`, `readiness-`, `plan-review-` or `assessment-`: the Factory
+  keeps those for its own records, and `render` refuses them. It must not be
+  `git-status`, `git-log` or `git-branch` either: the app's recipe takes its
+  name as its id, and the recipe engine drops a recipe whose id one of its own
+  recipes has.
 - `specification.purpose`: one bounded sentence.
 - `specification.inputs`: what the person enters each run, each with `name`
   (camelCase), `type` (`string`, `number`, `integer` or `boolean`),
