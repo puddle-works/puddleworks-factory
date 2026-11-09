@@ -33,17 +33,36 @@ config:
     padding: 24
 ---
 flowchart LR
-    describe["Describe"]
-    build["Build"]
+    intake["Intake and reuse"]
+    agree["Agree and select target"]
+    implement["Generate and implement"]
+    validate["Validate"]
+    visibility["Decide visibility"]
+    review["Independent review"]
+    publish["PR and publication"]
     record["Record"]
 
-    describe --> build
-    build --> record
+    intake --> agree --> implement --> validate
+    validate --> visibility --> review --> publish --> record
 ```
 
-1. **Describe** what the app should do.
-2. **Build** a starter app in the app's own repo.
-3. **Record** a receipt of where it went.
+1. **Intake and reuse**: read the spec and check it against its contract.
+   Looking for an existing extension to reuse is not built yet.
+2. **Agree and select target**: from an outcome spec, prefill an app spec and
+   agree its open choices; make the app's own repo and a draft branch in it.
+3. **Generate and implement**: generate a starter app that passes its own tests,
+   then build the behaviour test-first.
+4. **Validate**: format, tests, contracts, guardrails and quality all pass.
+5. **Decide visibility**: Factory recommends public or private; you decide.
+6. **Independent review**: a reviewer that didn't build it checks it against the
+   spec, and readiness checks that nothing is left.
+7. **PR and publication**: a pull request to the app's repo, then publishing
+   once you confirm the readiness summary.
+8. **Record**: a build result says where the build went and what was published.
+
+These are the stages in
+[the quality and gates plan](https://github.com/puddle-works/puddleworks-factory/blob/main/docs/factory-quality-and-gates-plan.md#lifecycle-and-gates),
+which says what each must have before the next.
 
 ## What is in the package
 
