@@ -81,8 +81,10 @@ so any other `source.url` stays out of the tag.
 
 ### Deprecated: `workflow_form`
 
-`workflow_form` promised a form that people fill in to run the app. Nothing
-provides one: Puddleworks has no UI, and `swamp serve` can neither show a form
+`workflow_form` promised a form that people fill in to run the app. An app needs
+nothing of its own for that: Distribution's web app has a run form for any
+workflow on a swamp serve, at `/workflows/@collective/name/runs/new`, built from
+the workflow's `inputs` schema, and `swamp serve` itself can neither show a form
 nor start a run. So a `workflow_form` app is really one you run with a command,
 which is what `packaged_script` is.
 
