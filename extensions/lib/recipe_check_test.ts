@@ -12,6 +12,7 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { parse } from "jsr:@std/yaml@1.0.12";
 import { realSwamp, recipeReadiness, type SwampRun } from "./recipe_check.ts";
 import { onlyReads } from "./recipes.ts";
+import { BuildExamplesSchema } from "../contracts/build_result_v1.ts";
 
 const ok = (attributes: unknown) => ({
   code: 0,
@@ -568,4 +569,30 @@ Deno.test("speed: an app in a relative folder is still found from the throwaway 
     ),
     true,
   );
+});
+
+// A hand-edited outcome spec can hold a phrase longer than the readiness
+// resource takes, and writing it then failed (issue #95).
+Deno.test("recipe check: a phrase too long for a build result blocks and is left out", async () => {
+  const long = `show issue 42 ${"and more ".repeat(66)}`.trim();
+  const outcome = {
+    path: "spec/outcome-spec.v1.json",
+    text: JSON.stringify({
+      specification: { version: 1, recipe: { examples: [{ phrase: long }] } },
+    }),
+  };
+  const got = await recipeReadiness(
+    [...files(), outcome],
+    draft(["show issue 42"]),
+    fakeSwamp(),
+  );
+  assertEquals(got.examples?.map((e) => e.phrase), ["show issue 42"]);
+  assertEquals(BuildExamplesSchema.safeParse(got.examples).success, true);
+  assertStringIncludes(got.blockers.join(" "), "at most 500");
+  const only = await recipeReadiness(
+    [...files(), outcome],
+    { entryPointRef: "@puddleworks/my-app" },
+    fakeSwamp(),
+  );
+  assertStringIncludes(only.blockers.join(" "), `${long.length} characters`);
 });

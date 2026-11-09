@@ -34,6 +34,9 @@ const MAX_CAPTURES = 9;
 /** The most examples a build result reports. */
 const MAX_EXAMPLES = 50;
 
+/** The longest phrase a build result takes. */
+const MAX_PHRASE = 500;
+
 /** One thing a recipe takes from the phrase, for the input of the same name. */
 export interface Piece {
   name: string;
@@ -450,12 +453,24 @@ export function assessRecipe(
       ...(latestOutcome(files)?.phrases ?? []),
     ]),
   ];
-  const phrases = agreed.slice(0, MAX_EXAMPLES);
-  const skipped = agreed.length - phrases.length;
-  const empty: RecipeFindings = { phrases, recipes: [], blockers: [], skipped };
+  // A hand-edited spec can hold a phrase longer than a build result takes.
+  const long = agreed.filter((p) => p.length > MAX_PHRASE).map((p) =>
+    `The agreed phrase "${
+      p.slice(0, 60)
+    }…" is ${p.length} characters, and a phrase may have at most ${MAX_PHRASE}: shorten it in the spec.`
+  );
+  const fits = agreed.filter((p) => p.length <= MAX_PHRASE);
+  const phrases = fits.slice(0, MAX_EXAMPLES);
+  const skipped = fits.length - phrases.length;
+  const empty: RecipeFindings = {
+    phrases,
+    recipes: [],
+    blockers: long,
+    skipped,
+  };
   if (phrases.length === 0) return empty;
 
-  const blockers: string[] = [];
+  const blockers: string[] = [...long];
   const recipes: Array<Record<string, unknown>> = [];
   const shipped = new Set<string>();
   for (const f of files) {
