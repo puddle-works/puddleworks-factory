@@ -714,3 +714,16 @@ Deno.test("visibility: a secret in a file that only looks like a test still bloc
     assertEquals(a.canBePublic, false, path);
   }
 });
+
+// Decided in #98: a shell test script is config, not test code. It usually
+// runs against real services, so a token in it is more likely real.
+Deno.test("visibility: a secret in a shell test script blocks public", () => {
+  for (const path of ["tests/run.sh", "run_test.sh", "test/e2e.bash"]) {
+    const a = assessVisibility(
+      facts({ files: [...facts().files, { path, text: `TOKEN="${KEY}"\n` }] }),
+    );
+    assertEquals(check(a, "secrets").ok, false, path);
+    assertEquals(check(a, "secrets-in-tests").ok, true, path);
+    assertEquals(a.canBePublic, false, path);
+  }
+});
