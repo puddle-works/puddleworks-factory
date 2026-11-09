@@ -681,17 +681,21 @@ means a new review.
 
 ## Step 11: Record it and report
 
-Write the build result again, now with the PR and what was published:
+Write the build result again, now with the PR and what was published. Its
+`buildRef` is now the commit that was reviewed and published, not `draft/NAME`:
+the branch can move after the publish, or go when the PR is merged. That is the
+commit step 10 checked, so commit nothing in `W` between the publish and this:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME \
-  --input buildRef=draft/NAME --input pullRequest=PR_URL \
+  --input buildRef=$(git -C W rev-parse HEAD) --input pullRequest=PR_URL \
   --input publishedVersion=VERSION --input publishedVisibility=V \
   --input out=SP/NAME.build-result.json --json | jq -r .status
 ```
 
 Expect `succeeded`; `Pass publishedVersion and publishedVisibility together`
-means one was left out. If the user stopped before publishing, leave both out.
+means one was left out. If the user stopped before publishing, leave both out,
+and pass `buildRef=draft/NAME` as before.
 
 Tell the user: the package and version, its visibility and why, the PR (which
 they merge), the build result file, how long the run took, and anything
