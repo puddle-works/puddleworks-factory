@@ -123,7 +123,7 @@ function cut(
 
 /**
  * A pattern that matches each phrase as written, whatever its case and with
- * or without trailing `?.!`, with one capture per piece. Every phrase must
+ * or without trailing `?.!` (after a space or not), with one capture per piece. Every phrase must
  * have its pieces in the same order, so a capture has one number. The words
  * around each capture are alternatives, which may widen it a little.
  *
@@ -137,7 +137,7 @@ export function recipePattern(
   const cuts: Array<{ words: string[]; order: string[] }> = [];
   for (const phrase of phrases) {
     // Spaces as the engine leaves a turn: it squeezes them before matching.
-    const bare = phrase.trim().replace(/[?.!]+$/, "").replace(/\s+/g, " ");
+    const bare = phrase.trim().replace(/\s*[?.!]+$/, "").replace(/\s+/g, " ");
     if (!bare) {
       return { reason: `The phrase "${phrase}" has no words to match.` };
     }
@@ -172,7 +172,8 @@ export function recipePattern(
       pattern += `(${CAPTURE[shapeOf.get(order[i]) as "int" | "repo"]})`;
     }
   }
-  pattern += "[?.!]*$";
+  // A phrase may be written "show issue ?", with a space before its mark.
+  pattern += "(?: ?[?.!]+)?$";
   const made = new RegExp(`^(?:${pattern})$`, "i");
   if (ANY_TURN_PROBES.some((p) => made.test(p))) {
     return {
