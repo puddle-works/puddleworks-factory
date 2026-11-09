@@ -12,6 +12,7 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { parse } from "jsr:@std/yaml@1.0.12";
 import { realSwamp, recipeReadiness, type SwampRun } from "./recipe_check.ts";
 import { onlyReads } from "./recipes.ts";
+import { BuildExamplesSchema } from "../contracts/build_result_v1.ts";
 
 const ok = (attributes: unknown) => ({
   code: 0,
@@ -118,7 +119,10 @@ const draft = (examples = ["show issue 42", "show issue 7?"]) => ({
   },
 });
 
-Deno.test("recipe check: every phrase answered, one passed example each", async () => {
+const NOT_RUN =
+  "The recipe engine routed this phrase to the app; the app was not run.";
+
+Deno.test("recipe check: every phrase answered, one passed example each, saying the app was not run", async () => {
   const seen: string[][] = [];
   const got = await recipeReadiness(
     files(),
@@ -127,8 +131,8 @@ Deno.test("recipe check: every phrase answered, one passed example each", async 
   );
   assertEquals(got.blockers, []);
   assertEquals(got.examples, [
-    { phrase: "show issue 42", passed: true },
-    { phrase: "show issue 7?", passed: true },
+    { phrase: "show issue 42", passed: true, detail: NOT_RUN },
+    { phrase: "show issue 7?", passed: true, detail: NOT_RUN },
   ]);
   assertEquals(got.line, "2 of 2 example phrases passed");
   const flat = seen.map((a) => a.join(" "));
@@ -326,6 +330,32 @@ Deno.test("speed: an app that only reads is run once for each phrase and timed",
   );
   assertStringIncludes(got.line!, "1 of 1 example phrases passed");
   assertStringIncludes(got.line!, "Slowest run 2.5 s");
+  assertEquals(got.examples, [{
+    phrase: "show issue 42",
+    passed: true,
+    detail:
+      "The recipe engine routed this phrase to the app, which ran in 2.5 s; its answer was not checked.",
+  }]);
+});
+
+Deno.test("speed: a run that stops part way says which phrases ran", async () => {
+  // The first phrase runs; the engine won't run the second, so timing stops.
+  let runs = 0;
+  const { run, now } = appSwamp({ runSeconds: 1 });
+  const once: SwampRun = (args, cwd, timeoutMs) =>
+    args.includes("execute") && timeoutMs !== undefined && ++runs > 1
+      ? Promise.resolve(
+        ok({ action: "would-ask", ok: true, text: "Would ask.", error: "" }),
+      )
+      : run(args, cwd, timeoutMs);
+  const got = await recipeReadiness(readingApp(), draft(), once, {
+    dir: "/w/app",
+    now,
+  });
+  assertEquals(got.examples?.map((e) => e.detail), [
+    "The recipe engine routed this phrase to the app, which ran in 1.0 s; its answer was not checked.",
+    NOT_RUN,
+  ]);
 });
 
 Deno.test("speed: a run over the budget blocks, and says what to do", async () => {
@@ -397,6 +427,7 @@ Deno.test("speed: an app that may change things is never run", async () => {
   assertEquals(got.blockers, []);
   assertStringIncludes(got.line!, "Speed not timed");
   assertStringIncludes(got.line!, "may change things");
+  assertEquals(got.examples?.map((e) => e.detail), [NOT_RUN, NOT_RUN]);
 });
 
 Deno.test("speed: only effects-read without effects-write counts as only reading", async () => {
@@ -469,6 +500,39 @@ Deno.test({
   },
 });
 
+// A run swamp started goes on writing into the throwaway repo after swamp is
+// stopped, so the folder came back after it was removed (issue #93).
+Deno.test({
+  name: "real swamp: stopping swamp stops the runs it started",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    const dir = await Deno.makeTempDir({ prefix: "factory-swamp-shim-" });
+    const path = Deno.env.get("PATH") ?? "";
+    try {
+      await Deno.writeTextFile(
+        `${dir}/swamp`,
+        '#!/bin/sh\n(sleep 2; echo late > "$PWD/late") &\nwait\n',
+      );
+      await Deno.chmod(`${dir}/swamp`, 0o755);
+      Deno.env.set("PATH", `${dir}:${path}`);
+      const said = await realSwamp(["x"], dir, 500).then(
+        () => "answered",
+        (e) => String(e),
+      );
+      assertStringIncludes(said, "gave no answer");
+      await new Promise((r) => setTimeout(r, 3000));
+      assertEquals(
+        await Deno.stat(`${dir}/late`).then(() => true, () => false),
+        false,
+      );
+    } finally {
+      Deno.env.set("PATH", path);
+      await Deno.remove(dir, { recursive: true });
+    }
+  },
+});
+
 Deno.test("recipe check: says how many phrases were past the limit and not checked", async () => {
   const phrases = (n: number) =>
     Array.from({ length: n }, (_, i) => `show issue ${i}`);
@@ -505,4 +569,30 @@ Deno.test("speed: an app in a relative folder is still found from the throwaway 
     ),
     true,
   );
+});
+
+// A hand-edited outcome spec can hold a phrase longer than the readiness
+// resource takes, and writing it then failed (issue #95).
+Deno.test("recipe check: a phrase too long for a build result blocks and is left out", async () => {
+  const long = `show issue 42 ${"and more ".repeat(66)}`.trim();
+  const outcome = {
+    path: "spec/outcome-spec.v1.json",
+    text: JSON.stringify({
+      specification: { version: 1, recipe: { examples: [{ phrase: long }] } },
+    }),
+  };
+  const got = await recipeReadiness(
+    [...files(), outcome],
+    draft(["show issue 42"]),
+    fakeSwamp(),
+  );
+  assertEquals(got.examples?.map((e) => e.phrase), ["show issue 42"]);
+  assertEquals(BuildExamplesSchema.safeParse(got.examples).success, true);
+  assertStringIncludes(got.blockers.join(" "), "at most 500");
+  const only = await recipeReadiness(
+    [...files(), outcome],
+    { entryPointRef: "@puddleworks/my-app" },
+    fakeSwamp(),
+  );
+  assertStringIncludes(only.blockers.join(" "), `${long.length} characters`);
 });

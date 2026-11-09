@@ -22,13 +22,20 @@ inputs:
     targetDir:
       type: string
       description: >-
-        Absolute path of a checkout of the app's own swamp repo to write into.
-        Must contain .swamp.yaml.
+        Absolute real path of the root of a checkout of the app's own swamp
+        repo to write into: it must contain .swamp.yaml and have repository as
+        its origin, and may not be the Factory's own checkout.
     repository:
       type: string
       description: >-
         https URL of the app's repo, e.g. https://github.com/example/my-app.
         Written into the manifest; the LICENSE names its owner.
+    branch:
+      type: string
+      description: >-
+        The branch the checkout must have checked out, e.g. draft/my-app.
+        Blank skips the check.
+      default: ""
     overwrite:
       type: boolean
       description: >-
@@ -70,5 +77,6 @@ jobs:
             spec: ${{ inputs.spec }}
             targetDir: ${{ inputs.targetDir }}
             repository: ${{ inputs.repository }}
+            branch: ${{ inputs.branch }}
             overwrite: ${{ inputs.overwrite }}
             visibility: ${{ inputs.visibility }}

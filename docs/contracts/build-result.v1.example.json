@@ -20,6 +20,7 @@
     {
       "phrase": "which notes need a request",
       "passed": true,
+      "detail": "Sent through puddlerouter, which answered it with the recipe and no call to Claude.",
       "recipeId": "obsidian-puddle-scanner",
       "router": {
         "testedAt": "2026-10-16T09:50:00.000Z",
