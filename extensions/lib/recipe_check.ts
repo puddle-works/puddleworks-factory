@@ -61,28 +61,47 @@ export const realSwamp: SwampRun = async (
   cwd,
   timeoutMs = TIMEOUT_MS,
 ) => {
-  // Stopping swamp doesn't stop a run it started, which keeps the pipes open,
-  // so the output alone could wait for as long as that run goes on.
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Only swamp's own CLI can run another extension. No shell is involved, so a
+  // phrase stays one argument; the README says readiness starts swamp.
+  // swamp-quality-ignore deno-command
+  const child = new Deno.Command("swamp", {
+    args,
+    cwd,
+    stdin: "null",
+    stdout: "piped",
+    stderr: "piped",
+    // Its own process group, so stopping it stops the runs it started too.
+    // Those would hold its pipes open and go on writing into `cwd`.
+    detached: true,
+  }).spawn();
+  const stopAll = (signal: Deno.Signal) => {
+    try {
+      Deno.kill(-child.pid, signal);
+    } catch { /* already gone */ }
+  };
+  let timedOut = false;
+  let killer: ReturnType<typeof setTimeout> | undefined;
+  let gaveUpTimer: ReturnType<typeof setTimeout> | undefined;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    stopAll("SIGTERM");
+    killer = setTimeout(() => stopAll("SIGKILL"), STOP_GRACE_MS);
+  }, timeoutMs);
+  // A process that left the group could still hold the pipes: stop waiting.
   const gaveUp = new Promise<never>((_, reject) => {
-    timer = setTimeout(
+    gaveUpTimer = setTimeout(
       () => reject(new Error(`swamp gave no answer in ${timeoutMs / 1000} s`)),
-      timeoutMs + STOP_GRACE_MS,
+      timeoutMs + 2 * STOP_GRACE_MS,
     );
   });
   try {
-    // Only swamp's own CLI can run another extension. No shell is involved, so a
-    // phrase stays one argument; the README says readiness starts swamp.
-    // swamp-quality-ignore deno-command
-    const output = new Deno.Command("swamp", {
-      args,
-      cwd,
-      stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
-      signal: AbortSignal.timeout(timeoutMs),
-    }).output();
-    const { code, stdout, stderr } = await Promise.race([output, gaveUp]);
+    const { code, stdout, stderr } = await Promise.race([
+      child.output(),
+      gaveUp,
+    ]);
+    if (timedOut) {
+      throw new Error(`swamp gave no answer in ${timeoutMs / 1000} s`);
+    }
     return {
       code,
       stdout: decoder.decode(stdout),
@@ -90,6 +109,8 @@ export const realSwamp: SwampRun = async (
     };
   } finally {
     clearTimeout(timer);
+    clearTimeout(killer);
+    clearTimeout(gaveUpTimer);
   }
 };
 
