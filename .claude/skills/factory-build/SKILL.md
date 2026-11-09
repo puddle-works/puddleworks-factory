@@ -714,36 +714,43 @@ the `summary` exactly as it is, in a code
 block: the package and version, the visibility against the recommendation, the
 PR and commit, the review's verdicts, and each acceptance criterion with its
 tests. Add that it is published from that commit on `draft/NAME`, before the PR
-is merged. Then ask with `AskUserQuestion`; on yes:
+is merged. Then ask with `AskUserQuestion`; on yes, run this from the swamp repo from step
+1. `VERSION` is the version in the summary:
 
 ```bash
 gh repo edit ORG/NAME --visibility public --accept-visibility-change-consequences   # public only
-cd W && make publish VISIBILITY=V
-```
-
-Expect `published $COLLECTIVE/NAME@VERSION (HASH)`. `make publish` never
-passes `--yes`; the clean dry run is its gate. If it stops, read what it lists,
-fix it, and repeat from step 8 (the report must match the new hash). A version
-that is already published needs a new `version:` in the manifest, which also
-means a new review.
-
-## Step 11: Record it and report
-
-Write the build result again, now with the PR and what was published. Its
-`buildRef` is now the commit that was reviewed and published, not `draft/NAME`:
-the branch can move after the publish, or go when the PR is merged. That is the
-commit step 10 checked, so commit nothing in `W` between the publish and this:
-
-```bash
+(cd W && make publish VISIBILITY=V) &&
 swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME \
   --input buildRef=$(git -C W rev-parse HEAD) --input pullRequest=PR_URL \
   --input publishedVersion=VERSION --input publishedVisibility=V \
   --input out=SP/NAME.build-result.json --json | jq -r .status
 ```
 
-Expect `succeeded`; `Pass publishedVersion and publishedVisibility together`
-means one was left out. If the user stopped before publishing, leave both out,
-and pass `buildRef=draft/NAME` as before.
+Expect `published $COLLECTIVE/NAME@VERSION (HASH)`, then `succeeded`. The
+build result is written as the last command of the publish, so it is never
+forgotten: until it is, the Factory page still shows the app as ready to
+publish, and the tool the spec came from doesn't know it was published. Its
+`buildRef` is the commit that was reviewed and published, not `draft/NAME`: the
+branch can move after the publish, or go when the PR is merged.
+
+`make publish` never passes `--yes`; the clean dry run is its gate. If it stops,
+nothing is recorded: read what it lists, fix it, and repeat from step 8 (the
+report must match the new hash). A version that is already published needs a
+new `version:` in the manifest, which also means a new review. If the publish
+worked but the result did not (`Pass publishedVersion and publishedVisibility
+together` means one was left out), run only the `swamp workflow run` command
+again, before committing anything in `W`.
+
+## Step 11: Report
+
+Step 10 wrote the build result. If the user stopped before publishing, write
+it now with the PR but nothing published, so it still points at the branch:
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME \
+  --input buildRef=draft/NAME --input pullRequest=PR_URL \
+  --input out=SP/NAME.build-result.json --json | jq -r .status
+```
 
 Tell the user: the package and version, its visibility and why, the PR (which
 they merge), the build result file, how long the run took, and anything
