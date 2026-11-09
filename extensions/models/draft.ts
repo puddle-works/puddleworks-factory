@@ -52,6 +52,7 @@ import {
 } from "../lib/spec_source.ts";
 import { prefillAppSpec } from "../lib/prefill.ts";
 import {
+  builtInRecipeProblem,
   reservedNameProblem,
   reservedPrefix,
   RESOURCE_PREFIX,
@@ -953,6 +954,8 @@ export function renderDraft(
   }
   const prefix = reservedPrefix(name);
   if (prefix) throw new Error(reservedNameProblem(name, prefix));
+  const builtIn = builtInRecipeProblem(name);
+  if (builtIn) throw new Error(builtIn);
   const secretName = secretNameProblem("The app name", name);
   if (secretName) throw new Error(secretName);
   if (!DRAFTABLE.includes(delivery.method)) {

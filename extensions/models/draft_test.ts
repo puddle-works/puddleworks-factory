@@ -691,6 +691,22 @@ Deno.test("render: refuses an app name that starts with a reserved prefix", () =
   }
 });
 
+// An app's recipe takes the app's name as its id, and the recipe engine drops
+// a recipe whose id one of its own recipes has (issue #92).
+Deno.test("render: refuses an app name a built-in recipe has", () => {
+  for (const name of ["git-status", "git-log", "git-branch"]) {
+    assertThrows(
+      () => renderDraft({ ...OBSIDIAN, name }, FIXED),
+      Error,
+      "recipe engine ships with",
+    );
+  }
+  assertEquals(
+    renderDraft({ ...OBSIDIAN, name: "git-status-report" }, FIXED).length > 0,
+    true,
+  );
+});
+
 Deno.test("render: a name that only contains a reserved word is fine", () => {
   for (const name of ["readiness", "my-readiness-foo", "prefill"]) {
     assertEquals(renderDraft({ ...OBSIDIAN, name }, FIXED).length > 0, true);

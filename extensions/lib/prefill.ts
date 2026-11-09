@@ -22,6 +22,7 @@ import {
 } from "../contracts/app_spec_v1.ts";
 import type { OutcomeSpec } from "../contracts/outcome_spec_v1.ts";
 import {
+  builtInRecipeProblem,
   reservedNameProblem,
   reservedPrefix,
   secretNameProblem,
@@ -79,7 +80,8 @@ export function prefillAppSpec(outcome: OutcomeSpec): Prefill {
   const prefix = reservedPrefix(name);
   const nameProblem = prefix
     ? reservedNameProblem(name, prefix)
-    : secretNameProblem("The suggested name", name);
+    : builtInRecipeProblem(name) ??
+      secretNameProblem("The suggested name", name);
   const toDecide = [
     `name: suggested from the title as "${name}"; it names the extension, workflow and folder${
       nameProblem ? `. ${nameProblem}` : ""
