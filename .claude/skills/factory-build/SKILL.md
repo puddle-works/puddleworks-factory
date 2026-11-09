@@ -80,8 +80,7 @@ O='{}'   # the arguments given to /factory-build, e.g. O='{"org":"acme"}'
 D='{"org":"puddle-works","template":"puddle-works/puddle-template",
     "secrets":["SWAMP_API_KEY","SWAMP_SIGNIN_TOKEN"],"collective":"@puddleworks",
     "worktrees":"orca"}'
-if [ -f factory-build.json ]; then F=$(cat factory-build.json)
-else F='{}'; echo "no factory-build.json here: using the defaults" >&2; fi
+F='{}'; if [ -f factory-build.json ]; then F=$(cat factory-build.json); fi
 S=$(jq -es --argjson a "$O" 'select(length == 2) |
     (.[1] | objects) as $o | .[0] * $o * $a |
     def ok($re): type == "string" and test($re);
@@ -89,8 +88,10 @@ S=$(jq -es --argjson a "$O" 'select(length == 2) |
       (.template | ok("^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$")) and
       (.collective | ok("^@[a-z0-9-]+$")) and (.worktrees | IN("orca", "git")) and
       (.secrets | type == "array" and all(ok("^[A-Za-z_][A-Za-z0-9_]*$"))))' \
-  <(echo "$D") <(printf %s "$F")) ||
-  { echo "factory-build.json (or the arguments) must be one JSON object, with org a GitHub owner, template owner/repo, collective @name, worktrees orca or git, and secrets a list of secret names: fix it, or delete it to use the defaults" >&2; exit 1; }
+  <(echo "$D") <(printf %s "$F")) || {
+  W="the arguments (O=)"; [ -f factory-build.json ] && W="factory-build.json or the arguments (O=)"
+  echo "$W must be one JSON object, with org a GitHub owner, template owner/repo, collective @name, worktrees orca or git, and secrets a list of secret names: fix whichever is wrong" >&2; exit 1; }
+[ -f factory-build.json ] || echo "no factory-build.json here: using the defaults" >&2
 ORG=$(jq -r .org <<<"$S"); TEMPLATE=$(jq -r .template <<<"$S")
 SECRETS=$(jq -r '.secrets | join(" ")' <<<"$S"); COLLECTIVE=$(jq -r .collective <<<"$S")
 WT=$(jq -r .worktrees <<<"$S"); command -v orca >/dev/null || WT=git
@@ -197,8 +198,9 @@ criteria) and **propose** a value for each `toDecide` field, in one message:
   (camelCase), `type` (`string`, `number`, `integer` or `boolean`),
   `description`, and `required: true`, or `required: false` with a `default`.
   If `specification.recipe` has `pieces`, give each piece an input of its name.
-  A required input with no piece means no recipe can reach the app, so make it
-  optional if a default will do, and say so if it can't.
+  A required text input with no piece means no recipe can reach the app, so
+  make it optional if a default will do, and say so if it can't. A required
+  number with no piece blocks readiness until it gets one.
 - `specification.output`: what one run produces.
 - `specification.settings`: what the builder sets once (paths, tokens), each
   with `name` (camelCase), `description` and `sensitive` (true for secrets,
