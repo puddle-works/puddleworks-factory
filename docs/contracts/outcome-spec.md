@@ -53,19 +53,20 @@ the app's repo, and the build plan reads them there.
 
 ## Shape
 
-| Field                     | Meaning                                                                                                                          |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `format`                  | Always `puddleworks.dev/outcome-spec/v1`                                                                                         |
-| `request`                 | `id`, `title`, `initialDescription`, `currentProcess`, and `url`                                                                 |
-| `request.url`             | The page where the request was discussed and agreed; an `http` or `https` URL                                                    |
-| `request.requestedPhrase` | Optional. The phrase the recipe must answer as asked, when a router raised the request                                           |
-| `specification.version`   | Which agreed version this is; a positive whole number                                                                            |
-| `specification`           | `problemStatement`, `desiredOutcome`, `scope.in`, `scope.out`, `constraints`, `assumptions`, `acceptanceCriteria` (`id`, `text`) |
-| `specification.recipe`    | Optional. `examples` (`phrase`, `answer`), `pieces`, `whenEmpty`, `candidateExtensions`                                          |
-| `agreement`               | `agreedBy` (`name`, `email`), `agreedAt`, and `specHash`, which is not empty                                                     |
-| `participants`            | `name`, `email` and `role` of everyone involved                                                                                  |
-| `openQuestions`           | `question`, `askedBy`, `askedAt`; empty when nothing is open                                                                     |
-| `exportedAt`              | When the file was exported                                                                                                       |
+| Field                         | Meaning                                                                                                                          |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `format`                      | Always `puddleworks.dev/outcome-spec/v1`                                                                                         |
+| `request`                     | `id`, `title`, `initialDescription`, `currentProcess`, and `url`                                                                 |
+| `request.url`                 | The page where the request was discussed and agreed; an `http` or `https` URL                                                    |
+| `request.requestedPhrase`     | Optional. The phrase the recipe must answer as asked, when a router raised the request                                           |
+| `specification.version`       | Which agreed version this is; a positive whole number                                                                            |
+| `specification.changeSummary` | Optional. Why this version differs from the one before, as the revision said; missing on version 1 and on older exports          |
+| `specification`               | `problemStatement`, `desiredOutcome`, `scope.in`, `scope.out`, `constraints`, `assumptions`, `acceptanceCriteria` (`id`, `text`) |
+| `specification.recipe`        | Optional. `examples` (`phrase`, `answer`), `pieces`, `whenEmpty`, `candidateExtensions`                                          |
+| `agreement`                   | `agreedBy` (`name`, `email`), `agreedAt`, and `specHash`, which is not empty                                                     |
+| `participants`                | `name`, `email` and `role` of everyone involved                                                                                  |
+| `openQuestions`               | `question`, `askedBy`, `askedAt`; empty when nothing is open                                                                     |
+| `exportedAt`                  | When the file was exported                                                                                                       |
 
 `request.requestedPhrase` and `specification.recipe` are optional. Factory does
 not read the requested phrase. It uses the recipe to draft the app's own recipe

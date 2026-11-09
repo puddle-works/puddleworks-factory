@@ -32,6 +32,24 @@ const SourceSchema = z.object({
 });
 
 /**
+ * How the phrase went through puddlerouter, the router people ask: the
+ * evidence that a recipe, not Claude, answered it.
+ */
+const RouterSchema = z.object({
+  /** When the phrase was sent through the router. */
+  testedAt: z.iso.datetime(),
+  /** The extension version installed in the desk at the time. */
+  version: z.string().min(1),
+  /** A recipe that only reads answered; one that writes asked, then ran after yes. */
+  outcome: z.enum(["answered", "answered-after-yes"]),
+  /** The request the recipe answers, as the router's `match` returned it. */
+  source: z.object({
+    url: z.url({ protocol: /^https?$/ }),
+    version: z.number().int().positive().optional(),
+  }),
+});
+
+/**
  * How the build answered each example phrase in the agreed spec's recipe. The
  * bounds match the reader's, so nothing written here is refused there.
  */
@@ -42,6 +60,10 @@ export const BuildExamplesSchema = z.array(z.object({
   passed: z.boolean(),
   /** What was seen, in plain words, especially when it failed. */
   detail: z.string().max(2_000).optional(),
+  /** The id of the puddlerouter recipe that answered the phrase. */
+  recipeId: z.string().min(1).max(200).optional(),
+  /** How the phrase went through puddlerouter, once it has been tested there. */
+  router: RouterSchema.optional(),
 })).max(50);
 
 /** One build of one app spec. */

@@ -12,11 +12,13 @@
  */
 import { stringify } from "jsr:@std/yaml@1.0.12";
 import {
+  ANY_TURN_PROBES,
   assessRecipe,
   type DraftRecipe,
   onlyReads,
   RECIPE_BUDGET_SECONDS,
 } from "./recipes.ts";
+import { BUILT_IN_RECIPE_IDS } from "./names.ts";
 
 /** The extension that runs recipes. */
 const ENGINE = "@puddleworks/recipes";
@@ -61,28 +63,47 @@ export const realSwamp: SwampRun = async (
   cwd,
   timeoutMs = TIMEOUT_MS,
 ) => {
-  // Stopping swamp doesn't stop a run it started, which keeps the pipes open,
-  // so the output alone could wait for as long as that run goes on.
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Only swamp's own CLI can run another extension. No shell is involved, so a
+  // phrase stays one argument; the README says readiness starts swamp.
+  // swamp-quality-ignore deno-command
+  const child = new Deno.Command("swamp", {
+    args,
+    cwd,
+    stdin: "null",
+    stdout: "piped",
+    stderr: "piped",
+    // Its own process group, so stopping it stops the runs it started too.
+    // Those would hold its pipes open and go on writing into `cwd`.
+    detached: true,
+  }).spawn();
+  const stopAll = (signal: Deno.Signal) => {
+    try {
+      Deno.kill(-child.pid, signal);
+    } catch { /* already gone */ }
+  };
+  let timedOut = false;
+  let killer: ReturnType<typeof setTimeout> | undefined;
+  let gaveUpTimer: ReturnType<typeof setTimeout> | undefined;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    stopAll("SIGTERM");
+    killer = setTimeout(() => stopAll("SIGKILL"), STOP_GRACE_MS);
+  }, timeoutMs);
+  // A process that left the group could still hold the pipes: stop waiting.
   const gaveUp = new Promise<never>((_, reject) => {
-    timer = setTimeout(
+    gaveUpTimer = setTimeout(
       () => reject(new Error(`swamp gave no answer in ${timeoutMs / 1000} s`)),
-      timeoutMs + STOP_GRACE_MS,
+      timeoutMs + 2 * STOP_GRACE_MS,
     );
   });
   try {
-    // Only swamp's own CLI can run another extension. No shell is involved, so a
-    // phrase stays one argument; the README says readiness starts swamp.
-    // swamp-quality-ignore deno-command
-    const output = new Deno.Command("swamp", {
-      args,
-      cwd,
-      stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
-      signal: AbortSignal.timeout(timeoutMs),
-    }).output();
-    const { code, stdout, stderr } = await Promise.race([output, gaveUp]);
+    const { code, stdout, stderr } = await Promise.race([
+      child.output(),
+      gaveUp,
+    ]);
+    if (timedOut) {
+      throw new Error(`swamp gave no answer in ${timeoutMs / 1000} s`);
+    }
     return {
       code,
       stdout: decoder.decode(stdout),
@@ -90,6 +111,8 @@ export const realSwamp: SwampRun = async (
     };
   } finally {
     clearTimeout(timer);
+    clearTimeout(killer);
+    clearTimeout(gaveUpTimer);
   }
 };
 
@@ -137,12 +160,56 @@ async function runMethod(
   return attributes;
 }
 
+/**
+ * Why the recipe engine would drop each recipe it loads, by the engine's own
+ * rules for a recipe's id and pattern. The engine only logs these, and a run
+ * with --json keeps its log out of the output, so `match` alone would just say
+ * nothing matched.
+ */
+export function droppedRecipes(
+  recipes: Array<Record<string, unknown>>,
+): string[] {
+  const taken = new Set(BUILT_IN_RECIPE_IDS);
+  const why: string[] = [];
+  for (const r of recipes) {
+    const id = String(r.id);
+    const drop = (reason: string) =>
+      why.push(`The recipe engine drops the recipe "${id}": ${reason}.`);
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) {
+      drop("its id must be lowercase letters, digits and hyphens");
+      continue;
+    }
+    if (taken.has(id)) {
+      drop(
+        BUILT_IN_RECIPE_IDS.includes(id)
+          ? "one of the engine's own recipes has that id"
+          : "an earlier recipe has that id",
+      );
+      continue;
+    }
+    let pattern: RegExp;
+    try {
+      pattern = new RegExp(`^(?:${String(r.pattern)})$`, "i");
+    } catch (e) {
+      drop(`its pattern is not a valid regex (${message(e)})`);
+      continue;
+    }
+    if (ANY_TURN_PROBES.some((p) => pattern.test(p))) {
+      drop("its pattern would match any turn");
+      continue;
+    }
+    taken.add(id);
+  }
+  return why;
+}
+
 /** Whether this phrase reaches one of the app's recipes. */
 async function checkPhrase(
   phrase: string,
   ids: string[],
   dir: string,
   run: SwampRun,
+  dropped: string[],
 ): Promise<ExampleCheck> {
   const failed = (detail: string) => ({
     phrase,
@@ -152,7 +219,13 @@ async function checkPhrase(
   try {
     // A phrase may start with "@", which swamp would read as a file.
     const match = await runMethod(run, dir, "match", [`text=${phrase}`], true);
-    if (match.matched !== true) return failed("No recipe matched this phrase.");
+    if (match.matched !== true) {
+      return failed(
+        dropped.length > 0
+          ? dropped.join(" ")
+          : "No recipe matched this phrase.",
+      );
+    }
     if (!ids.includes(String(match.recipeId))) {
       return failed(`It matched the recipe "${match.recipeId}" instead.`);
     }
@@ -182,6 +255,15 @@ interface AppCheck {
   note?: string;
 }
 
+/** What a passed example says was checked, so the result doesn't claim more. */
+function passedDetail(seconds: number | undefined): string {
+  return seconds === undefined
+    ? "The recipe engine routed this phrase to the app; the app was not run."
+    : `The recipe engine routed this phrase to the app, which ran in ${
+      seconds.toFixed(1)
+    } s; its answer was not checked.`;
+}
+
 /** The method each recipe calls that the app's type doesn't have. */
 async function missingMethods(
   recipes: Array<Record<string, unknown>>,
@@ -209,13 +291,17 @@ async function missingMethods(
   return blockers;
 }
 
-/** Run an app that only reads for each phrase, and see if it answers in time. */
+/**
+ * Run an app that only reads for each phrase, and see if it answers in time.
+ * `ran` gets how long each phrase's run took, for each one that ran.
+ */
 async function timeRuns(
   recipes: Array<Record<string, unknown>>,
   phrases: string[],
   dir: string,
   run: SwampRun,
   now: () => number,
+  ran: Map<string, number>,
 ): Promise<AppCheck> {
   const notTimed = (why: string) => ({
     blockers: [],
@@ -268,6 +354,7 @@ async function timeRuns(
       return notTimed(String(done.error || "the run failed"));
     }
     const seconds = (now() - started) / 1000;
+    ran.set(phrase, seconds);
     if (seconds > RECIPE_BUDGET_SECONDS) {
       return tooSlow(phrase, `took ${seconds.toFixed(1)} s`);
     }
@@ -289,6 +376,7 @@ async function checkApp(
   dir: string,
   run: SwampRun,
   app: AppUnderCheck,
+  ran: Map<string, number>,
 ): Promise<AppCheck> {
   try {
     // Swamp runs from the throwaway repo, so a relative path wouldn't reach it.
@@ -320,6 +408,7 @@ async function checkApp(
       dir,
       run,
       app.now ?? (() => performance.now()),
+      ran,
     );
   } catch (e) {
     return {
@@ -337,6 +426,7 @@ async function checkExamples(
   run: SwampRun,
   app?: AppUnderCheck,
 ): Promise<{ examples: ExampleCheck[]; app: AppCheck }> {
+  const ran = new Map<string, number>();
   const dir = await Deno.makeTempDir({ prefix: "factory-recipe-check-" });
   try {
     // Made here because a first run would make it, and say so ahead of its JSON.
@@ -358,15 +448,21 @@ async function checkExamples(
       stringify({ allow, recipes }),
     );
     const ids = recipes.map((r) => String(r.id));
+    const dropped = droppedRecipes(recipes);
     const examples: ExampleCheck[] = [];
     for (const phrase of phrases) {
-      examples.push(await checkPhrase(phrase, ids, dir, run));
+      examples.push(await checkPhrase(phrase, ids, dir, run, dropped));
     }
     // A phrase that doesn't reach the app already blocks, so the app can wait.
     const checked = app && examples.every((e) => e.passed)
-      ? await checkApp(files, recipes, phrases, dir, run, app)
+      ? await checkApp(files, recipes, phrases, dir, run, app, ran)
       : { blockers: [] };
-    return { examples, app: checked };
+    return {
+      examples: examples.map((e) =>
+        e.passed ? { ...e, detail: passedDetail(ran.get(e.phrase)) } : e
+      ),
+      app: checked,
+    };
   } finally {
     await Deno.remove(dir, { recursive: true }).catch(() => {});
   }
@@ -380,8 +476,12 @@ export async function recipeReadiness(
   app?: AppUnderCheck,
 ): Promise<RecipeReadiness> {
   const found = assessRecipe(files, draft);
-  if (found.phrases.length === 0) return { line: null, blockers: [] };
-  if (found.none) return { line: `none. ${found.none}`, blockers: [] };
+  if (found.phrases.length === 0) {
+    return { line: null, blockers: found.blockers };
+  }
+  if (found.none) {
+    return { line: `none. ${found.none}`, blockers: found.blockers };
+  }
   if (found.recipes.length === 0) {
     return { line: "not checked", blockers: found.blockers };
   }

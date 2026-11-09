@@ -1,0 +1,64 @@
+id: 3fccaf0c-64b4-44b5-94ce-59194415efac
+name: "@puddleworks/puddleworks-factory-plan-review"
+description: >-
+  Before building, record a review of an app's build plan against its agreed
+  spec, by a reviewer that did not write the plan. The verdict and the reply
+  are recorded as a planReview resource on the puddleworks-factory model, with
+  the plan's hash, so a review stays with the version of the plan it was of.
+  It is advisory: a pending or failed review blocks nothing, and the builder
+  decides whether to go ahead.
+version: 1
+
+inputs:
+  type: object
+  properties:
+    name:
+      type: string
+      description: >-
+        The app spec's name, as drafted by @puddleworks/puddleworks-factory-build
+        on this swamp repo's puddleworks-factory model.
+    plan:
+      type: string
+      description: >-
+        The build plan the review is of, as an absolute path.
+    verdict:
+      type: string
+      enum: [pass, concerns, pending, failed]
+      description: >-
+        pass when the reviewer says the plan meets the spec and is a good
+        plan, concerns when it found something to change, pending when there
+        is no review yet, failed when the reviewer could not review it.
+    response:
+      type: string
+      description: >-
+        A file holding the reviewer's reply, or why there is no review. Needed
+        for pass and concerns.
+      default: ""
+  required:
+    - name
+    - plan
+    - verdict
+
+jobs:
+  - name: plan-review
+    description: >-
+      Record the review of the plan.
+    dependsOn: []
+    weight: 0
+    steps:
+      - name: plan-review
+        description: >-
+          Hash the plan and write the planReview resource on the
+          puddleworks-factory model.
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+        task:
+          type: model_method
+          modelIdOrName: puddleworks-factory
+          methodName: planReview
+          inputs:
+            name: ${{ inputs.name }}
+            plan: ${{ inputs.plan }}
+            verdict: ${{ inputs.verdict }}
+            response: ${{ inputs.response }}

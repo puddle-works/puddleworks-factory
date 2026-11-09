@@ -26,21 +26,34 @@ ones Puddleworks uses (see Settings, and the package README).
 Take an app spec to a published extension, aiming for about an hour. Quality
 comes from checks that must pass, not from extra steps:
 
-1. **Generate**: the `@puddleworks/puddleworks-factory-build` workflow checks
-   the spec against the contract and writes a skeleton that compiles and passes
-   its own tests, on `draft/NAME` in the app's own repo. Everything starts
+1. **Intake and reuse** (Input, step 1): read the spec and check it against
+   its contract. There is no check for an existing extension to reuse yet.
+2. **Agree and select target** (steps 1a, 2): for an outcome spec, prefill an
+   app spec and agree the builder's decisions with the user; make the app's
+   own repo from the template and the `draft/NAME` branch. Everything starts
    private.
-2. **Build**: you fill in the behaviour test-first, within the spec.
-3. **Get it ready**: format, tests, contracts, guardrails and quality must all
-   pass.
-4. **Decide visibility**: the `@puddleworks/puddleworks-factory-visibility`
-   workflow recommends public or private; the user decides.
-5. **Review independently**: a fresh agent that has not seen the build reviews
-   the repo against the spec, writes the review report and maps each acceptance
-   criterion to its tests. The `@puddleworks/puddleworks-factory-readiness`
-   workflow checks nothing is left, then a PR to the app repo.
-6. **Publish**: a clean dry run, then the push once the user confirms the
-   readiness summary. The build result records what was published.
+3. **Generate and implement** (steps 3 to 5): the
+   `@puddleworks/puddleworks-factory-build` workflow checks the spec against
+   the contract and writes a skeleton that compiles and passes its own tests;
+   you plan the build and fill in the behaviour test-first, within the spec.
+4. **Validate** (step 6): format, tests, contracts, guardrails and quality must
+   all pass.
+5. **Decide visibility** (step 7): the
+   `@puddleworks/puddleworks-factory-visibility` workflow recommends public or
+   private; the user decides.
+6. **Independent review** (step 8): a fresh agent that has not seen the build
+   reviews the repo against the spec, writes the review report and maps each
+   acceptance criterion to its tests. The
+   `@puddleworks/puddleworks-factory-readiness` workflow checks nothing is
+   left.
+7. **PR and publication** (steps 9, 10): a PR to the app repo, then a clean dry
+   run and the push once the user confirms the readiness summary.
+8. **Record** (step 3, and again with the publish): the build result records where the build went
+   and what was published.
+
+These are the stages of `docs/factory-quality-and-gates-plan.md` in the
+puddleworks-factory repo. The steps below keep their numbers, and refer to each
+other by them.
 
 Creating a repo, making it public and pushing to the registry are outward
 steps: ask before each one. Never merge the PR; the user does.
@@ -67,13 +80,18 @@ O='{}'   # the arguments given to /factory-build, e.g. O='{"org":"acme"}'
 D='{"org":"puddle-works","template":"puddle-works/puddle-template",
     "secrets":["SWAMP_API_KEY","SWAMP_SIGNIN_TOKEN"],"collective":"@puddleworks",
     "worktrees":"orca"}'
-if [ -f factory-build.json ]; then F=$(cat factory-build.json)
-else F='{}'; echo "no factory-build.json here: using the defaults" >&2; fi
+F='{}'; if [ -f factory-build.json ]; then F=$(cat factory-build.json); fi
 S=$(jq -es --argjson a "$O" 'select(length == 2) |
     (.[1] | objects) as $o | .[0] * $o * $a |
-    select(([.org, .template, .collective, .worktrees] | all(type == "string" and length > 0)) and (.secrets | arrays))' \
-  <(echo "$D") <(printf %s "$F")) ||
-  { echo "factory-build.json (or the arguments) must be one JSON object, with org, template, collective and worktrees as text and secrets as a list: fix it, or delete it to use the defaults" >&2; exit 1; }
+    def ok($re): type == "string" and test($re);
+    select((.org | ok("^[A-Za-z0-9][A-Za-z0-9-]*$")) and
+      (.template | ok("^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$")) and
+      (.collective | ok("^@[a-z0-9-]+$")) and (.worktrees | IN("orca", "git")) and
+      (.secrets | type == "array" and all(ok("^[A-Za-z_][A-Za-z0-9_]*$"))))' \
+  <(echo "$D") <(printf %s "$F")) || {
+  W="the arguments (O=)"; [ -f factory-build.json ] && W="factory-build.json or the arguments (O=)"
+  echo "$W must be one JSON object, with org a GitHub owner, template owner/repo, collective @name, worktrees orca or git, and secrets a list of secret names: fix whichever is wrong" >&2; exit 1; }
+[ -f factory-build.json ] || echo "no factory-build.json here: using the defaults" >&2
 ORG=$(jq -r .org <<<"$S"); TEMPLATE=$(jq -r .template <<<"$S")
 SECRETS=$(jq -r '.secrets | join(" ")' <<<"$S"); COLLECTIVE=$(jq -r .collective <<<"$S")
 WT=$(jq -r .worktrees <<<"$S"); command -v orca >/dev/null || WT=git
@@ -116,6 +134,12 @@ jq -r '.format // .apiVersion' SPEC_FILE   # or: curl -fsSL SPEC_URL | jq -r '.f
 - `puddleworks.dev/app-spec/v1`: already an app spec
   (`docs/contracts/app-spec.md`). Its `name` is the app name. Skip step 1a.
 
+An outcome spec at version 2 or more may be for a request that already has an
+app: its Capture page lists a build result with the repo. Check with
+`jq -r .request.id APP/spec/outcome-spec.v1.json`, which must equal the
+export's `request.id` (the `request.url` may differ). If it does, follow
+**Revising an app that is already built** below instead of steps 1a to 3.
+
 Below, `NAME` is the app name, `SPEC` is the app spec to build from, `REPO` is
 the app repo's https URL (`https://github.com/ORG/NAME`), `W` is the
 worktree step 2 makes for the build (with Orca, `~/orca/workspaces/NAME/draft-NAME`; with git, `NAME-draft` beside `APP`),
@@ -137,6 +161,15 @@ swamp model get puddleworks-factory --json 2>&1 | jq -r '.type // .error'
 ```bash
 swamp model create @puddleworks/puddleworks-factory/draft puddleworks-factory --global-arg "typeScope=\\$COLLECTIVE" --json | jq -r .type
 ```
+
+Every Factory workflow below is run with `--json` and piped through `jq`, so a
+run that prints nothing at all looks like one that did nothing wrong. It is
+not: no status means the run didn't happen. Check with
+`swamp workflow history get WORKFLOW --json | jq -r '[.id, .status, .startedAt // ""] | join(" ")'`
+(`WORKFLOW` is the `@puddleworks/...` name in the command): a run that started
+before this one, or none, confirms it. Then run the same command once more. If it
+prints nothing again, stop and tell the user, with `swamp --version`. This has
+happened once, straight after swamp updated itself and ran `swamp repo upgrade`.
 
 ## Step 1b: Check whether an existing extension already does it
 
@@ -252,21 +285,49 @@ criteria) and **propose** a value for each `toDecide` field, in one message:
 
 - `name`: short, lowercase, hyphens. The suggestion is the title as a slug and
   is often too long. It must not start with `prefill-`, `build-result-`,
-  `visibility-`, `readiness-` or `assessment-`: the Factory keeps those for its own records,
-  and `render` refuses them.
+  `visibility-`, `readiness-`, `plan-review-` or `assessment-`: the Factory
+  keeps those for its own records, and `render` refuses them. It must not be
+  `git-status`, `git-log` or `git-branch` either: the app's recipe takes its
+  name as its id, and the recipe engine drops a recipe whose id one of its own
+  recipes has.
 - `specification.purpose`: one bounded sentence.
 - `specification.inputs`: what the person enters each run, each with `name`
   (camelCase), `type` (`string`, `number`, `integer` or `boolean`),
   `description`, and `required: true`, or `required: false` with a `default`.
   If `specification.recipe` has `pieces`, give each piece an input of its name.
-  A required input with no piece means no recipe can reach the app, so make it
-  optional if a default will do, and say so if it can't.
+  A required text input with no piece means no recipe can reach the app, so
+  make it optional if a default will do, and say so if it can't. A required
+  number with no piece blocks readiness until it gets one.
 - `specification.output`: what one run produces.
 - `specification.settings`: what the builder sets once (paths, tokens), each
   with `name` (camelCase), `description` and `sensitive` (true for secrets,
   which are then read with `vault.get()`). Empty is fine.
 - `delivery.method`: usually `packaged_script`; `scheduled_workflow` if it runs
   on a timer; `external_app` or `manual_process` mean there is nothing to draft.
+
+Before the user agrees these, check the request is still at the version it was
+agreed at. Whoever handed over the spec may have revised it in the tool it came
+from since, and that tool then refuses a build result for the old version, after
+the whole build. This is the cheapest point to stop. Get the request's outcome
+spec again the way you got `OUTCOME` (the same URL, or a new export from the
+tool, such as Capture's `export_outcome_spec` or its request page), and save it
+as `SP/outcome-spec.latest.json`. Factory shares no code with that tool, so it
+reads only what the tool exports. Then:
+
+```bash
+jq -nr --slurpfile a SP/app-spec.json --slurpfile l SP/outcome-spec.latest.json '$a[0].source as $s | $l[0] as $n |
+  if $s.version == null then "no agreed version to check against"
+  elif $n.specification.version == $s.version and $n.agreement.specHash == $s.specHash
+  then "still version \($s.version)"
+  else "changed: this build is of version \($s.version) (\($s.specHash[:12])), the request is now at version \($n.specification.version) (\($n.agreement.specHash[:12]))\n" | halt_error(1)
+  end'
+```
+
+`still version N` means go on. `changed: …`, or a tool that won't export it
+because it is no longer agreed, means the request was revised: stop, tell the
+user both versions, and ask whether to start again from the new one (step 1a
+with it as `OUTCOME`) or wait. Don't build the old one. `no agreed version`
+means the spec's `source` names none, so there is nothing to check.
 
 Use `AskUserQuestion` for choices with real alternatives, and wait for the user
 to confirm or change every field. Do not build on your own guesses. Write the
@@ -360,7 +421,7 @@ and give the repo its own swamp `repoId`:
 
 ```bash
 git -C W rm -q --ignore-unmatch manifest.yaml README.md extensions/models/example.ts \
-  extensions/models/example_test.ts workflows/workflow-example.yaml 'swamp-extension-review/_puddleworks_puddle-template-*.json'
+  extensions/models/example_test.ts workflows/workflow-example.yaml 'swamp-extension-review/*.json'
 { head -1 W/contracts.ts; printf '\n// Maps each model instance a workflow reads with data.latest(...) to its type and the data names it writes.\nexport const CONTRACTS: Contracts = {};\n'; } > SP/contracts.ts
 mv SP/contracts.ts W/contracts.ts
 (cd W && swamp repo init --force --tool claude >/dev/null)
@@ -374,10 +435,19 @@ puddle-tooling version) and loses the example entry. `swamp repo init --force`
 only rewrites its own managed section of `CLAUDE.md`; the template's "Puddle
 repo" section stays.
 
+**Where you write.** From here on, change files only in `W` and `SP`, commit and
+push only from `W`, and only to `draft/NAME` on `REPO`. Never edit, commit or
+push in the Factory's own checkout, even to fix something you find in it: tell
+the user, and leave Factory changes to separate work they ask for. Use `W`'s
+real path (`W=$(realpath W)`): `render`, `visibility` and `readiness` refuse a
+path through a symlink, a folder inside the checkout, a checkout of any repo
+but `REPO`, and the Factory's checkout. They check only what they themselves
+read and write, so these rules are yours to keep everywhere else.
+
 ## Step 3: Generate the skeleton
 
 ```bash
-swamp workflow run @puddleworks/puddleworks-factory-build --input spec=SPEC --input targetDir=W --input repository=REPO --json \
+swamp workflow run @puddleworks/puddleworks-factory-build --input spec=SPEC --input targetDir=W --input repository=REPO --input branch=draft/NAME --json \
   | jq -r '.status + " " + ([.jobs[].steps[] | select(.status=="failed") | .error] | join(" | "))'
 ```
 
@@ -419,6 +489,10 @@ message says in plain words and stop:
 | `has no swamp workflow to draft`                        | Delivery is `external_app` or `manual_process` | Nothing to draft; this skill does not apply             |
 | `Refusing to overwrite files that already exist`        | A draft is already on this branch              | Re-run with `--input overwrite=true` if the user agrees |
 | `does not look like an app repo checkout`               | `targetDir` has no `.swamp.yaml`               | Point it at the app repo worktree from step 2           |
+| `the Factory's own checkout` / `inside the Factory's checkout` / `the Factory's own repo` | `targetDir` is the Factory, not the app | Point it at the app repo worktree from step 2; never draft into the Factory |
+| `is a checkout of …, not …` / `has no GitHub origin`    | `targetDir`'s origin is not `REPO`             | Use the checkout of `REPO`, or fix `REPO`               |
+| `goes through a symlink or '..'` / `is not the root of a git checkout` / `is a symlink` | `targetDir` is not the checkout's real root, or a draft path leads out of it | Pass `realpath W`; remove the symlink                   |
+| `checked out, not draft/NAME`                           | Another branch is checked out in `W`           | `git -C W switch draft/NAME`                            |
 | `repository "…" … Pass the plain https URL` | `repository` is not https, has a login, a query or fragment, or no path | Pass `REPO`, e.g. `https://github.com/ORG/NAME` |
 
 Then commit the skeleton untouched (with `spec/` when it came from an outcome
@@ -444,6 +518,10 @@ swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME \
 Expect `succeeded`. `No draft of "NAME" has been rendered` means the generate
 step above did not run on this swamp repo's `puddleworks-factory` model.
 
+This is the first build result, not the last. If the spec came from Capture,
+record it there now, as step 11 says, so the request shows Building while you
+build.
+
 
 ## Step 4: Plan the build
 
@@ -465,7 +543,45 @@ and assumptions are scope lines. Write a short plan to `SP/plan.md`:
 
 If the behaviour cannot be built within these limits, or the spec leaves a
 choice open that changes what the user gets, stop and ask; do not build on a
-guess. Otherwise carry straight on.
+guess.
+
+Then have the plan reviewed by an agent that didn't write it. Start it with the
+`Agent` tool, `subagent_type: "general-purpose"` (never `fork`, which carries
+this conversation), with `SPEC` and `SP` filled in:
+
+```text
+Review a build plan before anything is built. You did not write it; judge it
+only by the spec. Read SP/plan.md, SPEC, and W/spec/outcome-spec.v*.json (the
+highest version) when there is one. Change no file.
+
+Does the plan meet the spec: every acceptance criterion has a test or a
+verification step, nothing is on the out-of-scope list, no input or setting is
+renamed, added or removed? Is it a good plan? Start your reply with PASS or
+CONCERNS on a line of its own, then say why in under 200 words.
+```
+
+Write its reply to `SP/plan-review.txt` and record it, with `VERDICT` as `pass`
+or `concerns` from the reply's first line:
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-plan-review --input name=NAME \
+  --input plan=SP/plan.md --input verdict=VERDICT --input response=SP/plan-review.txt --json | jq -r .status
+```
+
+If the agent can't be started or gives no verdict, record `verdict=failed` with
+the reason in the response file, or `verdict=pending` with no response if
+you'll review it later. That doesn't stop the build. The review is advisory:
+show the user the verdict and any concerns, and change the plan only if they
+agree. Each change to `SP/plan.md` needs a new review. A review counts only for
+the plan as it is now:
+
+```bash
+swamp data query "behavior(\"puddleworks-factory\") && name == \"plan-review-NAME\"" \
+  --select content --json | jq -r --arg h "sha256:$(sha256sum SP/plan.md | cut -d' ' -f1)" \
+  '.results[0] | if .planHash == $h then .verdict + ": " + .response else "no review of this plan yet" end'
+```
+
+Then carry straight on.
 
 ## Step 5: Build it test-first
 
@@ -730,41 +846,140 @@ swamp data query 'behavior("puddleworks-factory") && name == "readiness-NAME"' \
   --select content --json | jq -r '.results[0] | .ready, .summary'
 ```
 
-Ask only if it says `true`. Show the `summary` exactly as it is, in a code
+Then check the request is still at the agreed version, as in step 1a: get its
+outcome spec again into `SP/outcome-spec.latest.json`, and run:
+
+```bash
+jq -nr --slurpfile a W/spec/app-spec.json --slurpfile l SP/outcome-spec.latest.json '$a[0].source as $s | $l[0] as $n |
+  if $s.version == null then "no agreed version to check against"
+  elif $n.specification.version == $s.version and $n.agreement.specHash == $s.specHash
+  then "still version \($s.version)"
+  else "changed: this build is of version \($s.version) (\($s.specHash[:12])), the request is now at version \($n.specification.version) (\($n.agreement.specHash[:12]))\n" | halt_error(1)
+  end'
+```
+
+This is the last point to stop before anything is pushed to the registry. On
+`changed: …`, don't publish: tell the user both versions and stop, as the build
+is of a version that is no longer agreed. Updating it to the new version is a
+new build. Skip this for an app spec with no `source`.
+
+Ask only if readiness says `true` and the request is still at its version. Show
+the `summary` exactly as it is, in a code
 block: the package and version, the visibility against the recommendation, the
 PR and commit, the review's verdicts, and each acceptance criterion with its
 tests. Add that it is published from that commit on `draft/NAME`, before the PR
-is merged. Then ask with `AskUserQuestion`; on yes:
+is merged. Then ask with `AskUserQuestion`; on yes, run this from the swamp repo from step
+1. `VERSION` is the version in the summary:
 
 ```bash
 gh repo edit ORG/NAME --visibility public --accept-visibility-change-consequences   # public only
-cd W && make publish VISIBILITY=V
-```
-
-Expect `published $COLLECTIVE/NAME@VERSION (HASH)`. `make publish` never
-passes `--yes`; the clean dry run is its gate. If it stops, read what it lists,
-fix it, and repeat from step 8 (the report must match the new hash). A version
-that is already published needs a new `version:` in the manifest, which also
-means a new review.
-
-## Step 11: Record it and report
-
-Write the build result again, now with the PR and what was published:
-
-```bash
+(cd W && make publish VISIBILITY=V) &&
 swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME \
-  --input buildRef=draft/NAME --input pullRequest=PR_URL \
+  --input buildRef=$(git -C W rev-parse HEAD) --input pullRequest=PR_URL \
   --input publishedVersion=VERSION --input publishedVisibility=V \
   --input out=SP/NAME.build-result.json --json | jq -r .status
 ```
 
-Expect `succeeded`; `Pass publishedVersion and publishedVisibility together`
-means one was left out. If the user stopped before publishing, leave both out.
+Expect `published $COLLECTIVE/NAME@VERSION (HASH)`, then `succeeded`. The
+build result is written as the last command of the publish, so it is never
+forgotten: until it is, the Factory page still shows the app as ready to
+publish, and the tool the spec came from doesn't know it was published. Its
+`buildRef` is the commit that was reviewed and published, not `draft/NAME`: the
+branch can move after the publish, or go when the PR is merged.
+
+`make publish` never passes `--yes`; the clean dry run is its gate. If it stops,
+nothing is recorded: read what it lists, fix it, and repeat from step 8 (the
+report must match the new hash). A version that is already published needs a
+new `version:` in the manifest, which also means a new review. If the publish
+worked but the result did not (`Pass publishedVersion and publishedVisibility
+together` means one was left out), run only the `swamp workflow run` command
+again, before committing anything in `W`.
+
+## Step 11: Report
+
+Step 10 wrote the build result. If the user stopped before publishing, write
+it now with the PR but nothing published, so it still points at the branch:
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME \
+  --input buildRef=draft/NAME --input pullRequest=PR_URL \
+  --input out=SP/NAME.build-result.json --json | jq -r .status
+```
+
+The last step is to record the file against the request, in Capture. Factory
+doesn't call Capture; you run Capture's own method, from the swamp repo that
+holds its instance (`capture` in Capture's README), with the file's full path
+and the email of the outcome owner or a builder:
+
+```bash
+swamp behavior run CAPTURE record_build_result --input as=EMAIL \
+  --input result=SP/NAME.build-result.json
+```
+
+Capture finds the request from the result's `source.url`, and refuses a result
+whose `source.version` and `source.specHash` aren't the agreed version's. A
+build from a hand-written app spec has no `source`, so it can't be recorded in
+Capture at all: say so to the user, rather than treating it as a failure. If
+Capture refuses the version, the request was revised during the build; tell the
+user, and don't edit the result to fit.
 
 Tell the user: the package and version, its visibility and why, the PR (which
-they merge), the build result file, how long the run took, and anything
+they merge), the build result file and whether Capture took it, how long the
+run took, and anything
 skipped (the real run, a check). The build result takes `examples` from the
 last readiness check, which shows a phrase reaches the app without running it,
-so say if a recipe's answers were not tried for real, and if `Recipe: none` says
-there is no recipe, say why. If the spec had a `source`, the build result
+and each passed example's `detail` says whether the app ran. So say if a recipe's
+answers were not tried for real, and if `Recipe: none` says there is no recipe,
+say why. If the spec had a `source`, the build result
 names the request, version and hash, so it can be matched to the request later.
+
+## Revising an app that is already built
+
+When an agreed outcome spec is a newer version for a request that already has
+an app (see Input), don't draft a new skeleton: that would replace the finished
+code. Change the existing app on a branch instead, from a change plan.
+
+Make the branch from the app's `main`, as step 2 does, but name it
+`revise/NAME-vN` (`N` is the export's `specification.version`), and use its
+worktree as `W`. Skip the template clean-up. Then, from the swamp repo of step 1:
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-revise --input name=NAME \
+  --input outcomeSpec=OUTCOME --input targetDir=W --json \
+  | jq -r '.status + " " + ([.jobs[].steps[] | select(.status=="failed") | .error] | join(" | "))'
+```
+
+`succeeded` means it wrote `W/spec/outcome-spec.vN.json` and
+`W/spec/change-plan.vN.md`, and brought `W/spec/app-spec.json`'s `source`,
+out-of-scope list and recipe phrases up to version `N`. It changes no code,
+tests, manifest or docs. On `failed`: `is for request` means the export is for
+another request; `already meets version` means the app is at that version or
+newer; `No draft` means this swamp repo's model didn't build the app, so run it
+from the one that did.
+
+Commit what it wrote untouched, so the diff shows the spec change and the plan:
+
+```bash
+git -C W add spec/
+git -C W commit -q -m "Take NAME to spec version N"
+```
+
+Show the user the plan. If it changes inputs, settings, output or delivery,
+agree them with the user and write them into `W/spec/app-spec.json`, as step 1a
+does. Then do step 4 with the plan as its starting point, and steps 5 to 11,
+changing the finished code only where the plan says. Update the app's section
+of `W/CLAUDE.md` and `W/README.md`, and give the manifest a new `version:`.
+Wherever a step says `draft/NAME`, use the revision branch. The build result
+names version `N` and its hash, which is what Capture checks.
+
+### Proposing a revision from the build side
+
+If building shows the agreed spec has to change, propose the change in Capture
+rather than building past it. Edit `W/spec/outcome-spec.vN.json` (the highest
+version), and in the swamp repo where Capture runs, run its
+`revise_specification` method with `outcomeSpec` set to that file's
+**absolute** path (Capture reads a relative path from its own repo), a
+one-sentence `reason`, and `as` the builder's email. The builder must already be
+on the request in Capture. Capture saves it as version `N+1` with the reason
+and proposes it to the outcome owner. Once they agree it and it is exported,
+revise the app from that export as above.
