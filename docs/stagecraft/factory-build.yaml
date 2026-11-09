@@ -90,9 +90,10 @@ definition:
             - type: cel
               config:
                 expr: >-
-                  artifacts["assessment"].payload.verdict ==
+                  "assessment" in artifacts &&
+                  (artifacts["assessment"].payload.verdict ==
                   "build-functionality" || ("reuse-choice" in evidence &&
-                  evidence["reuse-choice"].payload.answer == "build-new")
+                  evidence["reuse-choice"].payload.answer == "build-new"))
                 message: >-
                   the assessment found an existing way; the person must
                   decline it before building
@@ -197,7 +198,11 @@ definition:
             - type: cel
               config:
                 expr: >-
-                  evidence["target"].payload.exists && !(artifacts["assessment"].payload.verdict != "build-functionality" && "reuse-choice" in evidence && evidence["reuse-choice"].payload.answer == "reuse")
+                  "target" in evidence && "assessment" in artifacts &&
+                  (evidence["target"].payload.exists &&
+                  !(artifacts["assessment"].payload.verdict != "build-functionality"
+                  && "reuse-choice" in evidence &&
+                  evidence["reuse-choice"].payload.answer == "reuse"))
                 message: >-
                   the repo does not exist yet (take create-repo), or this is
                   a recipe or workflow (take existing-reuse)
@@ -215,7 +220,11 @@ definition:
             - type: cel
               config:
                 expr: >-
-                  evidence["target"].payload.exists && artifacts["assessment"].payload.verdict != "build-functionality" && "reuse-choice" in evidence && evidence["reuse-choice"].payload.answer == "reuse"
+                  "target" in evidence && "assessment" in artifacts &&
+                  (evidence["target"].payload.exists &&
+                  artifacts["assessment"].payload.verdict != "build-functionality"
+                  && "reuse-choice" in evidence &&
+                  evidence["reuse-choice"].payload.answer == "reuse")
                 message: this is a new build, or the repo does not exist yet
         - name: create-repo
           to: create-repo
@@ -228,10 +237,14 @@ definition:
             - type: cel
               config:
                 expr: >-
-                  (evidence["target"].payload.route == "reuse") == (artifacts["assessment"].payload.verdict != "build-functionality" && "reuse-choice" in evidence && evidence["reuse-choice"].payload.answer == "reuse") &&
+                  "target" in evidence && "assessment" in artifacts &&
+                  ((evidence["target"].payload.route == "reuse") ==
+                  (artifacts["assessment"].payload.verdict != "build-functionality"
+                  && "reuse-choice" in evidence &&
+                  evidence["reuse-choice"].payload.answer == "reuse") &&
                   !evidence["target"].payload.exists &&
                   !(artifacts["assessment"].payload.verdict in
-                  ["recipe-in-our-extension", "workflow-in-our-extension"])
+                  ["recipe-in-our-extension", "workflow-in-our-extension"]))
                 message: >-
                   the repo exists already, or the verdict puts the work in our
                   extension's own repo
@@ -267,10 +280,13 @@ definition:
             - type: cel
               config:
                 expr: >-
-                  evidence["repo-created"].payload.repository ==
+                  "repo-created" in evidence && "target" in evidence && "assessment"
+                  in artifacts && (evidence["repo-created"].payload.repository ==
                   evidence["target"].payload.repository &&
                   evidence["repo-created"].payload.visibility == "private" &&
-                  !(artifacts["assessment"].payload.verdict != "build-functionality" && "reuse-choice" in evidence && evidence["reuse-choice"].payload.answer == "reuse")
+                  !(artifacts["assessment"].payload.verdict != "build-functionality"
+                  && "reuse-choice" in evidence &&
+                  evidence["reuse-choice"].payload.answer == "reuse"))
                 message: >-
                   the repo created is not the approved private target, or this
                   is a recipe or workflow (take created-reuse)
@@ -285,12 +301,15 @@ definition:
             - type: cel
               config:
                 expr: >-
-                  artifacts["assessment"].payload.verdict != "build-functionality" && "reuse-choice" in evidence && evidence["reuse-choice"].payload.answer == "reuse" &&
+                  "assessment" in artifacts && "repo-created" in evidence &&
+                  "target" in evidence && (artifacts["assessment"].payload.verdict
+                  != "build-functionality" && "reuse-choice" in evidence &&
+                  evidence["reuse-choice"].payload.answer == "reuse" &&
                   evidence["repo-created"].payload.repository ==
                   evidence["target"].payload.repository &&
                   evidence["repo-created"].payload.visibility ==
-                  (artifacts["assessment"].payload.verdict == "recipe-in-pack"
-                  ? "public" : "private")
+                  (artifacts["assessment"].payload.verdict == "recipe-in-pack" ?
+                  "public" : "private"))
                 message: >-
                   the repo created is not the approved target with the
                   visibility its verdict needs
@@ -349,9 +368,9 @@ definition:
             - type: cel
               config:
                 expr: >-
-                  !("checks" in evidence) ||
+                  "change-summary" in artifacts && (!("checks" in evidence) ||
                   evidence["checks"].payload.commit !=
-                  artifacts["change-summary"].payload.commit
+                  artifacts["change-summary"].payload.commit)
                 message: >-
                   change-summary still names the commit already checked; record
                   it for the new commit
@@ -419,10 +438,11 @@ definition:
             - type: cel
               config:
                 expr: >-
-                  evidence["checks"].payload.commit ==
+                  "checks" in evidence && "change-summary" in artifacts && "quality"
+                  in evidence && (evidence["checks"].payload.commit ==
                   artifacts["change-summary"].payload.commit &&
                   evidence["quality"].payload.commit ==
-                  artifacts["change-summary"].payload.commit
+                  artifacts["change-summary"].payload.commit)
                 message: checks and quality must be for the change-summary commit
         - name: failed
           to: implement
@@ -551,8 +571,9 @@ definition:
             - type: cel
               config:
                 expr: >-
-                  evidence["pull-request"].payload.commit ==
-                  artifacts["change-summary"].payload.commit
+                  "pull-request" in evidence && "change-summary" in artifacts &&
+                  (evidence["pull-request"].payload.commit ==
+                  artifacts["change-summary"].payload.commit)
                 message: the PR must be for the reviewed commit
             - type: human-approval
               config: { id: publish-approval }
@@ -595,12 +616,14 @@ definition:
             - type: cel
               config:
                 expr: >-
-                  evidence["release"].payload.commit ==
+                  "release" in evidence && "change-summary" in artifacts &&
+                  "visibility-choice" in evidence &&
+                  (evidence["release"].payload.commit ==
                   artifacts["change-summary"].payload.commit &&
                   evidence["release"].payload.version ==
                   artifacts["change-summary"].payload.manifestVersion &&
                   evidence["release"].payload.visibility ==
-                  evidence["visibility-choice"].payload.visibility
+                  evidence["visibility-choice"].payload.visibility)
                 message: >-
                   the release must publish the reviewed commit and version
                   with the chosen visibility
