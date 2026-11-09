@@ -1038,6 +1038,10 @@ settings above do not name.
    \`test\` target.
 4. \`deno check\` and \`deno test\` must pass before review.
 
+A web UI is Preact rendered on the server, written with \`h()\` in \`.ts\`,
+because the swamp registry rejects \`.tsx\`. The Factory's viewer works this
+way.
+
 ${recipeSection(input, n, fit)}${CLAUDE_END}
 `;
 }
