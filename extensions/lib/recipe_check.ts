@@ -12,11 +12,13 @@
  */
 import { stringify } from "jsr:@std/yaml@1.0.12";
 import {
+  ANY_TURN_PROBES,
   assessRecipe,
   type DraftRecipe,
   onlyReads,
   RECIPE_BUDGET_SECONDS,
 } from "./recipes.ts";
+import { BUILT_IN_RECIPE_IDS } from "./names.ts";
 
 /** The extension that runs recipes. */
 const ENGINE = "@puddleworks/recipes";
@@ -137,12 +139,56 @@ async function runMethod(
   return attributes;
 }
 
+/**
+ * Why the recipe engine would drop each recipe it loads, by the engine's own
+ * rules for a recipe's id and pattern. The engine only logs these, and a run
+ * with --json keeps its log out of the output, so `match` alone would just say
+ * nothing matched.
+ */
+export function droppedRecipes(
+  recipes: Array<Record<string, unknown>>,
+): string[] {
+  const taken = new Set(BUILT_IN_RECIPE_IDS);
+  const why: string[] = [];
+  for (const r of recipes) {
+    const id = String(r.id);
+    const drop = (reason: string) =>
+      why.push(`The recipe engine drops the recipe "${id}": ${reason}.`);
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) {
+      drop("its id must be lowercase letters, digits and hyphens");
+      continue;
+    }
+    if (taken.has(id)) {
+      drop(
+        BUILT_IN_RECIPE_IDS.includes(id)
+          ? "one of the engine's own recipes has that id"
+          : "an earlier recipe has that id",
+      );
+      continue;
+    }
+    let pattern: RegExp;
+    try {
+      pattern = new RegExp(`^(?:${String(r.pattern)})$`, "i");
+    } catch (e) {
+      drop(`its pattern is not a valid regex (${message(e)})`);
+      continue;
+    }
+    if (ANY_TURN_PROBES.some((p) => pattern.test(p))) {
+      drop("its pattern would match any turn");
+      continue;
+    }
+    taken.add(id);
+  }
+  return why;
+}
+
 /** Whether this phrase reaches one of the app's recipes. */
 async function checkPhrase(
   phrase: string,
   ids: string[],
   dir: string,
   run: SwampRun,
+  dropped: string[],
 ): Promise<ExampleCheck> {
   const failed = (detail: string) => ({
     phrase,
@@ -152,7 +198,13 @@ async function checkPhrase(
   try {
     // A phrase may start with "@", which swamp would read as a file.
     const match = await runMethod(run, dir, "match", [`text=${phrase}`], true);
-    if (match.matched !== true) return failed("No recipe matched this phrase.");
+    if (match.matched !== true) {
+      return failed(
+        dropped.length > 0
+          ? dropped.join(" ")
+          : "No recipe matched this phrase.",
+      );
+    }
     if (!ids.includes(String(match.recipeId))) {
       return failed(`It matched the recipe "${match.recipeId}" instead.`);
     }
@@ -358,9 +410,10 @@ async function checkExamples(
       stringify({ allow, recipes }),
     );
     const ids = recipes.map((r) => String(r.id));
+    const dropped = droppedRecipes(recipes);
     const examples: ExampleCheck[] = [];
     for (const phrase of phrases) {
-      examples.push(await checkPhrase(phrase, ids, dir, run));
+      examples.push(await checkPhrase(phrase, ids, dir, run, dropped));
     }
     // A phrase that doesn't reach the app already blocks, so the app can wait.
     const checked = app && examples.every((e) => e.passed)

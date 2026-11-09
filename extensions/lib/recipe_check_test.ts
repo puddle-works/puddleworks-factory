@@ -10,7 +10,12 @@
  */
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { parse } from "jsr:@std/yaml@1.0.12";
-import { realSwamp, recipeReadiness, type SwampRun } from "./recipe_check.ts";
+import {
+  droppedRecipes,
+  realSwamp,
+  recipeReadiness,
+  type SwampRun,
+} from "./recipe_check.ts";
 import { onlyReads } from "./recipes.ts";
 
 const ok = (attributes: unknown) => ({
@@ -52,6 +57,8 @@ function fakeSwamp(
     if (args.includes("match")) {
       const text = value("text")!;
       for (const r of config.recipes) {
+        // The engine drops a recipe whose id one of its own has.
+        if (["git-status", "git-log", "git-branch"].includes(r.id)) continue;
         const m = new RegExp(`^(?:${r.pattern})$`, "i").exec(text);
         if (m) {
           return ok({
@@ -75,12 +82,15 @@ jobs:
   - steps:
       - task: { type: model_method, modelIdOrName: m, methodName: run }
 `;
-const recipeFile = (pattern = "^show issue (\\d{1,6})[?.!]*$") =>
+const recipeFile = (
+  pattern = "^show issue (\\d{1,6})[?.!]*$",
+  id = "my-app",
+) =>
   `name: "@puddleworks/my-app-recipe"
 tags:
   puddlerouterRecipe: '${
     JSON.stringify({
-      id: "my-app",
+      id,
       extension: "@acme/my-app",
       pattern,
       dataName: "result",
@@ -151,6 +161,37 @@ Deno.test("recipe check: a phrase the recipe no longer answers fails and blocks"
   assertEquals(got.line, "0 of 2 example phrases passed");
   assertStringIncludes(got.examples![0].detail!, "No recipe matched");
   assertStringIncludes(got.blockers.join(" "), '"show issue 42"');
+});
+
+Deno.test("recipe check: a recipe the engine drops says why, not that nothing matched", async () => {
+  const got = await recipeReadiness(
+    files(recipeFile(undefined, "git-status")),
+    draft(),
+    fakeSwamp(),
+  );
+  assertEquals(got.examples?.map((e) => e.passed), [false, false]);
+  const detail = got.examples![0].detail!;
+  assertStringIncludes(detail, 'drops the recipe "git-status"');
+  assertStringIncludes(detail, "engine's own recipes");
+  assertEquals(detail.includes("No recipe matched"), false);
+});
+
+Deno.test("recipe check: the engine's reasons for dropping a recipe", () => {
+  const r = (id: string, pattern: string) => ({ id, pattern });
+  assertEquals(droppedRecipes([r("my-app", "^show issue (\\d+)$")]), []);
+  for (
+    const [recipes, says] of [
+      [[r("My_App", "^show$")], "lowercase letters"],
+      [[r("git-log", "^show$")], "engine's own recipes"],
+      [[r("a", "^show$"), r("a", "^list$")], "an earlier recipe"],
+      [[r("a", "^show (issue$")], "not a valid regex"],
+      [[r("a", ".*")], "any turn"],
+    ] as Array<[Array<Record<string, unknown>>, string]>
+  ) {
+    const why = droppedRecipes(recipes);
+    assertEquals(why.length, 1, says);
+    assertStringIncludes(why[0], says);
+  }
 });
 
 Deno.test("recipe check: execute's refusal is a failed example", async () => {
