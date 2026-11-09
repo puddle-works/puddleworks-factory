@@ -298,23 +298,26 @@ the run logs the address. It shows the draft behavior named
 `puddleworks-factory`; set `draft` on `factory-viewer` to show another.
 
 `/` lists every app under the stage its records put it at, in Factory order,
-newest first. To decide and Blocked are marked as waiting on you:
+newest first. These are the stages in How it works that leave a record; Intake
+and reuse and Validate leave none. Each card's badge says what its records show.
+Agreeing and publishing are marked as waiting on you:
 
-| Group              | When                                                         |
-| ------------------ | ------------------------------------------------------------ |
-| To decide          | prefilled, no draft yet                                      |
-| Drafted            | a draft, no visibility check since                           |
-| Visibility checked | a visibility check, no readiness check since                 |
-| Blocked            | the latest readiness check has blockers                      |
-| Ready to publish   | the latest readiness check passed, and nothing published yet |
-| Released           | the build result records what was published                  |
+| Group                   | Badge              | When                                                            |
+| ----------------------- | ------------------ | --------------------------------------------------------------- |
+| Agree and select target | To decide          | prefilled, no draft yet                                         |
+| Generate and implement  | Drafted            | a draft, no visibility check since                              |
+| Decide visibility       | Visibility checked | a visibility check, no readiness check since                    |
+| Independent review      | Blocked            | the latest readiness check has blockers, for the builder to fix |
+| PR and publication      | Ready to publish   | the latest readiness check passed, and nothing published yet    |
+| Record                  | Published          | the build result records what was published                     |
 
-Released means the build result has `published`, not just that there is a build
+Record means the build result has `published`, not just that there is a build
 result: `result` is first run when the draft is pushed, before it is published.
 
 A record older than the app's newest draft doesn't count, so a new draft puts
-the app back at Drafted, even after a release, until the later steps run again.
-A readiness check older than the newest visibility check doesn't count either.
+the app back at Generate and implement, even after a release, until the later
+steps run again. A readiness check older than the newest visibility check
+doesn't count either.
 
 `/apps/<name>` shows one app: its stages (prefill, draft, visibility, readiness,
 pull request, published), then each record in that order, with links to the
