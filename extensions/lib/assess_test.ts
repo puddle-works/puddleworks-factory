@@ -75,3 +75,44 @@ Deno.test("assess: a recipe needs a read-only method, a schedule doesn't", () =>
     "workflow-in-our-extension",
   );
 });
+
+const match = (phrase: string, recipe: string | null) => ({
+  phrase,
+  recipe,
+  extension: recipe ? "@webframp/github" : null,
+});
+
+Deno.test("assess: done when one existing recipe answers every phrasing", () => {
+  const a = assess(
+    [candidate("@puddleworks/notes")],
+    "packaged_script",
+    [
+      match("open prs in a/b", "github-open-prs"),
+      match("prs for a/b", "github-open-prs"),
+    ],
+  );
+  assertEquals(a.verdict, "done");
+  assertEquals(a.matches.length, 2);
+});
+
+Deno.test("assess: not done when a phrasing is unmatched or two recipes split them", () => {
+  const fit = [candidate("@puddleworks/notes")];
+  for (
+    const matches of [
+      [match("one", "github-open-prs"), match("two", null)],
+      [match("one", "github-open-prs"), match("two", "git-status")],
+    ]
+  ) {
+    assertEquals(
+      assess(fit, "packaged_script", matches).verdict,
+      "recipe-in-our-extension",
+    );
+  }
+});
+
+Deno.test("assess: a recipe doesn't serve a schedule", () => {
+  assertEquals(
+    assess([], "scheduled_workflow", [match("one", "github-open-prs")]).verdict,
+    "build-functionality",
+  );
+});
