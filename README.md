@@ -257,6 +257,13 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
   --input out=$HOME/obsidian-puddle-scanner.build-result.json
 ```
 
+The last step is to record the file against the request, in the tool the spec
+came from. Factory doesn't call that tool; the builder runs the tool's own
+method for it. Record the first result too, written once the draft is pushed, so
+the request shows the build is under way. A tool that matches a result to its
+request by `source`, version and spec hash can't take a build from a
+hand-written app spec, which has no `source`.
+
 ## See what the Factory has done
 
 The `web` model serves a read-only page on 127.0.0.1. Create it once and run it

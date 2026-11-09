@@ -406,6 +406,10 @@ swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME \
 Expect `succeeded`. `No draft of "NAME" has been rendered` means the generate
 step above did not run on this swamp repo's `puddleworks-factory` model.
 
+This is the first build result, not the last. If the spec came from Capture,
+record it there now, as step 11 says, so the request shows Building while you
+build.
+
 
 ## Step 4: Plan the build
 
@@ -752,8 +756,26 @@ swamp workflow run @puddleworks/puddleworks-factory-result --input name=NAME \
   --input out=SP/NAME.build-result.json --json | jq -r .status
 ```
 
+The last step is to record the file against the request, in Capture. Factory
+doesn't call Capture; you run Capture's own method, from the swamp repo that
+holds its instance (`capture` in Capture's README), with the file's full path
+and the email of the outcome owner or a builder:
+
+```bash
+swamp behavior run CAPTURE record_build_result --input as=EMAIL \
+  --input result=SP/NAME.build-result.json
+```
+
+Capture finds the request from the result's `source.url`, and refuses a result
+whose `source.version` and `source.specHash` aren't the agreed version's. A
+build from a hand-written app spec has no `source`, so it can't be recorded in
+Capture at all: say so to the user, rather than treating it as a failure. If
+Capture refuses the version, the request was revised during the build; tell the
+user, and don't edit the result to fit.
+
 Tell the user: the package and version, its visibility and why, the PR (which
-they merge), the build result file, how long the run took, and anything
+they merge), the build result file and whether Capture took it, how long the
+run took, and anything
 skipped (the real run, a check). The build result takes `examples` from the
 last readiness check, which shows a phrase reaches the app without running it,
 and each passed example's `detail` says whether the app ran. So say if a recipe's
