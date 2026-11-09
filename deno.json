@@ -1,4 +1,8 @@
 {
+  "imports": {
+    "preact": "npm:preact@10.27.3",
+    "preact-render-to-string": "npm:preact-render-to-string@6.8.2"
+  },
   "fmt": {
     "exclude": ["CLAUDE.md", "AGENTS.md", ".claude/", ".swamp/", "vaults/"]
   },

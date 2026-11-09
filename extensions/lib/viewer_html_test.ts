@@ -53,7 +53,7 @@ function assertReadOnly(html: string) {
     [...html.matchAll(/<script\b[^>]*>/gi)].map((m) => m[0]),
     ['<script src="/reload.js" defer>'],
   );
-  assertStringIncludes(html, '<link rel="stylesheet" href="/web.css">');
+  assertStringIncludes(html, '<link rel="stylesheet" href="/web.css"/>');
   assertStringIncludes(html, "Read-only");
   assertStringIncludes(html, "Factory");
 }
@@ -157,7 +157,7 @@ Deno.test("viewer html: hostile values are escaped", () => {
     assert(!html.includes("<img"), "no tag from the data");
     assert(!html.includes("x<script>"), "the name is escaped");
   }
-  assertStringIncludes(appPage(one, READ_AT), "x&lt;script&gt;");
+  assertStringIncludes(appPage(one, READ_AT), "<h1>x&lt;script></h1>");
   assertStringIncludes(
     overviewPage([one], READ_AT),
     'href="/apps/x%3Cscript%3E"',

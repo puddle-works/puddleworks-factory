@@ -592,6 +592,16 @@ Deno.test("render: CLAUDE.md only sends the builder to a Makefile the repo has",
   assertStringIncludes(finishing, "if the repo has a `Makefile`");
 });
 
+// The same sentence is in the template, the workbench and Capture.
+Deno.test("render: CLAUDE.md says how a web UI is built", () => {
+  const doc = fileMap(OBSIDIAN).get("CLAUDE.md")!;
+  const finishing = doc.split("## Finishing the draft")[1].replace(/\s+/g, " ");
+  assertStringIncludes(
+    finishing,
+    "A web UI is Preact rendered on the server, written with `h()` in `.ts`, because the swamp registry rejects `.tsx`.",
+  );
+});
+
 Deno.test("method: render's description names every kind of file it writes", () => {
   const description = model.methods.render.description.replace(/\s+/g, " ");
   assertStringIncludes(description, "ci.yml");
