@@ -46,6 +46,19 @@ swamp workflow run @puddleworks/puddleworks-factory-result \
   --input 'examples:json=[{"phrase":"which notes need a request","passed":true}]'
 ```
 
+## Recording it against the request
+
+Factory stops at the file. To move a Capture request on, the builder records the
+file there with Capture's `record_build_result` method; Factory imports and
+calls nothing of Capture's (ADR-001). Record the first result, written when the
+draft is pushed, so the request shows Building, and the last, once the extension
+is published.
+
+Capture takes a result only when its `source.url` is a request page and its
+`source.version` and `source.specHash` are the agreed version's. A build from a
+hand-written app spec has no `source`, so it can't be recorded in Capture. That
+is by design: there is no agreed request to record it against.
+
 ## Shape
 
 | Field           | Required | Meaning                                                                                         |
