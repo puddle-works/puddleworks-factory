@@ -19,5 +19,6 @@ workflows:
   - workflow-visibility.yaml
   - workflow-readiness.yaml
   - workflow-revise.yaml
+  - workflow-plan-review.yaml
 skills:
   - factory-build

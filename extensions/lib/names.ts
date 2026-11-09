@@ -17,6 +17,7 @@ export const RESOURCE_PREFIX = {
   buildResult: "build-result-",
   visibility: "visibility-",
   readiness: "readiness-",
+  planReview: "plan-review-",
 } as const;
 
 /** The reserved prefix an app name starts with, or undefined if none. */

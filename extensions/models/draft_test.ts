@@ -1436,6 +1436,7 @@ Deno.test("check draft-rendered: a policy check before result, visibility and re
   assertEquals(check.appliesTo, [
     "result",
     "revise",
+    "planReview",
     "visibility",
     "readiness",
   ]);
