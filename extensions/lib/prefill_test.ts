@@ -106,6 +106,16 @@ Deno.test("prefill: a suggested name with a reserved prefix is flagged to change
   }
 });
 
+Deno.test("prefill: a suggested name a built-in recipe has is flagged to change", () => {
+  const outcome = structuredClone(OUTCOME);
+  outcome.request.title = "Git status";
+  const { spec, toDecide } = prefillAppSpec(outcome);
+  assertEquals(spec.name, "git-status");
+  const name = toDecide.find((t) => t.startsWith("name:"))!;
+  assertStringIncludes(name, "recipe engine ships with");
+  assertStringIncludes(name, "pick another name");
+});
+
 Deno.test("prefill: a suggested name that reads as a secret is flagged to change", () => {
   const outcome = structuredClone(OUTCOME);
   outcome.request.title = "xoxb team reminders";
