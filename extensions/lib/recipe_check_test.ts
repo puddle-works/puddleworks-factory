@@ -469,6 +469,39 @@ Deno.test({
   },
 });
 
+// A run swamp started goes on writing into the throwaway repo after swamp is
+// stopped, so the folder came back after it was removed (issue #93).
+Deno.test({
+  name: "real swamp: stopping swamp stops the runs it started",
+  sanitizeOps: false,
+  sanitizeResources: false,
+  fn: async () => {
+    const dir = await Deno.makeTempDir({ prefix: "factory-swamp-shim-" });
+    const path = Deno.env.get("PATH") ?? "";
+    try {
+      await Deno.writeTextFile(
+        `${dir}/swamp`,
+        '#!/bin/sh\n(sleep 2; echo late > "$PWD/late") &\nwait\n',
+      );
+      await Deno.chmod(`${dir}/swamp`, 0o755);
+      Deno.env.set("PATH", `${dir}:${path}`);
+      const said = await realSwamp(["x"], dir, 500).then(
+        () => "answered",
+        (e) => String(e),
+      );
+      assertStringIncludes(said, "gave no answer");
+      await new Promise((r) => setTimeout(r, 3000));
+      assertEquals(
+        await Deno.stat(`${dir}/late`).then(() => true, () => false),
+        false,
+      );
+    } finally {
+      Deno.env.set("PATH", path);
+      await Deno.remove(dir, { recursive: true });
+    }
+  },
+});
+
 Deno.test("recipe check: says how many phrases were past the limit and not checked", async () => {
   const phrases = (n: number) =>
     Array.from({ length: n }, (_, i) => `show issue ${i}`);
