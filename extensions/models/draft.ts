@@ -1641,7 +1641,7 @@ async function exists(path: string): Promise<boolean> {
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.11.06.1",
+  version: "2026.11.09.1",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -1782,6 +1782,24 @@ export const model = {
         "have different names. readiness accepts no recipe only when a required " +
         "input is free text, and blocks otherwise. result leaves out examples from " +
         "a readiness check older than the latest render. No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.11.09.1",
+      description:
+        "Adds assess, which checks for an existing extension or recipe before " +
+        "anything is built, revise, which takes an app already built to a newly " +
+        "agreed version of its spec with a change plan, and planReview, which " +
+        "records a review of the build plan with the plan's hash. assess and " +
+        "planReview each keep a record of their own. render writes only into the approved app checkout, refuses an " +
+        "app name a built-in recipe has, removes a template's review file, writes " +
+        "TypeScript deno fmt leaves as it is, and tells the app that a web UI is " +
+        "Preact rendered on the server. Building and publishing check the request " +
+        "is still at its agreed version. result records the published commit as " +
+        "buildRef, and an example may carry its recipe id and router evidence. " +
+        "readiness says what each passed example checked, why the engine dropped a " +
+        "recipe, and blocks a phrase too long for a build result. No data " +
+        "migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
