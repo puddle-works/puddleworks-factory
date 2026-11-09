@@ -179,7 +179,6 @@ function parseJson(text: string): unknown {
   }
 }
 
-/** The outcome spec with the highest specification.version in spec/. */
 /** The phrases an outcome spec's recipe agreed. */
 function outcomePhrases(spec: Record<string, unknown>): string[] {
   const examples = record(spec.recipe)?.examples;
@@ -188,6 +187,7 @@ function outcomePhrases(spec: Record<string, unknown>): string[] {
     .filter(Boolean);
 }
 
+/** The outcome spec with the highest specification.version in spec/. */
 export function latestOutcome(files: ReadinessFacts["files"]) {
   let best:
     | {

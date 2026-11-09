@@ -57,6 +57,7 @@ import {
   parseOutcomeSpec,
 } from "../contracts/outcome_spec_v1.ts";
 import {
+  builtInRecipeProblem,
   reservedNameProblem,
   reservedPrefix,
   RESOURCE_PREFIX,
@@ -65,6 +66,7 @@ import {
 import { assessVisibility } from "../lib/visibility.ts";
 import { linkProblem, safeData, safeText } from "../lib/redact.ts";
 import { assessReadiness } from "../lib/readiness.ts";
+import { checkOutputPath, checkTarget } from "../lib/target.ts";
 import {
   DRAFT_LINE,
   RECIPE_BUDGET_SECONDS,
@@ -958,6 +960,8 @@ export function renderDraft(
   }
   const prefix = reservedPrefix(name);
   if (prefix) throw new Error(reservedNameProblem(name, prefix));
+  const builtIn = builtInRecipeProblem(name);
+  if (builtIn) throw new Error(builtIn);
   const secretName = secretNameProblem("The app name", name);
   if (secretName) throw new Error(secretName);
   if (!DRAFTABLE.includes(delivery.method)) {
@@ -1072,16 +1076,25 @@ const PrefillArgsSchema = z.object({
 
 type PrefillArgs = z.infer<typeof PrefillArgsSchema>;
 
+/** Workflows pass "" for an input left blank; treat it as not given. */
+const optional = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
+
 const RenderArgsSchema = z.object({
   /**
    * A puddleworks.dev/app-spec/v1 spec: a file path, an https URL, or the
    * spec itself as inline JSON.
    */
   spec: z.string().min(1),
-  /** Absolute path of a checkout of the app's own repo. */
+  /**
+   * Absolute real path of the root of a checkout of the app's own repo, whose
+   * origin is `repository`. Never the Factory's own checkout.
+   */
   targetDir: z.string().min(1),
   /** `https://` URL of the app's repo, written into the manifest. */
   repository: z.string().min(1),
+  /** The branch the checkout must have checked out, when given. */
+  branch: optional(z.string().min(1)),
   overwrite: z.boolean().default(false),
   /** "private" (the default) keeps the package off the public registry until it is decided otherwise. */
   visibility: z.enum(["public", "private"]).default("private"),
@@ -1089,16 +1102,12 @@ const RenderArgsSchema = z.object({
 
 type RenderArgs = z.infer<typeof RenderArgsSchema>;
 
-/** Workflows pass "" for an input left blank; treat it as not given. */
-const optional = <T extends z.ZodType>(schema: T) =>
-  z.preprocess((v) => (v === "" ? undefined : v), schema.optional());
-
 const ResultArgsSchema = z.object({
   /** The app spec's name, as drafted by `render` on this instance. */
   name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
   /** https URL of the repository the draft was pushed to. Defaults to the draft's. */
   repository: optional(z.string().min(1)),
-  /** Branch or commit the build is on, e.g. `draft/<name>`. */
+  /** Branch or commit the build is on, e.g. `draft/<name>`; once published, its commit. */
   buildRef: z.string().min(1),
   /** https URL of the pull request, once there is one. */
   pullRequest: optional(z.string()),
@@ -1126,7 +1135,11 @@ const VisibilityArgsSchema = z.object({
   provisionalQuality: z.number().int().min(0).max(100).default(0),
   /** The app repo's visibility on GitHub. */
   repoVisibility: z.enum(["public", "private"]),
-  /** The app repo checkout to check. Defaults to where the draft was written. */
+  /**
+   * The app repo checkout to check. Defaults to where the draft was written.
+   * Either way it must pass the same checks as render's targetDir, against
+   * the draft's repository.
+   */
   targetDir: optional(z.string().min(1)),
 });
 
@@ -1155,7 +1168,11 @@ const ReadinessArgsSchema = z.object({
   pullRequest: optional(z.string()),
   /** The reviewed commit, shown in the summary. */
   commit: optional(z.string()),
-  /** The app repo checkout to check. Defaults to where the draft was written. */
+  /**
+   * The app repo checkout to check. Defaults to where the draft was written.
+   * Either way it must pass the same checks as render's targetDir, against
+   * the draft's repository.
+   */
   targetDir: optional(z.string().min(1)),
 });
 
@@ -1372,6 +1389,25 @@ function method<A>(
       throw safeError(e);
     }
   };
+}
+
+/**
+ * Check a checkout against the repository its draft was rendered for, as
+ * render checked it. A draft recorded before render took a repository has
+ * nothing to check the origin against, so it is refused.
+ */
+async function checkDraftTarget(
+  root: string,
+  draft: { name: string; repository?: string },
+): Promise<void> {
+  if (draft.repository === undefined) {
+    throw new Error(
+      `The draft of "${draft.name}" was recorded without its repository, so ` +
+        `${root} can't be shown to be its checkout. Run ` +
+        "@puddleworks/puddleworks-factory-build for it again with repository set.",
+    );
+  }
+  await checkTarget(root, draft.repository);
 }
 
 /** Write text to path, creating its directory first when it names one. */
@@ -1713,12 +1749,10 @@ export const model = {
               "Use a checkout path without it.",
           );
         }
-        if (!(await exists(`${root}/.swamp.yaml`))) {
-          throw new Error(
-            `${root} does not look like an app repo checkout: it has no .swamp.yaml. ` +
-              "Pass targetDir as the path of a checkout of the app's own swamp repo, e.g. a git worktree of it.",
-          );
-        }
+        context.logger.debug("Checking {targetDir} is the app's checkout", {
+          targetDir: root,
+        });
+        await checkTarget(root, args.repository, args.branch);
 
         context.logger.debug("Reading the app spec from {source}", {
           source: from,
@@ -1738,6 +1772,7 @@ export const model = {
         > = [];
         const present: string[] = [];
         for (const f of files) {
+          await checkOutputPath(root, f.path);
           const path = `${root}/${f.path}`;
           const old = (await exists(path))
             ? await Deno.readTextFile(path)
@@ -2105,6 +2140,7 @@ export const model = {
           /\/+$/,
           "",
         );
+        await checkDraftTarget(root, draft.data);
         context.logger.debug("Scanning {targetDir}", { targetDir: root });
         const { files, notRead } = await textFiles(root);
         warnNotRead(context, notRead);
@@ -2169,6 +2205,7 @@ export const model = {
           /\/+$/,
           "",
         );
+        await checkDraftTarget(root, draft.data);
         const reviewFile = args.review.startsWith("/")
           ? args.review
           : `${root}/${args.review}`;

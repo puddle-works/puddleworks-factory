@@ -185,6 +185,72 @@ Deno.test("build-result: examples stay within their bounds", () => {
   }
 });
 
+const ROUTER = {
+  testedAt: "2026-10-16T09:50:00.000Z",
+  version: "2026.10.16.1",
+  outcome: "answered-after-yes" as const,
+  source: { url: "http://127.0.0.1:3002/requests/r-1", version: 2 },
+};
+
+Deno.test("build-result: an example's recipe and router test are kept when given, and optional", () => {
+  const tested = {
+    phrase: "x",
+    passed: true,
+    recipeId: "my-app",
+    router: ROUTER,
+  };
+  const given = parseBuildResult({ ...EXAMPLE, examples: [tested] });
+  assertEquals(given.ok ? given.result.examples : given.problems, [tested]);
+  // A source with no version is still a source.
+  const { version: _v, ...noVersion } = ROUTER.source;
+  assertEquals(
+    problemsOf({
+      ...EXAMPLE,
+      examples: [{ ...tested, router: { ...ROUTER, source: noVersion } }],
+    }),
+    [],
+  );
+});
+
+Deno.test("build-result: a router test says when, which version, how it went and which request", () => {
+  const { source: _s, ...noSource } = ROUTER;
+  for (
+    const [where, router] of [
+      ["router.testedAt", { ...ROUTER, testedAt: "yesterday" }],
+      ["router.version", { ...ROUTER, version: "" }],
+      ["router.outcome", { ...ROUTER, outcome: "asked-claude" }],
+      ["router.source", noSource],
+      ["router.source.url", { ...ROUTER, source: { url: "ftp://x/y" } }],
+      ["router.source.version", {
+        ...ROUTER,
+        source: { ...ROUTER.source, version: 0 },
+      }],
+    ] as const
+  ) {
+    const problems = problemsOf({
+      ...EXAMPLE,
+      examples: [{ phrase: "x", passed: true, router }],
+    });
+    assertEquals(problems.length, 1, where);
+    assertStringIncludes(problems[0], `examples.0.${where}`);
+  }
+  for (const recipeId of ["", "r".repeat(201)]) {
+    const problems = problemsOf({
+      ...EXAMPLE,
+      examples: [{ phrase: "x", passed: true, recipeId }],
+    });
+    assertEquals(problems.length, 1, `${recipeId.length}`);
+    assertStringIncludes(problems[0], "examples.0.recipeId");
+  }
+  assertEquals(
+    problemsOf({
+      ...EXAMPLE,
+      examples: [{ phrase: "x", passed: true, recipeId: "r".repeat(200) }],
+    }),
+    [],
+  );
+});
+
 Deno.test("build-result: the contract doc names examples and what a missing one means", async () => {
   const doc = (await Deno.readTextFile(
     new URL("../../docs/contracts/build-result.md", import.meta.url),
@@ -195,6 +261,8 @@ Deno.test("build-result: the contract doc names examples and what a missing one 
       "`examples[].phrase`",
       "`examples[].passed`",
       "`examples[].detail`",
+      "`examples[].recipeId`",
+      "`examples[].router`",
     ]
   ) {
     assertStringIncludes(doc, field);

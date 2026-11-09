@@ -66,7 +66,7 @@ Deno.test("viewer serve: serves the pages and says when the data changed", async
   assertEquals(new Set(asked), new Set([predicate("puddleworks-factory")]));
 
   const overview = await (await fetch(`${base}/`)).text();
-  assertStringIncludes(overview, ">To decide</h2>");
+  assertStringIncludes(overview, ">Agree and select target</h2>");
   assertStringIncludes(overview, 'href="/apps/idea"');
   const one = await fetch(`${base}/apps/idea`);
   assertEquals(one.status, 200);
@@ -88,7 +88,7 @@ Deno.test("viewer serve: serves the pages and says when the data changed", async
     "data: changed\n\n",
   );
   const after = await (await fetch(`${base}/`)).text();
-  assertStringIncludes(after, ">Drafted</h2>");
+  assertStringIncludes(after, ">Generate and implement</h2>");
 
   // The stream's own close on abort is covered in viewer_server_test.
   await reader.cancel();

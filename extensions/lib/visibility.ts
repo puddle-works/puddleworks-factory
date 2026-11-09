@@ -218,6 +218,8 @@ function audienceFindings(path: string, text: string): Finding[] {
  * A test file by its name or folder. Tests are still scanned, because real
  * secrets get pasted into them, but their hits are mostly fixtures. Only code
  * counts: config beside the tests, like `tests/.env`, is more likely real.
+ * A shell test script such as `tests/run.sh` counts as config too (#98): it
+ * usually runs against real services, so its tokens are more likely real.
  */
 const TEST_FILE =
   /(?:^|\/)(?:tests?|__tests__)\/|(?:^|\/)test_[^/]*$|[._]tests?\.[^/.]+$/i;
