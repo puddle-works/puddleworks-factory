@@ -6,6 +6,11 @@
 `@puddleworks/` (`@puddleworks/puddleworks-factory`, and so on), not `@mesgme/`.
 The decision and rules are unchanged.
 
+**Note, 2026-11-09:** the table's contracts now match what the apps exchange.
+Capture puts out an `outcome-spec/v1`, which Factory prefills into a starter
+`app-spec/v1`, and Capture takes a `build-result/v1` back (see Capture's
+decision on build results). The decision and rules are unchanged.
+
 Recorded identically in `puddleworks-capture`, `puddleworks-factory` and
 `puddleworks-distribution`. Epic: puddle-works/puddleworks#207.
 
@@ -27,11 +32,11 @@ manifest, so no single job can be swapped out.
 Three separate swamp applications, each in its own repository with its own
 manifest, models, workflows, releases and CI:
 
-| Repository                 | Package                            | Job                                                                                | Takes in                                                            | Puts out                                      |
-| -------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------- |
-| `puddleworks-capture`      | `@mesgme/puddleworks-capture`      | Capture requirements: take a request, discuss it, agree the outcome                | a request                                                           | an `app-spec/v1` file                         |
-| `puddleworks-factory`      | `@mesgme/puddleworks-factory`      | Build, test and validate a swamp extension from a spec that can come from anywhere | `app-spec/v1` (path, URL or inline)                                 | the extension's files and a `build-result/v1` |
-| `puddleworks-distribution` | `@mesgme/puddleworks-distribution` | Deploy any swamp extension, whoever built it                                       | an extension name and version, plus an optional `app-definition/v1` | a running app on swamp serve or locally       |
+| Repository                 | Package                            | Job                                                                                | Takes in                                                                          | Puts out                                      |
+| -------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------- |
+| `puddleworks-capture`      | `@mesgme/puddleworks-capture`      | Capture requirements: take a request, discuss it, agree the outcome                | a request, and a `build-result/v1` to record against it                           | an `outcome-spec/v1` file                     |
+| `puddleworks-factory`      | `@mesgme/puddleworks-factory`      | Build, test and validate a swamp extension from a spec that can come from anywhere | `app-spec/v1` (path, URL or inline), or an `outcome-spec/v1` it prefills into one | the extension's files and a `build-result/v1` |
+| `puddleworks-distribution` | `@mesgme/puddleworks-distribution` | Deploy any swamp extension, whoever built it                                       | an extension name and version, plus an optional `app-definition/v1`               | a running app on swamp serve or locally       |
 
 Rules:
 

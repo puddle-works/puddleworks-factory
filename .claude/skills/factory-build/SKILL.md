@@ -26,21 +26,34 @@ ones Puddleworks uses (see Settings, and the package README).
 Take an app spec to a published extension, aiming for about an hour. Quality
 comes from checks that must pass, not from extra steps:
 
-1. **Generate**: the `@puddleworks/puddleworks-factory-build` workflow checks
-   the spec against the contract and writes a skeleton that compiles and passes
-   its own tests, on `draft/NAME` in the app's own repo. Everything starts
+1. **Intake and reuse** (Input, step 1): read the spec and check it against
+   its contract. There is no check for an existing extension to reuse yet.
+2. **Agree and select target** (steps 1a, 2): for an outcome spec, prefill an
+   app spec and agree the builder's decisions with the user; make the app's
+   own repo from the template and the `draft/NAME` branch. Everything starts
    private.
-2. **Build**: you fill in the behaviour test-first, within the spec.
-3. **Get it ready**: format, tests, contracts, guardrails and quality must all
-   pass.
-4. **Decide visibility**: the `@puddleworks/puddleworks-factory-visibility`
-   workflow recommends public or private; the user decides.
-5. **Review independently**: a fresh agent that has not seen the build reviews
-   the repo against the spec, writes the review report and maps each acceptance
-   criterion to its tests. The `@puddleworks/puddleworks-factory-readiness`
-   workflow checks nothing is left, then a PR to the app repo.
-6. **Publish**: a clean dry run, then the push once the user confirms the
-   readiness summary. The build result records what was published.
+3. **Generate and implement** (steps 3 to 5): the
+   `@puddleworks/puddleworks-factory-build` workflow checks the spec against
+   the contract and writes a skeleton that compiles and passes its own tests;
+   you plan the build and fill in the behaviour test-first, within the spec.
+4. **Validate** (step 6): format, tests, contracts, guardrails and quality must
+   all pass.
+5. **Decide visibility** (step 7): the
+   `@puddleworks/puddleworks-factory-visibility` workflow recommends public or
+   private; the user decides.
+6. **Independent review** (step 8): a fresh agent that has not seen the build
+   reviews the repo against the spec, writes the review report and maps each
+   acceptance criterion to its tests. The
+   `@puddleworks/puddleworks-factory-readiness` workflow checks nothing is
+   left.
+7. **PR and publication** (steps 9, 10): a PR to the app repo, then a clean dry
+   run and the push once the user confirms the readiness summary.
+8. **Record** (step 3, and again with the publish): the build result records where the build went
+   and what was published.
+
+These are the stages of `docs/factory-quality-and-gates-plan.md` in the
+puddleworks-factory repo. The steps below keep their numbers, and refer to each
+other by them.
 
 Creating a repo, making it public and pushing to the registry are outward
 steps: ask before each one. Never merge the PR; the user does.
