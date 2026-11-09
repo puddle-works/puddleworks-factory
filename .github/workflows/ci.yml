@@ -44,4 +44,11 @@ jobs:
         env:
           SWAMP_API_KEY: ${{ secrets.SWAMP_API_KEY }}
           SWAMP_SIGNIN_TOKEN: ${{ secrets.SWAMP_SIGNIN_TOKEN }}
-        run: swamp extension quality manifest.yaml
+        # Fail unless every factor the CLI can score is earned and no gate
+        # failed. repository-verified stays provisional until the registry
+        # verifies the repo, so the local grade is B (87%) at best.
+        run: |
+          swamp extension quality manifest.yaml --json > quality.json
+          jq -r '"quality: \(.earnedPoints)/\(.maxClientEarnablePoints) client points, grade \(.grade), \(.ifProvisionalEarned.grade) once the repo is verified"' quality.json
+          jq -e '(.gateFailures | length) == 0 and .earnedPoints == .maxClientEarnablePoints' quality.json > /dev/null \
+            || { jq -r '.gateFailures[], (.factors[] | select(.status == "missing" or .status == "partial") | "missing: \(.id) (\(.label))")' quality.json >&2; exit 1; }
