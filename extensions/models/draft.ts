@@ -2023,6 +2023,7 @@ export const model = {
           /\/+$/,
           "",
         );
+        await checkDraftTarget(root, draft.data);
         const { spec: now } = await loadOutcomeSpec(args.outcomeSpec, io);
         const old = await latestOutcomeIn(`${root}/spec`);
         if (!old) {
