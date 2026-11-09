@@ -1,0 +1,1069 @@
+definition:
+  schemaVersion: 5
+  description: |-
+    Build a swamp app from an agreed app spec: agree the spec, pick the target
+    repo, generate the draft, implement it, check it, decide visibility, have a
+    fresh agent review it, open the PR, and publish once a person approves.
+
+    For: the Puddleworks Factory's factory-build skill. A lean definition: one
+    independent review and no plan review; a person decides only where the
+    skill asks today.
+
+    Change first: review's maxCycles, the number of reviews a work item may
+    have (the first one plus re-reviews) before a person must grant another.
+
+    People decide at five points: the spec (spec-approval), creating a repo
+    that does not exist yet (repo-creation), visibility (visibility-choice,
+    which the person records), publishing (publish-approval) and abandoning
+    (abandon-confirmation). The checks, the review, the PR and the release
+    are bound to the commit named in change-summary.
+
+  stages:
+    - id: intake
+      initial: true
+      description: >-
+        Assess whether an existing recipe or extension already does the job
+        (Factory's assess, #41 and #55), then take that path with the person's
+        yes, or prefill and agree an app spec to build.
+      work:
+        mode: interactive
+        systemPrompt: |
+          For an outcome spec, run the assess workflow and record its
+          assessment record as assessment. For an app spec, record assessment
+          with verdict build-functionality. Show the person any other verdict
+          and record their answer as reuse-choice. To build, prefill the app
+          spec, agree it with the person, record it as spec with its sha256
+          digest, and ask for spec-approval.
+      evidence:
+        - name: reuse-choice
+          description: >-
+            The person's answer to the assessment: reuse (write the recipe or
+            workflow), done (build nothing) or build-new.
+          recordedBy: person
+          schema:
+            type: object
+            required: [answer]
+            additionalProperties: false
+            properties:
+              answer: { enum: [reuse, done, build-new] }
+              reason: { type: string, minLength: 1 }
+      artifacts:
+        - name: assessment
+          schema:
+            type: object
+            required: [verdict, reason]
+            properties:
+              verdict:
+                enum:
+                  - done
+                  - recipe-in-our-extension
+                  - recipe-in-pack
+                  - workflow-in-our-extension
+                  - workflow-app
+                  - build-functionality
+              reason: { type: string, minLength: 1 }
+              chosen:
+                type: [object, "null"]
+                required: [extension, type, method]
+                properties:
+                  extension: { type: string, minLength: 1 }
+                  type: { type: string, minLength: 1 }
+                  method: { type: string, minLength: 1 }
+        - name: spec
+          schema:
+            type: object
+            required: [name, source, digest]
+            additionalProperties: false
+            properties:
+              name: { type: string, minLength: 1 }
+              source: { type: string, minLength: 1 }
+              digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+      transitions:
+        - name: build
+          to: target
+          description: >-
+            Build something new: nothing existing fits, or the person declined
+            what the assessment found. The agreed spec needs their approval.
+          gates:
+            - type: artifact-exists
+              config: { artifact: assessment }
+            - type: cel
+              config:
+                expr: >-
+                  artifacts["assessment"].payload.verdict ==
+                  "build-functionality" || ("reuse-choice" in evidence &&
+                  evidence["reuse-choice"].payload.answer == "build-new")
+                message: >-
+                  the assessment found an existing way; the person must
+                  decline it before building
+            - type: artifact-exists
+              config: { artifact: spec }
+            - type: human-approval
+              config: { id: spec-approval }
+        - name: reuse
+          to: target
+          description: >-
+            Write one recipe or scheduled workflow for an existing method, in
+            the repo the verdict names; no model code is generated.
+          gates:
+            - type: evidence-recorded
+              config: { name: reuse-choice, requireField: { answer: reuse } }
+            - type: cel
+              config:
+                expr: >-
+                  "assessment" in artifacts &&
+                  artifacts["assessment"].payload.verdict in
+                  ["recipe-in-our-extension", "recipe-in-pack",
+                  "workflow-in-our-extension", "workflow-app"]
+                message: the verdict is not a recipe or workflow for an existing method
+        - name: already-done
+          to: record-existing
+          description: >-
+            An existing recipe already answers every phrasing; build nothing.
+          gates:
+            - type: evidence-recorded
+              config: { name: reuse-choice, requireField: { answer: done } }
+            - type: cel
+              config:
+                expr: >-
+                  "assessment" in artifacts &&
+                  artifacts["assessment"].payload.verdict == "done"
+                message: the verdict is not done
+
+    - id: record-existing
+      description: >-
+        Nothing is built. Record a build-result/v1 in Capture for the
+        extension whose recipe already does the job.
+      work:
+        mode: interactive
+        systemPrompt: |
+          Write the build-result/v1 by hand for the extension the recipe
+          calls, run Capture's record_build_result with it, and record
+          build-result.
+      evidence:
+        - name: build-result
+          schema:
+            type: object
+            required: [extension, entryPointRef, captureRunId]
+            additionalProperties: false
+            properties:
+              extension: { type: string, minLength: 1 }
+              entryPointRef: { type: string, minLength: 1 }
+              captureRunId: { type: string, minLength: 1 }
+      transitions:
+        - name: recorded
+          to: reused
+          gates:
+            - type: evidence-recorded
+              config: { name: build-result }
+
+    - id: target
+      description: >-
+        Name the app repo, its checkout and the draft branch. A repo that
+        does not exist yet is created only in create-repo, after a person
+        approves it.
+      work:
+        mode: interactive
+        systemPrompt: |
+          Check whether ORG/NAME exists (gh repo view). Record target with the
+          repo URL, the absolute path of its checkout, the branch draft/NAME
+          and whether the repo exists. Do not create a repo here.
+      evidence:
+        - name: target
+          schema:
+            type: object
+            required: [repository, checkout, branch, exists, route]
+            additionalProperties: false
+            properties:
+              repository: {
+                type: string,
+                pattern: "^https://github\\.com/[^/]+/[^/]+$",
+              }
+              checkout: { type: string, pattern: "^/" }
+              branch: { type: string, minLength: 1 }
+              exists: { type: boolean }
+              route:
+                description: build for a new app; reuse for a recipe or workflow.
+                enum: [build, reuse]
+      transitions:
+        - name: existing
+          to: generate
+          gates:
+            - type: evidence-recorded
+              config: {
+                name: target,
+                requireField: { exists: true, route: build },
+              }
+            - type: cel
+              config:
+                expr: >-
+                  evidence["target"].payload.exists && !(artifacts["assessment"].payload.verdict != "build-functionality" && "reuse-choice" in evidence && evidence["reuse-choice"].payload.answer == "reuse")
+                message: >-
+                  the repo does not exist yet (take create-repo), or this is
+                  a recipe or workflow (take existing-reuse)
+        - name: existing-reuse
+          to: implement
+          description: >-
+            A recipe or workflow goes into an existing repo; nothing is
+            generated.
+          gates:
+            - type: evidence-recorded
+              config: {
+                name: target,
+                requireField: { exists: true, route: reuse },
+              }
+            - type: cel
+              config:
+                expr: >-
+                  evidence["target"].payload.exists && artifacts["assessment"].payload.verdict != "build-functionality" && "reuse-choice" in evidence && evidence["reuse-choice"].payload.answer == "reuse"
+                message: this is a new build, or the repo does not exist yet
+        - name: create-repo
+          to: create-repo
+          description: >-
+            The repo does not exist. A person approves creating it, bound to
+            the target recorded here.
+          gates:
+            - type: evidence-recorded
+              config: { name: target, requireField: { exists: false } }
+            - type: cel
+              config:
+                expr: >-
+                  (evidence["target"].payload.route == "reuse") == (artifacts["assessment"].payload.verdict != "build-functionality" && "reuse-choice" in evidence && evidence["reuse-choice"].payload.answer == "reuse") &&
+                  !evidence["target"].payload.exists &&
+                  !(artifacts["assessment"].payload.verdict in
+                  ["recipe-in-our-extension", "workflow-in-our-extension"])
+                message: >-
+                  the repo exists already, or the verdict puts the work in our
+                  extension's own repo
+            - type: human-approval
+              config: { id: repo-creation }
+
+    - id: create-repo
+      description: Create the approved repo from the template, private, and clone it.
+      work:
+        mode: interactive
+        systemPrompt: |
+          Create {{repository}} from the template, private, clone it to
+          {{checkout}} and grant the org secrets. Record repo-created.
+        let:
+          repository: evidence["target"].payload.repository
+          checkout: evidence["target"].payload.checkout
+      evidence:
+        - name: repo-created
+          schema:
+            type: object
+            required: [repository, visibility, route]
+            additionalProperties: false
+            properties:
+              route: { enum: [build, reuse] }
+              repository: { type: string, minLength: 1 }
+              visibility: { enum: [private, public] }
+      transitions:
+        - name: created
+          to: generate
+          gates:
+            - type: evidence-recorded
+              config: { name: repo-created, requireField: { route: build } }
+            - type: cel
+              config:
+                expr: >-
+                  evidence["repo-created"].payload.repository ==
+                  evidence["target"].payload.repository &&
+                  evidence["repo-created"].payload.visibility == "private" &&
+                  !(artifacts["assessment"].payload.verdict != "build-functionality" && "reuse-choice" in evidence && evidence["reuse-choice"].payload.answer == "reuse")
+                message: >-
+                  the repo created is not the approved private target, or this
+                  is a recipe or workflow (take created-reuse)
+        - name: created-reuse
+          to: implement
+          description: >-
+            A new repo for a recipe or workflow: public for the external
+            recipes pack, private for a workflow app. Nothing is generated.
+          gates:
+            - type: evidence-recorded
+              config: { name: repo-created, requireField: { route: reuse } }
+            - type: cel
+              config:
+                expr: >-
+                  artifacts["assessment"].payload.verdict != "build-functionality" && "reuse-choice" in evidence && evidence["reuse-choice"].payload.answer == "reuse" &&
+                  evidence["repo-created"].payload.repository ==
+                  evidence["target"].payload.repository &&
+                  evidence["repo-created"].payload.visibility ==
+                  (artifacts["assessment"].payload.verdict == "recipe-in-pack"
+                  ? "public" : "private")
+                message: >-
+                  the repo created is not the approved target with the
+                  visibility its verdict needs
+
+    - id: generate
+      description: >-
+        Run Factory's build workflow, which renders the draft into the target
+        checkout.
+      work:
+        mode: workflow
+        workflow:
+          name: "@puddleworks/puddleworks-factory-build"
+          passAsInputs: [spec, targetDir, repository]
+        let:
+          spec: artifacts["spec"].payload.source
+          targetDir: evidence["target"].payload.checkout
+          repository: evidence["target"].payload.repository
+        resultEvidence: draft
+      transitions:
+        - name: generated
+          to: implement
+          gates:
+            - type: evidence-recorded
+              config: { name: draft, requireField: { status: succeeded } }
+
+    - id: implement
+      maxCycles: 5
+      description: Fill in the behaviour test-first, within the spec, and commit it.
+      work:
+        mode: interactive
+        systemPrompt: |
+          Build the app test-first within the spec. Commit the work, then
+          record change-summary with the full SHA of the commit to check and
+          review. After a failed check or review, record it again for the new
+          commit.
+        context:
+          inject: [assessment, spec, review]
+          optional: [spec, review]
+      artifacts:
+        - name: change-summary
+          schema:
+            type: object
+            required: [summary, commit, manifestVersion]
+            properties:
+              summary: { type: string, minLength: 1 }
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              manifestVersion:
+                type: string
+                pattern: "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"
+      transitions:
+        - name: submit
+          to: check
+          gates:
+            - type: artifact-exists
+              config: { artifact: change-summary }
+            - type: cel
+              config:
+                expr: >-
+                  !("checks" in evidence) ||
+                  evidence["checks"].payload.commit !=
+                  artifacts["change-summary"].payload.commit
+                message: >-
+                  change-summary still names the commit already checked; record
+                  it for the new commit
+        - name: recheck
+          to: check
+          manual: true
+          description: >-
+            Check the same commit again, for a failure that was not the
+            code's. A person decides.
+
+    - id: check
+      description: >-
+        Format, tests, contracts, guardrails, workflow validation and swamp
+        extension quality on the change-summary commit.
+      work:
+        mode: interactive
+        systemPrompt: |
+          Check commit {{commit}}: make test, deno check, fmt --check, the
+          contract and guardrail checks and swamp workflow validate. Record
+          checks. Run swamp extension quality --json and record quality from
+          its output, adding the commit.
+        let:
+          commit: artifacts["change-summary"].payload.commit
+      evidence:
+        - name: checks
+          schema:
+            type: object
+            required: [commit, status, results]
+            properties:
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              status: { enum: [passed, failed] }
+              results:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [name, status]
+                  properties:
+                    name: { type: string, minLength: 1 }
+                    status: { enum: [passed, failed, skipped] }
+            if:
+              properties: { status: { const: passed } }
+            then:
+              properties:
+                results:
+                  not:
+                    contains:
+                      properties: { status: { const: failed } }
+        - name: quality
+          schema:
+            type: object
+            required: [commit, allPassed]
+            properties:
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              allPassed: { type: boolean }
+              percentage: { type: number, minimum: 0, maximum: 100 }
+      transitions:
+        - name: passed
+          to: visibility
+          gates:
+            - type: evidence-recorded
+              config: { name: checks, requireField: { status: passed } }
+            - type: evidence-recorded
+              config: { name: quality, requireField: { allPassed: true } }
+            - type: cel
+              config:
+                expr: >-
+                  evidence["checks"].payload.commit ==
+                  artifacts["change-summary"].payload.commit &&
+                  evidence["quality"].payload.commit ==
+                  artifacts["change-summary"].payload.commit
+                message: checks and quality must be for the change-summary commit
+        - name: failed
+          to: implement
+          description: The checks failed, so the change goes back to be fixed.
+          gates:
+            - type: evidence-recorded
+              config: { name: checks, requireField: { status: failed } }
+        - name: quality-failed
+          to: implement
+          description: The quality score did not all pass, so the change goes back.
+          gates:
+            - type: evidence-recorded
+              config: { name: quality, requireField: { allPassed: false } }
+
+    - id: visibility
+      description: >-
+        Recommend public or private and record the person's choice. The
+        choice carries over to later passes, so rework does not ask again.
+      work:
+        mode: interactive
+        systemPrompt: |
+          If visibility-choice is already recorded, move on. Otherwise run the
+          visibility workflow, record its recommendation, show it to the person
+          and record their answer as visibility-choice.
+      artifacts:
+        - name: visibility-recommendation
+          schema:
+            type: object
+            required: [recommended, reasons]
+            properties:
+              recommended: { enum: [public, private] }
+              reasons:
+                type: array
+                items: { type: string, minLength: 1 }
+      evidence:
+        - name: visibility-choice
+          recordedBy: person
+          schema:
+            type: object
+            required: [visibility]
+            additionalProperties: false
+            properties:
+              visibility: { enum: [public, private] }
+              reason: { type: string, minLength: 1 }
+      transitions:
+        - name: decided
+          to: review
+          gates:
+            - type: cel
+              config:
+                expr: '"visibility-choice" in evidence'
+                message: the person has not chosen public or private
+
+    - id: review
+      maxCycles: 3
+      description: >-
+        One independent review by a fresh agent of the checked commit, against
+        the spec and its acceptance criteria. Open critical or high findings
+        send the work back; three reviews in all before a person must grant
+        another.
+      work:
+        mode: dispatch
+        systemPrompt: |
+          You have not seen this build. Review commit {{commit}} against the
+          spec: run make test, read the code, tests, workflow and manifest, and
+          map each acceptance criterion to the tests that prove it.
+          Rate a finding critical or high only if the app would ship a defect,
+          break the spec or make the declared checks meaningless. Give the
+          smallest adequate fix for each finding.
+        let:
+          commit: artifacts["change-summary"].payload.commit
+        context:
+          inject: [assessment, spec, change-summary, checks, quality]
+          optional: [spec]
+      artifacts:
+        - name: review
+          kind: findings
+          reviews: change-summary
+      transitions:
+        - name: accept
+          to: pr
+          gates:
+            - type: artifact-fresh
+              config: { artifact: review, recordedThisCycle: true }
+            - type: findings-clear
+              config: { artifact: review, blocking: [critical, high] }
+        - name: rework
+          to: implement
+          description: >-
+            The fresh review has an open critical or high finding, so the
+            change goes back to be fixed.
+          gates:
+            - type: artifact-fresh
+              config: { artifact: review, recordedThisCycle: true }
+            - type: findings-open
+              config: { artifact: review, blocking: [critical, high] }
+
+    - id: pr
+      description: >-
+        Run the publish dry run, open the PR to the app repo and ask the
+        person to approve publishing that commit. Approving publishing is not
+        approving a merge.
+      work:
+        mode: interactive
+        systemPrompt: |
+          Run make publish DRY_RUN=1 on {{commit}}, commit the review report,
+          push draft/NAME and open the PR. Record pull-request. Run readiness
+          and show its summary to the person, then ask for publish-approval.
+        let:
+          commit: artifacts["change-summary"].payload.commit
+      evidence:
+        - name: pull-request
+          schema:
+            type: object
+            required: [url, commit]
+            additionalProperties: false
+            properties:
+              url: { type: string, format: uri }
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+      transitions:
+        - name: approved
+          to: publish
+          gates:
+            - type: evidence-recorded
+              config: { name: pull-request }
+            - type: cel
+              config:
+                expr: >-
+                  evidence["pull-request"].payload.commit ==
+                  artifacts["change-summary"].payload.commit
+                message: the PR must be for the reviewed commit
+            - type: human-approval
+              config: { id: publish-approval }
+        - name: rework
+          to: implement
+          manual: true
+          description: The person wants the work changed before publishing.
+
+    - id: publish
+      description: >-
+        Publish the approved commit with the chosen visibility, then record
+        the build result.
+      work:
+        mode: interactive
+        systemPrompt: |
+          Publish commit {{commit}}: make the repo public first if
+          visibility-choice says public, then make publish VISIBILITY=V.
+          Record release with the version it published, then write the build
+          result.
+        let:
+          commit: artifacts["change-summary"].payload.commit
+      evidence:
+        - name: release
+          schema:
+            type: object
+            required: [commit, version, visibility]
+            additionalProperties: false
+            properties:
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              version:
+                type: string
+                pattern: "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"
+              visibility: { enum: [public, private] }
+      transitions:
+        - name: released
+          to: done
+          gates:
+            - type: evidence-recorded
+              config: { name: release }
+            - type: cel
+              config:
+                expr: >-
+                  evidence["release"].payload.commit ==
+                  artifacts["change-summary"].payload.commit &&
+                  evidence["release"].payload.version ==
+                  artifacts["change-summary"].payload.manifestVersion &&
+                  evidence["release"].payload.visibility ==
+                  evidence["visibility-choice"].payload.visibility
+                message: >-
+                  the release must publish the reviewed commit and version
+                  with the chosen visibility
+        - name: rework
+          to: implement
+          manual: true
+          description: The publish was blocked; go back and change the work.
+
+    - id: done
+      terminal: true
+
+    - id: reused
+      terminal: true
+      description: An existing recipe already did the job; nothing was built.
+
+    - id: abandoned
+      terminal: true
+
+  globalTransitions:
+    - name: abandon
+      to: abandoned
+      gates:
+        - type: human-approval
+          config: { id: abandon-confirmation }
+
+scenarios:
+  - scenario: new-repo-to-publish
+    description: >-
+      The happy path for a new app: the spec is approved, the repo is created
+      after approval, the draft is generated, checks pass, the person picks
+      public, one clean review, a PR and an approved publish.
+    steps:
+      - record: { artifact: spec }
+        payload:
+          name: tide-times
+          source: /specs/tide-times.json
+          digest: "0000000000000000000000000000000000000000000000000000000000000001"
+      - record: { artifact: assessment }
+        payload: {
+          verdict: build-functionality,
+          reason: nothing fits,
+          chosen: null,
+        }
+      - move: build
+        expect: { refused: spec-approval }
+      - approve: spec-approval
+      - move: build
+      - record: { evidence: target }
+        payload:
+          repository: https://github.com/puddle-works/tide-times
+          checkout: /home/u/dev/tide-times
+          branch: draft/tide-times
+          route: build
+          exists: false
+      - move: existing
+        expect: { refused: does not exist yet }
+      - move: create-repo
+        expect: { refused: repo-creation }
+      - approve: repo-creation
+      - move: create-repo
+      - record: { evidence: repo-created }
+        payload:
+          repository: https://github.com/puddle-works/tide-times
+          visibility: private
+          route: build
+      - move: created
+      - record: { evidence: draft }
+        payload: { status: succeeded, runId: run-1 }
+      - move: generated
+      - record: { artifact: change-summary }
+        payload:
+          summary: Tide times
+          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
+          manifestVersion: 2026.11.09.1
+      - move: submit
+      - record: { evidence: checks }
+        payload:
+          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
+          status: passed
+          results: [{ name: test, status: passed }]
+      - record: { evidence: quality }
+        payload: {
+          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd,
+          allPassed: true,
+        }
+      - move: passed
+      - move: decided
+        expect: { refused: has not chosen }
+      - record: { evidence: visibility-choice }
+        payload: { visibility: public }
+      - move: decided
+      - record: { artifact: review }
+        payload: { findings: [{ id: F1, severity: low, description: Naming }] }
+      - move: accept
+      - record: { evidence: pull-request }
+        payload:
+          url: https://github.com/puddle-works/tide-times/pull/1
+          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
+      - move: approved
+        expect: { refused: publish-approval }
+      - approve: publish-approval
+      - move: approved
+      - record: { evidence: release }
+        payload:
+          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
+          version: 2026.11.09.1
+          visibility: private
+      - move: released
+        expect: { refused: chosen visibility }
+      - record: { evidence: release }
+        payload:
+          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
+          version: 2026.11.09.1
+          visibility: public
+      - move: released
+      - expect: { stage: done }
+
+  - scenario: review-rework-capped
+    description: >-
+      An existing repo. The review finds a high finding three times; the
+      visibility choice carries over each pass, and the fourth review is
+      refused until a person grants one more.
+    steps:
+      - record: { artifact: spec }
+        payload:
+          name: tide-times
+          source: /specs/tide-times.json
+          digest: "0000000000000000000000000000000000000000000000000000000000000001"
+      - record: { artifact: assessment }
+        payload: {
+          verdict: build-functionality,
+          reason: nothing fits,
+          chosen: null,
+        }
+      - approve: spec-approval
+      - move: build
+      - record: { evidence: target }
+        payload:
+          repository: https://github.com/puddle-works/tide-times
+          checkout: /home/u/dev/tide-times
+          branch: draft/tide-times
+          route: build
+          exists: true
+      - move: existing
+      - record: { evidence: draft }
+        payload: { status: succeeded, runId: run-1 }
+      - move: generated
+      # pass 1
+      - record: { artifact: change-summary }
+        payload: {
+          summary: v1,
+          commit: "1111111111111111111111111111111111111111",
+          manifestVersion: 2026.11.09.1,
+        }
+      - move: submit
+      - record: { evidence: checks }
+        payload: {
+          commit: "1111111111111111111111111111111111111111",
+          status: passed,
+          results: [{ name: test, status: passed }],
+        }
+      - record: { evidence: quality }
+        payload: {
+          commit: "1111111111111111111111111111111111111111",
+          allPassed: true,
+        }
+      - move: passed
+      - record: { evidence: visibility-choice }
+        payload: { visibility: private }
+      - move: decided
+      - record: { artifact: review }
+        payload: { findings: [{ id: F1, severity: high, description: Bug }] }
+      - move: accept
+        expect: { refused: high }
+      - move: rework
+      # pass 2: the same commit cannot be resubmitted
+      - move: submit
+        expect: { refused: already checked }
+      - record: { artifact: change-summary }
+        payload: {
+          summary: v2,
+          commit: "2222222222222222222222222222222222222222",
+          manifestVersion: 2026.11.09.1,
+        }
+      - move: submit
+      - record: { evidence: checks }
+        payload: {
+          commit: "2222222222222222222222222222222222222222",
+          status: passed,
+          results: [{ name: test, status: passed }],
+        }
+      - record: { evidence: quality }
+        payload: {
+          commit: "2222222222222222222222222222222222222222",
+          allPassed: true,
+        }
+      - move: passed
+      - move: decided
+      - record: { artifact: review }
+        payload: { findings: [{ id: F2, severity: high, description: Bug }] }
+      - move: rework
+      # pass 3
+      - record: { artifact: change-summary }
+        payload: {
+          summary: v3,
+          commit: "3333333333333333333333333333333333333333",
+          manifestVersion: 2026.11.09.1,
+        }
+      - move: submit
+      - record: { evidence: checks }
+        payload: {
+          commit: "3333333333333333333333333333333333333333",
+          status: passed,
+          results: [{ name: test, status: passed }],
+        }
+      - record: { evidence: quality }
+        payload: {
+          commit: "3333333333333333333333333333333333333333",
+          allPassed: true,
+        }
+      - move: passed
+      - move: decided
+      - record: { artifact: review }
+        payload: { findings: [{ id: F3, severity: high, description: Bug }] }
+      - move: rework
+      # pass 4: the fourth review is refused
+      - record: { artifact: change-summary }
+        payload: {
+          summary: v4,
+          commit: "4444444444444444444444444444444444444444",
+          manifestVersion: 2026.11.09.1,
+        }
+      - move: submit
+      - record: { evidence: checks }
+        payload: {
+          commit: "4444444444444444444444444444444444444444",
+          status: passed,
+          results: [{ name: test, status: passed }],
+        }
+      - record: { evidence: quality }
+        payload: {
+          commit: "4444444444444444444444444444444444444444",
+          allPassed: true,
+        }
+      - move: passed
+      - move: decided
+        expect: { refused: "cycle override for 'review'" }
+      - override: { stage: review, note: one more review }
+      - move: decided
+      - expect: { stage: review }
+
+  - scenario: already-done
+    description: >-
+      A recipe already answers every phrasing. Nothing is built until the
+      person says yes, building anew is refused, and a build result is
+      recorded for the existing extension.
+    steps:
+      - record: { artifact: assessment }
+        payload:
+          verdict: done
+          reason: The recipe github-open-prs already answers every phrasing.
+          chosen: null
+      - move: already-done
+        expect: { refused: reuse-choice }
+      - move: build
+        expect: { refused: must decline }
+      - record: { evidence: reuse-choice }
+        payload: { answer: done }
+      - move: reuse
+        expect: { refused: not a recipe or workflow }
+      - move: already-done
+      - record: { evidence: build-result }
+        payload:
+          extension: "@webframp/github"
+          entryPointRef: github-open-prs
+          captureRunId: run-9
+      - move: recorded
+      - expect: { stage: reused }
+
+  - scenario: recipe-in-new-pack
+    description: >-
+      The first external recipe: the pack repo is created after approval and
+      must be public; render is skipped and the recipe goes to implement.
+    steps:
+      - record: { artifact: assessment }
+        payload:
+          verdict: recipe-in-pack
+          reason: "@webframp/github get_repo_info fits exactly."
+          chosen: {
+            extension: "@webframp/github",
+            type: "@webframp/github",
+            method: get_repo_info,
+          }
+      - record: { evidence: reuse-choice }
+        payload: { answer: reuse }
+      - move: reuse
+      - record: { evidence: target }
+        payload:
+          repository: https://github.com/puddle-works/recipes-external
+          checkout: /home/u/dev/recipes-external
+          branch: draft/repo-licence
+          route: reuse
+          exists: false
+      - move: create-repo
+        expect: { refused: repo-creation }
+      - approve: repo-creation
+      - move: create-repo
+      - record: { evidence: repo-created }
+        payload: {
+          repository: https://github.com/puddle-works/recipes-external,
+          visibility: private,
+          route: reuse,
+        }
+      - move: created-reuse
+        expect: { refused: visibility its verdict needs }
+      - record: { evidence: repo-created }
+        payload: {
+          repository: https://github.com/puddle-works/recipes-external,
+          visibility: public,
+          route: reuse,
+        }
+      - move: created
+        expect: { refused: take created-reuse }
+      - move: created-reuse
+      - expect: { stage: implement }
+
+  - scenario: reuse-declined
+    description: >-
+      Our own extension fits, but the person wants a new build. Building is
+      refused until they decline, and then needs the spec approved.
+    steps:
+      - record: { artifact: assessment }
+        payload:
+          verdict: recipe-in-our-extension
+          reason: "@puddleworks/tides now fits exactly."
+          chosen: {
+            extension: "@puddleworks/tides",
+            type: "@puddleworks/tides",
+            method: now,
+          }
+      - move: build
+        expect: { refused: must decline }
+      - record: { evidence: reuse-choice }
+        payload: { answer: build-new, reason: wants a standalone app }
+      - move: reuse
+        expect: { refused: reuse-choice }
+      - record: { artifact: spec }
+        payload:
+          name: tide-times
+          source: /specs/tide-times.json
+          digest: "0000000000000000000000000000000000000000000000000000000000000001"
+      - move: build
+        expect: { refused: spec-approval }
+      - approve: spec-approval
+      - move: build
+      - expect: { stage: target }
+
+  - scenario: change-after-publish-approval
+    description: >-
+      Publishing is approved, then the person sends the work back. The new
+      commit must be checked and reviewed again, the visibility choice carries
+      over, and the old publish approval no longer counts.
+    steps:
+      - record: { artifact: spec }
+        payload:
+          name: tide-times
+          source: /specs/tide-times.json
+          digest: "0000000000000000000000000000000000000000000000000000000000000001"
+      - record: { artifact: assessment }
+        payload: {
+          verdict: build-functionality,
+          reason: nothing fits,
+          chosen: null,
+        }
+      - approve: spec-approval
+      - move: build
+      - record: { evidence: target }
+        payload:
+          repository: https://github.com/puddle-works/tide-times
+          checkout: /home/u/dev/tide-times
+          branch: draft/tide-times
+          route: build
+          exists: true
+      - move: existing
+      - record: { evidence: draft }
+        payload: { status: succeeded, runId: run-1 }
+      - move: generated
+      - record: { artifact: change-summary }
+        payload: {
+          summary: v1,
+          commit: "1111111111111111111111111111111111111111",
+          manifestVersion: 2026.11.09.1,
+        }
+      - move: submit
+      - record: { evidence: checks }
+        payload: {
+          commit: "1111111111111111111111111111111111111111",
+          status: passed,
+          results: [{ name: test, status: passed }],
+        }
+      - record: { evidence: quality }
+        payload: {
+          commit: "1111111111111111111111111111111111111111",
+          allPassed: true,
+        }
+      - move: passed
+      - record: { evidence: visibility-choice }
+        payload: { visibility: private }
+      - move: decided
+      - record: { artifact: review }
+        payload: { findings: [] }
+      - move: accept
+      - record: { evidence: pull-request }
+        payload: {
+          url: https://github.com/puddle-works/tide-times/pull/1,
+          commit: "1111111111111111111111111111111111111111",
+        }
+      - approve: publish-approval
+      - move: rework
+        manual: true
+      - record: { artifact: change-summary }
+        payload: {
+          summary: v2,
+          commit: "2222222222222222222222222222222222222222",
+          manifestVersion: 2026.11.09.1,
+        }
+      - move: submit
+      - move: passed
+        expect: { refused: checks }
+      - record: { evidence: checks }
+        payload: {
+          commit: "2222222222222222222222222222222222222222",
+          status: passed,
+          results: [{ name: test, status: passed }],
+        }
+      - record: { evidence: quality }
+        payload: {
+          commit: "2222222222222222222222222222222222222222",
+          allPassed: true,
+        }
+      - move: passed
+      - move: decided
+      - move: accept
+        expect: { refused: review }
+      - record: { artifact: review }
+        payload: { findings: [] }
+      - move: accept
+      - move: approved
+        expect: { refused: pull-request }
+      - record: { evidence: pull-request }
+        payload: {
+          url: https://github.com/puddle-works/tide-times/pull/1,
+          commit: "1111111111111111111111111111111111111111",
+        }
+      - move: approved
+        expect: { refused: reviewed commit }
+      - record: { evidence: pull-request }
+        payload: {
+          url: https://github.com/puddle-works/tide-times/pull/1,
+          commit: "2222222222222222222222222222222222222222",
+        }
+      - move: approved
+        expect: { refused: publish-approval }
+      - approve: publish-approval
+      - move: approved
+      - expect: { stage: publish }
