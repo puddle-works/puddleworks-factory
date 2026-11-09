@@ -2,7 +2,7 @@
  * The published package ships the README but not the rest of the repo, so
  * what the README points at must be shipped too, or be an absolute URL.
  */
-import { assertEquals } from "jsr:@std/assert@1.0.19";
+import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { parse } from "jsr:@std/yaml@1.0.12";
 import { model as draftModel } from "./draft.ts";
 import { model as webModel } from "./web.ts";
@@ -134,7 +134,11 @@ async function settingsBlock(): Promise<string> {
   return skill.slice(at + "```bash\n".length, skill.indexOf("\n```", at));
 }
 
-async function readSettings(file: string | null, args = "{}") {
+async function readSettings(
+  file: string | null,
+  args = "{}",
+  shell = ["bash"],
+) {
   const dir = await Deno.makeTempDir({ prefix: "factory-settings-" });
   try {
     if (file !== null) {
@@ -143,8 +147,8 @@ async function readSettings(file: string | null, args = "{}") {
     const block = (await settingsBlock()).replace("O='{}'", `O='${args}'`);
     const script = `${block}
 echo "$ORG|$TEMPLATE|$SECRETS|$COLLECTIVE"`;
-    const out = await new Deno.Command("bash", {
-      args: ["-c", script],
+    const out = await new Deno.Command(shell[0], {
+      args: [...shell.slice(1), "-c", script],
       cwd: dir,
       stdout: "piped",
       stderr: "piped",
@@ -202,7 +206,7 @@ Deno.test("package: the settings block keeps the arguments of /factory-build ove
   assertEquals(skill.includes("O='{}'"), true, "the arguments line");
 });
 
-Deno.test("package: the settings block refuses a setting that isn't text and a file with two objects", async () => {
+Deno.test("package: the settings block refuses a setting it can't use, and a file with two objects", async () => {
   for (
     const bad of [
       '{"org":null}',
@@ -210,6 +214,14 @@ Deno.test("package: the settings block refuses a setting that isn't text and a f
       '{"template":5}',
       '{"worktrees":["git"]}',
       '{"org":"a"}\n{"org":"b"}',
+      // Text, but not a value the skill can use (issue #97).
+      '{"collective":"acme"}',
+      '{"collective":"@Acme"}',
+      '{"worktrees":"banana"}',
+      '{"org":"acme/apps"}',
+      '{"template":"puddle-template"}',
+      '{"secrets":["ONE TWO"]}',
+      '{"secrets":[1]}',
     ]
   ) {
     const got = await readSettings(bad);
@@ -219,6 +231,11 @@ Deno.test("package: the settings block refuses a setting that isn't text and a f
   }
   const bad = await readSettings("{}", '{"org":null}');
   assertEquals(bad.code === 0, false, bad.stdout);
+  const good = await readSettings(
+    '{"org":"Acme-2","template":"acme/app.template","collective":"@acme-2","worktrees":"git","secrets":["A_1"]}',
+  );
+  assertEquals(good.code, 0, good.stderr);
+  assertEquals(good.stdout, "Acme-2|acme/app.template|A_1|@acme-2");
 });
 
 /** What the skill's secret grant asks of gh in this shell, after its settings block. */
@@ -252,7 +269,7 @@ async function grantCalls(shell: string[], secrets: string[]) {
   }
 }
 
-/** Whether this shell is installed. CI's runner has no zsh. */
+/** Whether this shell is installed. CI installs zsh; a machine may not have it. */
 async function hasShell(name: string): Promise<boolean> {
   try {
     const command = new Deno.Command(name, {
@@ -297,6 +314,35 @@ Deno.test("package: the settings block says when it found no factory-build.json"
   const there = await readSettings("{}");
   assertEquals(there.stderr, "");
 });
+
+Deno.test("package: bad arguments with no factory-build.json blame the arguments only", async () => {
+  const got = await readSettings(null, '{"worktrees":"banana"}');
+  assertEquals(got.code === 0, false, got.stdout);
+  assertStringIncludes(got.stderr, "the arguments (O=)");
+  assertEquals(got.stderr.includes("factory-build.json"), false, got.stderr);
+  assertEquals(got.stderr.includes("using the defaults"), false, got.stderr);
+});
+
+for (
+  const shell of [["bash"], ...(await hasShell("zsh") ? [["zsh", "-f"]] : [])]
+) {
+  // zsh's echo turns \n in the file into a line break, which breaks its JSON.
+  Deno.test(`package: the settings block reads the file as written in ${shell[0]}`, async () => {
+    const got = await readSettings(
+      '{"org":"acme","note":"one\\ntwo \\\\ three"}',
+      "{}",
+      shell,
+    );
+    assertEquals(got.code, 0, got.stderr);
+    assertEquals(
+      got.stdout,
+      "acme|puddle-works/puddle-template|SWAMP_API_KEY SWAMP_SIGNIN_TOKEN|@puddleworks",
+    );
+    const bad = await readSettings('{"worktrees":"banana"}', "{}", shell);
+    assertEquals(bad.code === 0, false, bad.stdout);
+    assertEquals(bad.stdout, "", shell[0]);
+  });
+}
 
 Deno.test("package: the skill says its settings don't last between Bash calls", async () => {
   const skill = await Deno.readTextFile(SKILL);

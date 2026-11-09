@@ -111,29 +111,61 @@ export function appsFromRecords(records: unknown[]): App[] {
   return [...apps.values()];
 }
 
-/** Where an app is, from the first step of the Factory to the last. */
+/**
+ * Where an app is: the stages of docs/factory-quality-and-gates-plan.md that
+ * leave a record. Intake and Validate leave none, so no app is shown at them.
+ */
 export type Stage =
-  | "to_decide"
-  | "drafted"
-  | "visibility_checked"
-  | "blocked"
-  | "ready"
-  | "released";
+  | "agree"
+  | "implement"
+  | "visibility"
+  | "review"
+  | "publish"
+  | "record";
 
-/** The stages in Factory order, with the overview's heading and badge for each. */
+/**
+ * The stages in Factory order: the overview's heading, and the label and badge
+ * a card shows for what its records say.
+ */
 export const STAGES: ReadonlyArray<
-  { stage: Stage; heading: string; badge: string }
+  { stage: Stage; heading: string; label: string; badge: string }
 > = [
-  { stage: "to_decide", heading: "To decide", badge: "review" },
-  { stage: "drafted", heading: "Drafted", badge: "draft" },
   {
-    stage: "visibility_checked",
-    heading: "Visibility checked",
+    stage: "agree",
+    heading: "Agree and select target",
+    label: "To decide",
     badge: "review",
   },
-  { stage: "blocked", heading: "Blocked", badge: "closed" },
-  { stage: "ready", heading: "Ready to publish", badge: "active" },
-  { stage: "released", heading: "Released", badge: "delivered" },
+  {
+    stage: "implement",
+    heading: "Generate and implement",
+    label: "Drafted",
+    badge: "draft",
+  },
+  {
+    stage: "visibility",
+    heading: "Decide visibility",
+    label: "Visibility checked",
+    badge: "review",
+  },
+  {
+    stage: "review",
+    heading: "Independent review",
+    label: "Blocked",
+    badge: "closed",
+  },
+  {
+    stage: "publish",
+    heading: "PR and publication",
+    label: "Ready to publish",
+    badge: "active",
+  },
+  {
+    stage: "record",
+    heading: "Record",
+    label: "Published",
+    badge: "delivered",
+  },
 ];
 
 /**
@@ -141,7 +173,7 @@ export const STAGES: ReadonlyArray<
  * the newest draft is about code since replaced, so it doesn't count, and a
  * readiness check older than the visibility check is out of date too. A later
  * check doesn't undo a release: what was published stays published until a new
- * draft starts again. Released means the build result records what was
+ * draft starts again. Record means the build result records what was
  * published: `result` is first run when the build is pushed, before it is
  * published.
  */
@@ -149,7 +181,7 @@ export function stageOf(app: App): Stage {
   const drafted = app.draft?.renderedAt ?? "";
   const { buildResult, readiness } = app;
   if (buildResult?.published && buildResult.builtAt >= drafted) {
-    return "released";
+    return "record";
   }
   const visibility = app.visibility && app.visibility.assessedAt >= drafted
     ? app.visibility
@@ -157,17 +189,21 @@ export function stageOf(app: App): Stage {
   if (
     readiness && readiness.assessedAt >= (visibility?.assessedAt ?? drafted)
   ) {
-    return readiness.ready ? "ready" : "blocked";
+    return readiness.ready ? "publish" : "review";
   }
-  if (visibility) return "visibility_checked";
+  if (visibility) return "visibility";
   // A build result is only written for a draft, even one since deleted.
-  if (app.draft || app.buildResult) return "drafted";
-  return "to_decide";
+  if (app.draft || app.buildResult) return "implement";
+  return "agree";
 }
 
-/** Whether an app at this stage waits on a person to move on. */
+/**
+ * Whether an app at this stage waits on a person to move on: to agree the
+ * spec, or to confirm publishing. A blocked readiness check is the builder's
+ * to fix and run again.
+ */
 export function waitingOnPerson(stage: Stage): boolean {
-  return stage === "to_decide" || stage === "blocked";
+  return stage === "agree" || stage === "publish";
 }
 
 /** When each of an app's records was written. */

@@ -13,6 +13,7 @@ import {
   assertRejects,
 } from "jsr:@std/assert@1.0.19";
 import { model } from "./draft.ts";
+import { appCheckout } from "../lib/target_testing.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
@@ -51,9 +52,8 @@ async function withDraft(
   fn: (dir: string, ctx: ReturnType<typeof makeContext>) => Promise<void>,
   render = true,
 ) {
-  const dir = await Deno.makeTempDir({ prefix: "factory-plan-review-" });
+  const dir = await appCheckout(REPO, "factory-plan-review-");
   try {
-    await Deno.writeTextFile(`${dir}/.swamp.yaml`, "tools:\n  - claude\n");
     const ctx = makeContext();
     if (render) {
       await model.methods.render.execute(

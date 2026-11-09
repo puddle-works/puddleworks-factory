@@ -32,6 +32,21 @@ export function reservedNameProblem(name: string, prefix: string): string {
 }
 
 /**
+ * The ids of the recipes `@puddleworks/recipes` ships with. An app's recipe
+ * takes the app's name as its id, and the engine drops a recipe whose id is
+ * already taken, so an app with one of these names could never be reached.
+ * Kept in step with `RECIPES` in puddlerecipes `extensions/models/_lib/recipes.ts`.
+ */
+export const BUILT_IN_RECIPE_IDS = ["git-status", "git-log", "git-branch"];
+
+/** Why an app name can't be used because a built-in recipe has it, or undefined. */
+export function builtInRecipeProblem(name: string): string | undefined {
+  if (!BUILT_IN_RECIPE_IDS.includes(name)) return undefined;
+  return `App name "${name}" is the id of a recipe the recipe engine ships ` +
+    "with, so it would drop this app's recipe; pick another name.";
+}
+
+/**
  * Why a name can't be used because it reads as a secret, or undefined if it
  * doesn't. Every record hides text that looks like a token as "(hidden)", so
  * a name like `sk-…` or `xoxb-…` would be lost from every record that names it.
