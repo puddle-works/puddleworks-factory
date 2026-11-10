@@ -52,3 +52,16 @@ jobs:
           jq -r '"quality: \(.earnedPoints)/\(.maxClientEarnablePoints) client points, grade \(.grade), \(.ifProvisionalEarned.grade) once the repo is verified"' quality.json
           jq -e '(.gateFailures | length) == 0 and .earnedPoints == .maxClientEarnablePoints' quality.json > /dev/null \
             || { jq -r '.gateFailures[], (.factors[] | select(.status == "missing" or .status == "partial") | "missing: \(.id) (\(.label))")' quality.json >&2; exit 1; }
+
+      # A real swamp run in a sandbox (#52): render the example spec into a
+      # throwaway app checkout, refuse a changed spec, run the draft's tests
+      # and the Stagecraft scenarios. Nothing is pushed or published.
+      - name: Sandbox dry run
+        if: hashFiles('manifest.yaml') != ''
+        env:
+          SWAMP_API_KEY: ${{ secrets.SWAMP_API_KEY }}
+          SWAMP_SIGNIN_TOKEN: ${{ secrets.SWAMP_SIGNIN_TOKEN }}
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          .github/scripts/sandbox-dry-run.sh
