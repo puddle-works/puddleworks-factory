@@ -184,6 +184,8 @@ workflow in `workflows/`, and `manifest.yaml`, `README.md`, `LICENSE`,
 `LICENSE` or `.github/workflows/ci.yml` is kept, and the rest of `CLAUDE.md` is
 left alone. A spec that breaks the contract writes nothing and lists every
 broken rule. Existing files are kept unless you pass `--input overwrite=true`.
+With `--input specDigest=…`, the SHA-256 of the spec a person approved
+(`sha256sum` of the file), a spec whose text no longer matches writes nothing.
 The drafted package is private; whether it goes public is decided once it is
 built (below).
 

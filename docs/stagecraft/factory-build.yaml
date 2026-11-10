@@ -12,11 +12,15 @@ definition:
     Change first: review's maxCycles, the number of reviews a work item may
     have (the first one plus re-reviews) before a person must grant another.
 
-    People decide at five points: the spec (spec-approval), creating a repo
-    that does not exist yet (repo-creation), visibility (visibility-choice,
-    which the person records), publishing (publish-approval) and abandoning
-    (abandon-confirmation). The checks, the review, the PR and the release
-    are bound to the commit named in change-summary.
+    People decide at six points: reusing what the assessment found or
+    building nothing (reuse-approval), the spec (spec-approval), creating a
+    repo that does not exist yet (repo-creation), publishing a named commit,
+    version and visibility (publish-approval), granting another review past
+    the limit (a cycle override) and abandoning (abandon-confirmation). Each
+    approval is bound to the products recorded before it, so changing what
+    was approved voids it. The checks, the review, the PR and the release are
+    bound to the commit named in change-summary. Approving publishing is
+    never approval to merge; the person merges the PR.
 
   stages:
     - id: intake
@@ -31,9 +35,11 @@ definition:
           For an outcome spec, run the assess workflow and record its
           assessment record as assessment. For an app spec, record assessment
           with verdict build-functionality. Show the person any other verdict
-          and record their answer as reuse-choice. To build, prefill the app
-          spec, agree it with the person, record it as spec with its sha256
-          digest, and ask for spec-approval.
+          and record their answer as reuse-choice; for reuse or done, show the
+          verdict and the method it chose, and ask for reuse-approval. To
+          build, prefill the app spec, agree it with the person, record it as
+          spec with the sha256 digest of the spec file, and ask for
+          spec-approval.
       evidence:
         - name: reuse-choice
           description: >-
@@ -117,6 +123,8 @@ definition:
                   ["recipe-in-our-extension", "recipe-in-pack",
                   "workflow-in-our-extension", "workflow-app"]
                 message: the verdict is not a recipe or workflow for an existing method
+            - type: human-approval
+              config: { id: reuse-approval }
         - name: already-done
           to: record-existing
           description: >-
@@ -130,6 +138,8 @@ definition:
                   "assessment" in artifacts &&
                   artifacts["assessment"].payload.verdict == "done"
                 message: the verdict is not done
+            - type: human-approval
+              config: { id: reuse-approval }
 
     - id: record-existing
       description: >-
@@ -168,7 +178,10 @@ definition:
         systemPrompt: |
           Check whether ORG/NAME exists (gh repo view). Record target with the
           repo URL, the absolute path of its checkout, the branch draft/NAME
-          and whether the repo exists. Do not create a repo here.
+          and whether the repo exists. Do not create a repo here. For a repo
+          that does not exist, show the person its name and the visibility it
+          is created with (public for a new recipes pack, otherwise private)
+          and ask for repo-creation.
       evidence:
         - name: target
           schema:
@@ -322,9 +335,10 @@ definition:
         mode: workflow
         workflow:
           name: "@puddleworks/puddleworks-factory-build"
-          passAsInputs: [spec, targetDir, repository]
+          passAsInputs: [spec, targetDir, repository, specDigest]
         let:
           spec: artifacts["spec"].payload.source
+          specDigest: artifacts["spec"].payload.digest
           targetDir: evidence["target"].payload.checkout
           repository: evidence["target"].payload.repository
         resultEvidence: draft
@@ -542,17 +556,48 @@ definition:
 
     - id: pr
       description: >-
-        Run the publish dry run, open the PR to the app repo and ask the
-        person to approve publishing that commit. Approving publishing is not
-        approving a merge.
+        Run the publish dry run, open the PR to the app repo, run readiness
+        and ask the person to approve the publish request: one commit, version
+        and visibility. Approving publishing is not approving a merge.
       work:
         mode: interactive
         systemPrompt: |
           Run make publish DRY_RUN=1 on {{commit}}, commit the review report,
           push draft/NAME and open the PR. Record pull-request. Run readiness
-          and show its summary to the person, then ask for publish-approval.
+          with the PR and the commit; only if it is ready, record
+          publish-request and show the person it and readiness's summary
+          exactly, then ask for publish-approval. Never merge the PR.
         let:
           commit: artifacts["change-summary"].payload.commit
+      artifacts:
+        - name: publish-request
+          description: >-
+            What the person approves: the commit, version and visibility to
+            publish, the PR, and the spec digest it was built from.
+          schema:
+            type: object
+            required: [
+              commit,
+              version,
+              visibility,
+              pullRequest,
+              specDigest,
+              ready,
+            ]
+            additionalProperties: false
+            properties:
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              version:
+                type: string
+                pattern: "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"
+              visibility: { enum: [public, private] }
+              pullRequest: { type: string, format: uri }
+              specDigest:
+                description: The approved spec's digest; null for a recipe or workflow.
+                type: [string, "null"]
+                pattern: "^[0-9a-f]{64}$"
+              ready: { const: true }
+              summary: { type: string, minLength: 1 }
       evidence:
         - name: pull-request
           schema:
@@ -575,6 +620,27 @@ definition:
                   (evidence["pull-request"].payload.commit ==
                   artifacts["change-summary"].payload.commit)
                 message: the PR must be for the reviewed commit
+            - type: artifact-exists
+              config: { artifact: publish-request }
+            - type: cel
+              config:
+                expr: >-
+                  "publish-request" in artifacts && "pull-request" in evidence &&
+                  "change-summary" in artifacts && "visibility-choice" in
+                  evidence && (artifacts["publish-request"].payload.commit ==
+                  artifacts["change-summary"].payload.commit &&
+                  artifacts["publish-request"].payload.version ==
+                  artifacts["change-summary"].payload.manifestVersion &&
+                  artifacts["publish-request"].payload.pullRequest ==
+                  evidence["pull-request"].payload.url &&
+                  artifacts["publish-request"].payload.visibility ==
+                  evidence["visibility-choice"].payload.visibility &&
+                  artifacts["publish-request"].payload.specDigest ==
+                  ("spec" in artifacts ? artifacts["spec"].payload.digest :
+                  null))
+                message: >-
+                  the publish request must name the reviewed commit and
+                  version, the PR, the chosen visibility and the approved spec
             - type: human-approval
               config: { id: publish-approval }
         - name: rework
@@ -584,18 +650,36 @@ definition:
 
     - id: publish
       description: >-
-        Publish the approved commit with the chosen visibility, then record
-        the build result.
+        Check again that nothing changed since the approval, then publish the
+        approved commit with the approved visibility and record the build
+        result.
       work:
         mode: interactive
         systemPrompt: |
-          Publish commit {{commit}}: make the repo public first if
-          visibility-choice says public, then make publish VISIBILITY=V.
-          Record release with the version it published, then write the build
-          result.
+          Immediately before publishing, run readiness again with the PR and
+          commit {{commit}}, check the PR head is still {{commit}} and the
+          request is still at the agreed spec version, and record
+          publish-check. If any of them fails, stop: publish nothing and tell
+          the person. Otherwise make the repo public first if the request
+          says public, then make publish VISIBILITY=V. Record release with the
+          version it published, then write the build result. Never merge the
+          PR.
         let:
-          commit: artifacts["change-summary"].payload.commit
+          commit: artifacts["publish-request"].payload.commit
       evidence:
+        - name: publish-check
+          description: >-
+            Taken right before anything is pushed: readiness, the PR head and
+            the spec version, on the approved commit.
+          schema:
+            type: object
+            required: [commit, ready, prHead, specCurrent]
+            additionalProperties: false
+            properties:
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              ready: { type: boolean }
+              prHead: { type: string, pattern: "^[0-9a-f]{40}$" }
+              specCurrent: { type: boolean }
         - name: release
           schema:
             type: object
@@ -612,21 +696,42 @@ definition:
           to: done
           gates:
             - type: evidence-recorded
+              config: {
+                name: publish-check,
+                requireField: { ready: true, specCurrent: true },
+              }
+            - type: cel
+              config:
+                expr: >-
+                  "publish-check" in evidence && "publish-request" in artifacts
+                  && (evidence["publish-check"].payload.commit ==
+                  artifacts["publish-request"].payload.commit &&
+                  evidence["publish-check"].payload.prHead ==
+                  artifacts["publish-request"].payload.commit)
+                message: >-
+                  the last check before publishing was not of the approved
+                  commit, or the PR has moved on
+            - type: evidence-recorded
               config: { name: release }
             - type: cel
               config:
                 expr: >-
-                  "release" in evidence && "change-summary" in artifacts &&
-                  "visibility-choice" in evidence &&
+                  "release" in evidence && "publish-request" in artifacts &&
                   (evidence["release"].payload.commit ==
-                  artifacts["change-summary"].payload.commit &&
+                  artifacts["publish-request"].payload.commit &&
                   evidence["release"].payload.version ==
-                  artifacts["change-summary"].payload.manifestVersion &&
+                  artifacts["publish-request"].payload.version &&
                   evidence["release"].payload.visibility ==
-                  evidence["visibility-choice"].payload.visibility)
+                  artifacts["publish-request"].payload.visibility)
                 message: >-
-                  the release must publish the reviewed commit and version
-                  with the chosen visibility
+                  the release must publish the approved commit and version
+                  with the approved visibility
+        - name: stopped
+          to: pr
+          manual: true
+          description: >-
+            The check before publishing failed and nothing was published:
+            the PR moved or readiness changed. Go back to ask again.
         - name: rework
           to: implement
           manual: true
@@ -654,7 +759,8 @@ scenarios:
     description: >-
       The happy path for a new app: the spec is approved, the repo is created
       after approval, the draft is generated, checks pass, the person picks
-      public, one clean review, a PR and an approved publish.
+      public, one clean review, a PR, and a publish request that must match
+      the choice before it is approved and published.
     steps:
       - record: { artifact: spec }
         payload:
@@ -723,16 +829,42 @@ scenarios:
           url: https://github.com/puddle-works/tide-times/pull/1
           commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
       - move: approved
+        expect: { refused: publish-request }
+      - record: { artifact: publish-request }
+        payload:
+          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
+          version: 2026.11.09.1
+          visibility: private
+          pullRequest: https://github.com/puddle-works/tide-times/pull/1
+          specDigest: "0000000000000000000000000000000000000000000000000000000000000001"
+          ready: true
+      - move: approved
+        expect: { refused: chosen visibility }
+      - record: { artifact: publish-request }
+        payload:
+          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
+          version: 2026.11.09.1
+          visibility: public
+          pullRequest: https://github.com/puddle-works/tide-times/pull/1
+          specDigest: "0000000000000000000000000000000000000000000000000000000000000001"
+          ready: true
+      - move: approved
         expect: { refused: publish-approval }
       - approve: publish-approval
       - move: approved
+      - record: { evidence: publish-check }
+        payload:
+          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
+          ready: true
+          prHead: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
+          specCurrent: true
       - record: { evidence: release }
         payload:
           commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
           version: 2026.11.09.1
           visibility: private
       - move: released
-        expect: { refused: chosen visibility }
+        expect: { refused: approved visibility }
       - record: { evidence: release }
         payload:
           commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
@@ -877,9 +1009,9 @@ scenarios:
 
   - scenario: already-done
     description: >-
-      A recipe already answers every phrasing. Nothing is built until the
-      person says yes, building anew is refused, and a build result is
-      recorded for the existing extension.
+      A recipe already answers every phrasing. The recorded answer is not
+      enough: nothing is built until the person approves, building anew is
+      refused, and a build result is recorded for the existing extension.
     steps:
       - record: { artifact: assessment }
         payload:
@@ -894,6 +1026,9 @@ scenarios:
         payload: { answer: done }
       - move: reuse
         expect: { refused: not a recipe or workflow }
+      - move: already-done
+        expect: { refused: reuse-approval }
+      - approve: reuse-approval
       - move: already-done
       - record: { evidence: build-result }
         payload:
@@ -919,6 +1054,9 @@ scenarios:
           }
       - record: { evidence: reuse-choice }
         payload: { answer: reuse }
+      - move: reuse
+        expect: { refused: reuse-approval }
+      - approve: reuse-approval
       - move: reuse
       - record: { evidence: target }
         payload:
@@ -1041,6 +1179,15 @@ scenarios:
           url: https://github.com/puddle-works/tide-times/pull/1,
           commit: "1111111111111111111111111111111111111111",
         }
+      - record: { artifact: publish-request }
+        payload: {
+          commit: "1111111111111111111111111111111111111111",
+          version: 2026.11.09.1,
+          visibility: private,
+          pullRequest: https://github.com/puddle-works/tide-times/pull/1,
+          specDigest: "0000000000000000000000000000000000000000000000000000000000000001",
+          ready: true,
+        }
       - approve: publish-approval
       - move: rework
         manual: true
@@ -1086,7 +1233,212 @@ scenarios:
           commit: "2222222222222222222222222222222222222222",
         }
       - move: approved
+        expect: { refused: publish request must name }
+      - record: { artifact: publish-request }
+        payload: {
+          commit: "2222222222222222222222222222222222222222",
+          version: 2026.11.09.1,
+          visibility: private,
+          pullRequest: https://github.com/puddle-works/tide-times/pull/1,
+          specDigest: "0000000000000000000000000000000000000000000000000000000000000001",
+          ready: true,
+        }
+      - move: approved
         expect: { refused: publish-approval }
       - approve: publish-approval
       - move: approved
       - expect: { stage: publish }
+
+  - scenario: approvals-voided-and-declined
+    description: >-
+      An approval counts only for what it was given on. A spec changed after
+      its approval, or a different repo recorded after repo-creation, waits
+      for a new decision; a decline blocks until the person approves again.
+    steps:
+      - record: { artifact: assessment }
+        payload: {
+          verdict: build-functionality,
+          reason: nothing fits,
+          chosen: null,
+        }
+      - record: { artifact: spec }
+        payload:
+          name: tide-times
+          source: /specs/tide-times.json
+          digest: "0000000000000000000000000000000000000000000000000000000000000001"
+      - approve: spec-approval
+      - record: { artifact: spec }
+        payload:
+          name: tide-times
+          source: /specs/tide-times.json
+          digest: "0000000000000000000000000000000000000000000000000000000000000002"
+      - move: build
+        expect: { refused: "awaiting approval 'spec-approval'" }
+      - decline: spec-approval
+        note: the spec still lists the wrong port
+      - move: build
+        expect: { refused: "'spec-approval' was declined" }
+      - approve: spec-approval
+      - move: build
+      - record: { evidence: target }
+        payload:
+          repository: https://github.com/puddle-works/tide-times
+          checkout: /home/u/dev/tide-times
+          branch: draft/tide-times
+          route: build
+          exists: false
+      - approve: repo-creation
+      - record: { evidence: target }
+        payload:
+          repository: https://github.com/puddle-works/tide-tables
+          checkout: /home/u/dev/tide-tables
+          branch: draft/tide-tables
+          route: build
+          exists: false
+      - move: create-repo
+        expect: { refused: "awaiting approval 'repo-creation'" }
+      - decline: repo-creation
+        note: wrong name
+      - move: create-repo
+        expect: { refused: "'repo-creation' was declined" }
+      - record: { evidence: target }
+        payload:
+          repository: https://github.com/puddle-works/tide-times
+          checkout: /home/u/dev/tide-times
+          branch: draft/tide-times
+          route: build
+          exists: false
+      - approve: repo-creation
+      - move: create-repo
+      - record: { evidence: repo-created }
+        payload:
+          repository: https://github.com/puddle-works/tide-tables
+          visibility: private
+          route: build
+      - move: created
+        expect: { refused: not the approved private target }
+      - expect: { stage: create-repo }
+
+  - scenario: publish-approval-guarded
+    description: >-
+      A request built from another spec is refused. The publish request is
+      changed after its approval, declined, then
+      approved. The check right before publishing finds the PR has moved, so
+      nothing is published and the person must approve again.
+    steps:
+      - record: { artifact: spec }
+        payload:
+          name: tide-times
+          source: /specs/tide-times.json
+          digest: "0000000000000000000000000000000000000000000000000000000000000001"
+      - record: { artifact: assessment }
+        payload: {
+          verdict: build-functionality,
+          reason: nothing fits,
+          chosen: null,
+        }
+      - approve: spec-approval
+      - move: build
+      - record: { evidence: target }
+        payload:
+          repository: https://github.com/puddle-works/tide-times
+          checkout: /home/u/dev/tide-times
+          branch: draft/tide-times
+          route: build
+          exists: true
+      - move: existing
+      - record: { evidence: draft }
+        payload: { status: succeeded, runId: run-1 }
+      - move: generated
+      - record: { artifact: change-summary }
+        payload: {
+          summary: v1,
+          commit: "1111111111111111111111111111111111111111",
+          manifestVersion: 2026.11.09.1,
+        }
+      - move: submit
+      - record: { evidence: checks }
+        payload: {
+          commit: "1111111111111111111111111111111111111111",
+          status: passed,
+          results: [{ name: test, status: passed }],
+        }
+      - record: { evidence: quality }
+        payload: {
+          commit: "1111111111111111111111111111111111111111",
+          allPassed: true,
+        }
+      - move: passed
+      - record: { evidence: visibility-choice }
+        payload: { visibility: private }
+      - move: decided
+      - record: { artifact: review }
+        payload: { findings: [] }
+      - move: accept
+      - record: { evidence: pull-request }
+        payload: {
+          url: https://github.com/puddle-works/tide-times/pull/1,
+          commit: "1111111111111111111111111111111111111111",
+        }
+      - record: { artifact: publish-request }
+        payload: {
+          commit: "1111111111111111111111111111111111111111",
+          version: 2026.11.09.1,
+          visibility: private,
+          pullRequest: https://github.com/puddle-works/tide-times/pull/1,
+          specDigest: "0000000000000000000000000000000000000000000000000000000000000009",
+          ready: true,
+        }
+      - move: approved
+        expect: { refused: the approved spec }
+      - record: { artifact: publish-request }
+        payload: {
+          commit: "1111111111111111111111111111111111111111",
+          version: 2026.11.09.1,
+          visibility: private,
+          pullRequest: https://github.com/puddle-works/tide-times/pull/1,
+          specDigest: "0000000000000000000000000000000000000000000000000000000000000001",
+          ready: true,
+          summary: first summary,
+        }
+      - approve: publish-approval
+      - record: { artifact: publish-request }
+        payload: {
+          commit: "1111111111111111111111111111111111111111",
+          version: 2026.11.09.1,
+          visibility: private,
+          pullRequest: https://github.com/puddle-works/tide-times/pull/1,
+          specDigest: "0000000000000000000000000000000000000000000000000000000000000001",
+          ready: true,
+          summary: a summary the person has not seen,
+        }
+      - move: approved
+        expect: { refused: "awaiting approval 'publish-approval'" }
+      - decline: publish-approval
+        note: not yet
+      - move: approved
+        expect: { refused: "'publish-approval' was declined" }
+      - approve: publish-approval
+      - move: approved
+      - move: released
+        expect: { refused: publish-check }
+      - record: { evidence: publish-check }
+        payload: {
+          commit: "1111111111111111111111111111111111111111",
+          ready: true,
+          prHead: "3333333333333333333333333333333333333333",
+          specCurrent: true,
+        }
+      - record: { evidence: release }
+        payload: {
+          commit: "1111111111111111111111111111111111111111",
+          version: 2026.11.09.1,
+          visibility: private,
+        }
+      - move: released
+        expect: { refused: the PR has moved on }
+      - move: stopped
+        manual: true
+      - move: approved
+        expect: { refused: "awaiting approval 'publish-approval'" }
+      - expect: { stage: pr }

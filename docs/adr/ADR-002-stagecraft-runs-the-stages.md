@@ -75,6 +75,37 @@ What needed working around:
   gate checks it against intake's decision. Without it, Stagecraft cannot prove
   the build and reuse exits exclusive.
 
+## Approvals (#51)
+
+Stagecraft records each decision with its principal, time and a digest of every
+product recorded before it; a changed product voids it, a decline blocks until
+the person approves again, and none carries over to a later pass. The definition
+adds what that does not cover:
+
+- `reuse` and `already-done` need `reuse-approval`. The person's recorded
+  `reuse-choice` alone is the agent's record, not their decision.
+- The person approves a `publish-request` naming the commit, version,
+  visibility, PR and spec digest, each checked against the reviewed commit, the
+  visibility choice and the approved spec. Visibility is approved there, with
+  the publish, so it is asked once.
+- Right before anything is pushed, `publish` records a `publish-check`
+  (readiness, the PR head, the spec version). `released` refuses a check of
+  another commit, a moved PR or a release unlike the request; a failed check
+  goes back to `pr` by a manual `stopped`, where the approval must be given
+  again.
+- `generate` passes the approved spec digest to `render`, which refuses a spec
+  file changed since. This one runs inside Factory, where Stagecraft cannot see.
+- The only review exception is a cycle override, which Stagecraft records as a
+  person's grant. Publishing approval is never approval to merge.
+
+Saved scenarios `approvals-voided-and-declined` and `publish-approval-guarded`
+exercise a changed spec, target and publish request, declines, a missing check
+and a moved PR. The definition passes `validate` under the swamp CLI with
+`@swamp/stagecraft` 2026.11.05.2: 0 warnings, 8 of 8 scenarios. `publish-check`
+is recorded by the driving agent, so it is evidence of the check, not proof; the
+external commands themselves (`gh repo create`, `gh repo edit`, `make publish`)
+are run by the agent and are not gated inside Factory.
+
 ## Consequences
 
 - Users pull `@swamp/stagecraft` alongside Factory, and the factory-build skill

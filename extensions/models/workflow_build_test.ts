@@ -46,6 +46,7 @@ Deno.test("build workflow: takes a spec, a target and its repository, nothing el
     "overwrite",
     "repository",
     "spec",
+    "specDigest",
     "targetDir",
     "visibility",
   ]);

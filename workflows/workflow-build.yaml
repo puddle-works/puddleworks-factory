@@ -36,6 +36,13 @@ inputs:
         The branch the checkout must have checked out, e.g. draft/my-app.
         Blank skips the check.
       default: ""
+    specDigest:
+      type: string
+      description: >-
+        SHA-256, in hex, of the spec a person approved (sha256sum of the
+        file). A spec whose text no longer matches writes nothing. Blank skips
+        the check.
+      default: ""
     overwrite:
       type: boolean
       description: >-
@@ -78,5 +85,6 @@ jobs:
             targetDir: ${{ inputs.targetDir }}
             repository: ${{ inputs.repository }}
             branch: ${{ inputs.branch }}
+            specDigest: ${{ inputs.specDigest }}
             overwrite: ${{ inputs.overwrite }}
             visibility: ${{ inputs.visibility }}

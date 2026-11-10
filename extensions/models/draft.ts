@@ -1198,6 +1198,11 @@ const RenderArgsSchema = z.object({
   repository: z.string().min(1),
   /** The branch the checkout must have checked out, when given. */
   branch: optional(z.string().min(1)),
+  /**
+   * The SHA-256, in hex, of the spec a person approved, when given. A spec
+   * whose text no longer matches is refused: it is not the one approved.
+   */
+  specDigest: optional(z.string().regex(/^[0-9a-f]{64}$/)),
   overwrite: z.boolean().default(false),
   /** "private" (the default) keeps the package off the public registry until it is decided otherwise. */
   visibility: z.enum(["public", "private"]).default("private"),
@@ -2007,7 +2012,13 @@ export const model = {
         context.logger.debug("Reading the app spec from {source}", {
           source: from,
         });
-        const { spec, source } = await loadAppSpec(args.spec, io);
+        const { spec, source, digest } = await loadAppSpec(args.spec, io);
+        if (args.specDigest !== undefined && digest !== args.specDigest) {
+          throw new Error(
+            `The spec at ${from} has changed since it was approved: its SHA-256 is ` +
+              `${digest}, not ${args.specDigest}. Agree and approve it again, then render.`,
+          );
+        }
         const files = renderDraft(spec, {
           now: new Date(),
           uuid: crypto.randomUUID(),
