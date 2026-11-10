@@ -101,7 +101,7 @@ adds what that does not cover:
 Saved scenarios `approvals-voided-and-declined` and `publish-approval-guarded`
 exercise a changed spec, target and publish request, declines, a missing check
 and a moved PR. The definition passes `validate` under the swamp CLI with
-`@swamp/stagecraft` 2026.11.05.2: 0 warnings, 8 of 8 scenarios. `publish-check`
+`@swamp/stagecraft` 2026.11.05.3: 0 warnings, 8 of 8 scenarios. `publish-check`
 is recorded by the driving agent, so it is evidence of the check, not proof; the
 external commands themselves (`gh repo create`, `gh repo edit`, `make publish`)
 are run by the agent and are not gated inside Factory.
