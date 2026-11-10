@@ -11,6 +11,7 @@
  */
 import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
 import type { Visibility } from "./visibility.ts";
+import type { QualityEvidence, TestRun } from "./evidence.ts";
 
 /** Where the reviewer maps each acceptance criterion to its tests. */
 export const ACCEPTANCE_PATH = "spec/acceptance.json";
@@ -24,6 +25,8 @@ export interface CriterionCheck {
   tests: string[];
   /** How it was checked by hand, when no test can. */
   manual: string;
+  /** Who checked it by hand, as the acceptance map says. */
+  checkedBy?: string;
   ok: boolean;
 }
 
@@ -52,6 +55,10 @@ export interface Readiness {
   recipe: string | null;
   /** How each agreed phrase went. Left out when no check could run. */
   examples?: Array<{ phrase: string; passed: boolean; detail?: string }>;
+  /** The content hash the evidence is for, from the quality run. */
+  contentHash: string | null;
+  /** How the app's tests went in the run readiness made. */
+  tests: { passed: number; failed: number } | null;
   /** One screen of plain text: what would be published, and whether it is ready. */
   summary: string;
 }
@@ -77,6 +84,10 @@ export interface ReadinessFacts {
     blockers: string[];
     examples?: Array<{ phrase: string; passed: boolean; detail?: string }>;
   };
+  /** `swamp extension quality` on the checkout as it is now. */
+  quality: QualityEvidence | { error: string };
+  /** The app's tests, run on the checkout as it is now. */
+  tests: TestRun;
   pullRequest?: string;
   commit?: string;
 }
@@ -220,8 +231,16 @@ function checkReview(
   review: ReadinessFacts["review"],
   pkg: string | null,
   version: string | null,
+  hash: string | null,
   blockers: string[],
 ): ReviewSummary | null {
+  if (review && hash && !review.path.endsWith(`-${hash}.json`)) {
+    blockers.push(
+      `The review report ${review.path} is not for the content as it is now ` +
+        `(${hash.slice(0, 12)}): the code changed after the review, or it is ` +
+        "the wrong file. Review again from the publish dry run's skeleton.",
+    );
+  }
   if (!review) {
     blockers.push(
       "The review report could not be read: write it from the publish dry run's skeleton.",
@@ -252,7 +271,14 @@ function checkReview(
   if (dimensions.length === 0) {
     blockers.push("The review report has no dimensions.");
   } else {
-    const given = new Set(dimensions.map((d) => str(d.id)));
+    const ids = dimensions.map((d) => str(d.id));
+    const given = new Set(ids);
+    const twice = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+    if (twice.length) {
+      blockers.push(
+        `The review report gives ${twice.join(", ")} more than one verdict.`,
+      );
+    }
     const missing = REVIEW_DIMENSIONS.filter((id) => !given.has(id));
     if (missing.length) {
       blockers.push(
@@ -286,6 +312,7 @@ function checkReview(
 
 function checkCriteria(
   files: ReadinessFacts["files"],
+  run: Map<string, boolean> | null,
   blockers: string[],
 ): { criteria: CriterionCheck[]; outcomePath: string | null } {
   const outcome = latestOutcome(files);
@@ -310,6 +337,11 @@ function checkCriteria(
   } else {
     for (const entry of list) {
       const e = record(entry) ?? {};
+      if (mapped.has(str(e.id))) {
+        blockers.push(
+          `${ACCEPTANCE_PATH} maps ${str(e.id) || "(no id)"} more than once.`,
+        );
+      }
       mapped.set(str(e.id), e);
     }
   }
@@ -328,8 +360,23 @@ function checkCriteria(
   const criteria = outcome.criteria.map(([id, text]) => {
     const e = mapped.get(id);
     const tests = Array.isArray(e?.tests) ? e.tests.map(str) : [];
-    const manual = str(e?.manual).trim();
+    const by = record(e?.manual);
+    const manual = (by ? str(by.check) : str(e?.manual)).trim();
+    const checkedBy = by ? str(by.by).trim() : "";
     let ok = true;
+    if (manual && !by) {
+      blockers.push(
+        `${id}'s manual check doesn't say who did it or how it went: write ` +
+          `"manual": {"check": "what was run and seen", "by": "who", "passed": true}.`,
+      );
+      ok = false;
+    } else if (by && (!manual || !checkedBy)) {
+      blockers.push(`${id}'s manual check needs both check and by.`);
+      ok = false;
+    } else if (by && by.passed !== true) {
+      blockers.push(`${id}'s manual check did not pass.`);
+      ok = false;
+    }
     if (raw && Array.isArray(list) && !e) {
       blockers.push(`${id} is not in ${ACCEPTANCE_PATH}.`);
       ok = false;
@@ -338,13 +385,31 @@ function checkCriteria(
       blockers.push(`${id} has no test and no manual check.`);
       ok = false;
     }
-    for (const t of tests.filter((t) => !known.has(t))) {
-      blockers.push(
-        `${id} names a test that is not in any *_test.ts: ${JSON.stringify(t)}`,
-      );
-      ok = false;
+    for (const t of tests) {
+      if (!known.has(t)) {
+        blockers.push(
+          `${id} names a test that is not in any *_test.ts: ${
+            JSON.stringify(t)
+          }`,
+        );
+        ok = false;
+      } else if (run && run.get(t) !== true) {
+        blockers.push(
+          `${id}'s test ${JSON.stringify(t)} ${
+            run.has(t) ? "failed" : "did not run"
+          } when readiness ran the tests.`,
+        );
+        ok = false;
+      } else if (!run) ok = false;
     }
-    return { id, text, tests, manual, ok };
+    return {
+      id,
+      text,
+      tests,
+      manual,
+      ...(checkedBy ? { checkedBy } : {}),
+      ok,
+    };
   });
   return { criteria, outcomePath: outcome.path };
 }
@@ -375,6 +440,13 @@ function summarise(
   );
   if (facts.pullRequest) lines.push(clip(`PR: ${facts.pullRequest}`, 100));
   if (facts.commit) lines.push(`Commit: ${facts.commit.slice(0, 12)}`);
+  lines.push(
+    `Content: ${
+      r.contentHash ? r.contentHash.slice(0, 12) : "not scored"
+    }; tests: ${
+      r.tests ? `${r.tests.passed} passed, ${r.tests.failed} failed` : "not run"
+    }`,
+  );
   if (r.review) {
     const c = r.review.counts;
     lines.push(
@@ -385,19 +457,23 @@ function summarise(
   } else lines.push("Review: no report");
 
   if (!outcomePath) {
-    lines.push("Acceptance criteria: no outcome spec, so none to check");
+    lines.push(
+      "Acceptance criteria: no outcome spec, so acceptance rests on the app's tests passing",
+    );
   } else {
     const ok = r.criteria.filter((c) => c.ok).length;
     lines.push(
       `${ok} of ${r.criteria.length} acceptance criteria checked (${outcomePath})`,
     );
-    const shown = r.criteria.slice(0, 8);
+    const shown = r.criteria.slice(0, 7);
     for (const c of shown) {
       const how = [
         c.tests.length
           ? `${c.tests.length} test${c.tests.length === 1 ? "" : "s"}`
           : "",
-        c.manual ? `by hand: ${c.manual}` : "",
+        c.manual
+          ? `by hand${c.checkedBy ? ` (${c.checkedBy})` : ""}: ${c.manual}`
+          : "",
       ].filter(Boolean).join("; ") || "not checked";
       lines.push(
         clip(
@@ -446,8 +522,51 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
     ? (manifest.visibility === "private" ? "private" : "public")
     : null;
 
-  const review = checkReview(facts.review, pkg, version, blockers);
-  const { criteria, outcomePath } = checkCriteria(facts.files, blockers);
+  const quality = "error" in facts.quality ? null : facts.quality;
+  if (!quality) {
+    blockers.push(
+      `The quality check could not run, so nothing can be tied to the content: ${
+        (facts.quality as { error: string }).error
+      }.`,
+    );
+  } else {
+    for (const g of quality.gateFailures) {
+      blockers.push(`Quality gate: ${g}`);
+    }
+    if (
+      quality.missing.length ||
+      !(quality.earnedPoints >= quality.maxClientEarnablePoints)
+    ) {
+      blockers.push(
+        `Quality: ${quality.earnedPoints}/${quality.maxClientEarnablePoints} ` +
+          `client points; earn ${
+            quality.missing.join(", ") || "the missing factors"
+          }.`,
+      );
+    }
+  }
+  const hash = quality?.contentHash ?? null;
+
+  const run = facts.tests.tests
+    ? new Map(facts.tests.tests.map((t) => [t.name, t.passed]))
+    : null;
+  if (!facts.tests.tests) {
+    blockers.push(
+      `The app's tests could not be run: ${facts.tests.error ?? "no report"}.`,
+    );
+  } else {
+    const failed = facts.tests.tests.filter((t) => !t.passed);
+    if (failed.length) {
+      blockers.push(
+        `${failed.length} test${failed.length === 1 ? "" : "s"} failed: ${
+          failed.slice(0, 3).map((t) => JSON.stringify(t.name)).join(", ")
+        }${failed.length > 3 ? ", ..." : ""}.`,
+      );
+    }
+  }
+
+  const review = checkReview(facts.review, pkg, version, hash, blockers);
+  const { criteria, outcomePath } = checkCriteria(facts.files, run, blockers);
 
   const given = manifest?.visibility;
   const checked = facts.visibility === "outdated" ? null : facts.visibility;
@@ -495,6 +614,13 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
     blockers,
     recipe: facts.recipe?.line ?? null,
     ...(facts.recipe?.examples ? { examples: facts.recipe.examples } : {}),
+    contentHash: hash,
+    tests: facts.tests.tests
+      ? {
+        passed: facts.tests.tests.filter((t) => t.passed).length,
+        failed: facts.tests.tests.filter((t) => !t.passed).length,
+      }
+      : null,
   };
   return { ...result, summary: summarise(result, facts, outcomePath) };
 }

@@ -7,6 +7,7 @@ import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import { stub } from "jsr:@std/testing@1.0.21/mock";
 import { guarded, model } from "./draft.ts";
 import { appCheckout } from "../lib/target_testing.ts";
+import { fakeSwamp, passingTests } from "../lib/evidence_testing.ts";
 
 const APP_SPEC = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
@@ -66,6 +67,8 @@ function context(events: string[], store: Map<string, unknown>) {
       store.set(name, data);
       return Promise.resolve({ name });
     },
+    runSwamp: fakeSwamp,
+    runTests: passingTests,
     readResource(name: string) {
       events.push("io readResource");
       return Promise.resolve(

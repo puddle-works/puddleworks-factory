@@ -14,6 +14,11 @@ import { DRAFT_LINE, recipeFromWorkflow } from "../lib/recipes.ts";
 import { parseAppSpec } from "../contracts/app_spec_v1.ts";
 import { REVIEW_DIMENSIONS } from "../lib/readiness.ts";
 import { appCheckout } from "../lib/target_testing.ts";
+import {
+  fakeQuality,
+  passingTests,
+  reviewPathFor,
+} from "../lib/evidence_testing.ts";
 
 const EXAMPLE = JSON.parse(
   await Deno.readTextFile(
@@ -21,7 +26,7 @@ const EXAMPLE = JSON.parse(
   ),
 );
 const REPO = "https://github.com/example/my-app";
-const REVIEW = "swamp-extension-review/report.json";
+const REVIEW = reviewPathFor("@puddleworks/my-app");
 
 function spec(over: Record<string, unknown> = {}) {
   return {
@@ -241,7 +246,10 @@ function makeContext(swampCalls: string[][] = []) {
     },
     readResource: (name: string) => Promise.resolve(store.get(name) ?? null),
     store,
+    runTests: passingTests,
     runSwamp: (args: string[]) => {
+      const quality = fakeQuality(args);
+      if (quality) return quality;
       swampCalls.push(args);
       if (args[1] === "type") {
         return Promise.resolve({

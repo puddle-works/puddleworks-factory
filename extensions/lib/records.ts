@@ -123,9 +123,16 @@ export const ReadinessSchema = z.object({
     text: z.string(),
     tests: z.array(z.string()),
     manual: z.string(),
+    /** Who checked it by hand. */
+    checkedBy: z.string().optional(),
     ok: z.boolean(),
   })),
   blockers: z.array(z.string()),
+  /** The content hash the evidence is for; absent on records before #50. */
+  contentHash: z.string().nullable().optional(),
+  /** How the app's tests went when readiness ran them. */
+  tests: z.object({ passed: z.number().int(), failed: z.number().int() })
+    .nullable().optional(),
   /** How the recipe went, or why there is none; null when no phrase was agreed. */
   recipe: z.string().nullable().optional(),
   /** How each agreed phrase went. Left out when no check could run. */

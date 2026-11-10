@@ -16,6 +16,11 @@ import {
 import { model } from "./draft.ts";
 import { REVIEW_DIMENSIONS } from "../lib/readiness.ts";
 import { appCheckout } from "../lib/target_testing.ts";
+import {
+  fakeSwamp,
+  passingTests,
+  reviewPathFor,
+} from "../lib/evidence_testing.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
@@ -23,7 +28,7 @@ const EXAMPLE_TEXT = await Deno.readTextFile(
 
 const REPO = "https://github.com/example/obsidian-puddle-scanner";
 const NAME = "obsidian-puddle-scanner";
-const REVIEW = "swamp-extension-review/report.json";
+const REVIEW = reviewPathFor(`@puddleworks/${NAME}`);
 
 /** A context that keeps what is written, so a later method can read it. */
 function makeContext() {
@@ -44,6 +49,8 @@ function makeContext() {
     readResource(name: string) {
       return Promise.resolve(store.get(name) ?? null);
     },
+    runSwamp: fakeSwamp,
+    runTests: passingTests,
     store,
     writes,
   };
@@ -74,7 +81,7 @@ async function withReviewedDraft(
     );
     const manifest = await Deno.readTextFile(`${dir}/manifest.yaml`);
     const version = manifest.match(/^version: "(.+)"$/m)![1];
-    await Deno.mkdir(`${dir}/swamp-extension-review`);
+    await Deno.mkdir(`${dir}/swamp-extension-review`, { recursive: true });
     await Deno.writeTextFile(
       `${dir}/${REVIEW}`,
       JSON.stringify({
@@ -295,5 +302,43 @@ Deno.test("readiness: what it did not read is logged as a warning", async () => 
     });
     assertEquals(warned.length, 1, JSON.stringify(warned));
     assertStringIncludes(warned[0], "linked.md (symlink)");
+  });
+});
+
+Deno.test("readiness: a change after the review, or a failing test, blocks", async () => {
+  await withReviewedDraft(async (_dir, ctx) => {
+    // The content now hashes differently from the one the report is named for.
+    const changed = {
+      ...ctx,
+      runSwamp: async (a: string[], d: string) => {
+        const out = await ctx.runSwamp(a, d);
+        return { ...out, stdout: out.stdout.replace(/ab12/g, "cd34") };
+      },
+    };
+    await model.methods.readiness.execute(args(), changed);
+    const stale = ctx.store.get(`readiness-${NAME}`)!;
+    assertEquals(stale.ready, false);
+    assertEquals(stale.contentHash, "cd34".repeat(16));
+    assertStringIncludes(
+      (stale.blockers as string[]).join("\n"),
+      "is not for the content as it is now",
+    );
+
+    const failing = {
+      ...ctx,
+      runTests: async (d: string) => {
+        const run = await ctx.runTests(d);
+        return {
+          tests: run.tests!.map((t, i) => ({ ...t, passed: i !== 0 })),
+        };
+      },
+    };
+    await model.methods.readiness.execute(args(), failing);
+    const red = ctx.store.get(`readiness-${NAME}`)!;
+    assertEquals(red.ready, false);
+    assertStringIncludes(
+      (red.blockers as string[]).join("\n"),
+      "1 test failed",
+    );
   });
 });
