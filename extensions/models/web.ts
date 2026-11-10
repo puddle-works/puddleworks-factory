@@ -26,13 +26,21 @@ export type GlobalArgs = z.infer<typeof GlobalArgsSchema>;
 /** The behavior type: serves the read-only Factory page. */
 export const model = {
   type: "@puddleworks/puddleworks-factory/web",
-  version: "2026.11.06.1",
+  version: "2026.11.09.1",
   upgrades: [
     {
       toVersion: "2026.11.06.1",
       description:
         "The page places an app by its newest records, so drafting again puts it " +
         "back at Drafted until the later steps run again. No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.11.09.1",
+      description:
+        "The page groups apps by the stages of the Factory's plan, and is rendered " +
+        "on the server with Preact. Its routes and security policy are " +
+        "unchanged. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
