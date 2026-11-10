@@ -123,6 +123,8 @@ export interface LoadedSpec {
   spec: AppSpec;
   /** `inline`, or the path or URL the spec was read from, without the URL's login or query. */
   source: string;
+  /** SHA-256 of the spec's text as read (for a file, what `sha256sum` prints), in hex. */
+  digest: string;
 }
 
 /** Where a spec is read from, as it may be logged: never the inline spec itself. */
@@ -183,12 +185,12 @@ async function readText(
 async function readValue(
   source: string,
   io: SpecIo,
-): Promise<{ value: unknown; from: string; where: string }> {
+): Promise<{ value: unknown; text: string; from: string; where: string }> {
   const { text, from } = await readText(source, io);
   const where = from === "inline" ? "The inline spec" : from;
   try {
     // YAML is a superset of JSON, so one parser reads both.
-    return { value: parseYaml(text), from, where };
+    return { value: parseYaml(text), text, from, where };
   } catch (e) {
     throw new Error(
       `${where} is not JSON or YAML: ${(e as Error).message.split("\n")[0]}`,
@@ -201,7 +203,7 @@ export async function loadAppSpec(
   source: string,
   io: SpecIo,
 ): Promise<LoadedSpec> {
-  const { value, from, where } = await readValue(source, io);
+  const { value, text, from, where } = await readValue(source, io);
   const parsed = parseAppSpec(value);
   if (!parsed.ok) {
     throw new Error(
@@ -217,7 +219,20 @@ export async function loadAppSpec(
       ? { ...spec, source: { ...spec.source, url: shownUrl(spec.source.url) } }
       : spec,
     source: from,
+    digest: await sha256Hex(text),
   };
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const hash = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(text),
+  );
+  return Array.from(
+    new Uint8Array(hash),
+    (b) => b.toString(16).padStart(2, "0"),
+  )
+    .join("");
 }
 
 /** Read and check an outcome spec, from the same places as an app spec. */

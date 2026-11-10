@@ -1,5 +1,6 @@
 // render writes only into the root of a checkout of the approved app repo
-// (#48). Every refusal writes no file and no resource.
+// (#48), and only from the spec a person approved (#51). Every refusal writes
+// no file and no resource.
 import { assertEquals, assertRejects } from "jsr:@std/assert@1.0.19";
 import { model } from "./draft.ts";
 import { appCheckout } from "../lib/target_testing.ts";
@@ -82,6 +83,39 @@ Deno.test("target: a checkout of the app repo is accepted, on the branch asked f
     assertEquals(ctx.writes, ["obsidian-puddle-scanner"]);
   } finally {
     await Deno.remove(dir, { recursive: true });
+  }
+});
+
+// sha256sum docs/contracts/app-spec.v1.example.json, taken outside the code.
+const EXAMPLE_SHA256 =
+  "5f76ddd99ab548c64304a4ee740fa650afce278c0b02444c0d8984dbacdc7e4d";
+
+Deno.test("target: the spec file a person approved renders; the same file edited after does not", async () => {
+  const dir = await appCheckout(REPO);
+  const specDir = await Deno.makeTempDir();
+  const spec = `${specDir}/app-spec.json`;
+  try {
+    await Deno.writeTextFile(spec, EXAMPLE_TEXT);
+    const ctx = makeContext();
+    await render(dir, { spec, specDigest: EXAMPLE_SHA256 }, ctx);
+    assertEquals(ctx.writes, ["obsidian-puddle-scanner"]);
+
+    const fresh = await appCheckout(REPO);
+    try {
+      await Deno.writeTextFile(
+        spec,
+        EXAMPLE_TEXT.replace("Obsidian", "Obsidian "),
+      );
+      await refuses(fresh, "has changed since it was approved", fresh, {
+        spec,
+        specDigest: EXAMPLE_SHA256,
+      });
+    } finally {
+      await Deno.remove(fresh, { recursive: true });
+    }
+  } finally {
+    await Deno.remove(dir, { recursive: true });
+    await Deno.remove(specDir, { recursive: true });
   }
 });
 
