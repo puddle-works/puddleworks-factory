@@ -549,3 +549,37 @@ Deno.test("package: the docs say the draft writes a recipe and readiness checks 
   assertEquals(skill.includes("the engine refuses it"), false, "SKILL.md");
   assertEquals(appSpec.includes("the recipe's tag"), true, "app-spec.md");
 });
+
+// A row pasted into the wrong place once left the assess workflow out of
+// the table and broke the How it works list.
+Deno.test("package: the README's package table has a row for each shipped workflow", async () => {
+  const readme = await Deno.readTextFile(new URL("README.md", ROOT));
+  const rows = readme.split("\n").filter((l) => l.startsWith("| Workflow |"));
+  const named = rows.map((l) => l.match(/`(@[^`]+)`/)?.[1]);
+  const manifest = parse(
+    await Deno.readTextFile(new URL("manifest.yaml", ROOT)),
+  ) as { workflows: string[] };
+  const shipped = [];
+  for (const file of manifest.workflows) {
+    const wf = parse(
+      await Deno.readTextFile(new URL(`workflows/${file}`, ROOT)),
+    ) as { name: string };
+    shipped.push(wf.name);
+  }
+  assertEquals(named.toSorted(), shipped.toSorted());
+  const howItWorks = readme.slice(
+    readme.indexOf("## How it works"),
+    readme.indexOf("## What is in the package"),
+  );
+  assertEquals(howItWorks.includes("| Workflow |"), false, "a row in the list");
+});
+
+Deno.test("package: the skill's steps are numbered 1 to N in the order they run", async () => {
+  const skill = await Deno.readTextFile(SKILL);
+  const steps = [...skill.matchAll(/^## Step (\S+?):/gm)].map((m) => m[1]);
+  assertEquals(steps, steps.map((_, i) => String(i + 1)));
+  const glance = [...skill.matchAll(/^\| (\d+) +\|/gm)].map((m) => m[1]);
+  assertEquals(glance, steps, "the run at a glance");
+  // builder-workbench's QUICKSTART.md tells a new enough skill by this heading.
+  assertEquals(/^## Step 13: Report$/m.test(skill), true, "## Step 13");
+});
