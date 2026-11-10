@@ -741,7 +741,7 @@ const REPO_EXAMPLE = "https://github.com/<owner>/<name>";
 const PR_EXAMPLE = "https://github.com/<owner>/<name>/pull/<number>";
 
 /** The puddle-tooling tag the drafted ci.yml runs the publish dry run from. */
-const TOOLING_REF = "v0.2.1";
+const TOOLING_REF = "v0.2.3";
 
 /**
  * CI for a repo that has none: the tests, and a publish dry run with the
