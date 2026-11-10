@@ -404,12 +404,50 @@ Deno.test("recipe through the model: readiness checks it and the build result re
       }),
       ctx,
     );
-    assertEquals(
-      ctx.store.get("build-result-my-app")!.examples,
-      readiness.examples,
+    const before = ctx.store.get("build-result-my-app")!;
+    assertEquals(before.apiVersion, "puddleworks.dev/build-result/v2");
+    assertEquals(before.examples, readiness.examples);
+    // Nothing is published yet, so there is no published recipe to report.
+    assertEquals("recipe" in before, false);
+    await model.methods.result.execute(
+      model.methods.result.arguments.parse({
+        name: "my-app",
+        buildRef: "draft/my-app",
+        publishedVersion: "2026.11.10.1",
+        publishedVisibility: "private",
+      }),
+      ctx,
     );
+    // The recipe as its tag says, with the agreed whenEmpty as its empty.
+    assertEquals(ctx.store.get("build-result-my-app")!.recipe, {
+      id: "my-app",
+      phrases: ["show issue 42?", "what's in issue 7"],
+      empty: "No such issue.",
+    });
   }, calls);
   assertEquals(calls.filter((c) => c.includes("match")).length, 2);
+});
+
+Deno.test("recipe through the model: a blank whenEmpty blocks readiness, and no recipe is reported", async () => {
+  const base = spec().specification.recipe;
+  await drafted(
+    spec({ recipe: { ...base, whenEmpty: "" } }),
+    async (dir, ctx) => {
+      await finish(dir);
+      const readiness = await readinessOf(dir, ctx);
+      assertStringIncludes(readiness.blockers.join(" "), "no empty answer");
+      await model.methods.result.execute(
+        model.methods.result.arguments.parse({
+          name: "my-app",
+          buildRef: "draft/my-app",
+          publishedVersion: "2026.11.10.1",
+          publishedVisibility: "private",
+        }),
+        ctx,
+      );
+      assertEquals("recipe" in ctx.store.get("build-result-my-app")!, false);
+    },
+  );
 });
 
 Deno.test("recipe through the model: the draft's each.line left in blocks readiness", async () => {

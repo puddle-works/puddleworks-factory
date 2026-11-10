@@ -5,7 +5,7 @@ file, an https URL or inline JSON, and anyone can write one.
 
 | Takes in                                           | Puts out                                      |
 | -------------------------------------------------- | --------------------------------------------- |
-| an `app-spec/v1`: what to build                    | the extension's files and a `build-result/v1` |
+| an `app-spec/v1`: what to build                    | the extension's files and a `build-result/v2` |
 | an `outcome-spec/v1`: what success looks like only | a starter `app-spec/v1` for you to finish     |
 
 The contracts, each with an example, are in
@@ -79,7 +79,7 @@ which says what each must have before the next.
 | Workflow | `@puddleworks/puddleworks-factory-visibility`  | Runs `visibility`: checks the built app's repo and recommends public or private                                                                                                                                                                                                                                                                |
 | Workflow | `@puddleworks/puddleworks-factory-plan-review` | Runs `planReview`: records a review of the build plan against the spec, with the plan's hash, so it stays with that version of the plan                                                                                                                                                                                                        |
 | Workflow | `@puddleworks/puddleworks-factory-readiness`   | Runs `readiness`: scores and tests the checkout itself, checks the review report is for its current content hash and that each acceptance criterion's tests passed, and writes a one-screen summary                                                                                                                                            |
-| Workflow | `@puddleworks/puddleworks-factory-result`      | Runs `result`: writes a `build-result/v1` for the last draft of a spec, with what was published                                                                                                                                                                                                                                                |
+| Workflow | `@puddleworks/puddleworks-factory-result`      | Runs `result`: writes a `build-result/v2` for the last draft of a spec, with what was published                                                                                                                                                                                                                                                |
 | Skill    | `factory-build`                                | Takes a spec to a published extension: agree the spec, make the app repo, generate, build test-first, check, decide visibility, publish                                                                                                                                                                                                        |
 
 ## Use

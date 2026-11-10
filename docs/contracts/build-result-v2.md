@@ -41,4 +41,15 @@ reported, and the agreed spec must say what that answer is.
 
 Writers emit v2 once every reader accepts it, and readers accept v1 and v2 until
 every writer has moved. A v1 result carries no `recipe`, so a reader that needs
-one can't release on it. Factory writes v1 until Capture's reader accepts v2.
+one can't release on it. Capture reads v2 from `@puddleworks/capture`
+2026.11.10.1, and Factory's `result` writes v2 from then on.
+
+## How Factory fills in `recipe`
+
+The `@puddleworks/puddleworks-factory-result` workflow adds `recipe` only to a
+published result (`publishedVersion` given). It reads the recipe workflow the
+draft wrote, in the checkout, and copies its tag's `id` and `empty`; `phrases`
+are the agreed phrases the latest readiness check (or the examples passed in)
+found answered. It leaves `recipe` out, and logs why, when there is no recipe
+file, the tag has no `empty`, or no phrase was found answered. Readiness blocks
+a recipe whose tag has no `empty`.

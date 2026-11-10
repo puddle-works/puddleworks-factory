@@ -13,7 +13,7 @@ import {
   assertStringIncludes,
 } from "jsr:@std/assert@1.0.19";
 import { model } from "./draft.ts";
-import { parseBuildResult } from "../contracts/build_result_v1.ts";
+import { parseBuildResultV2 as parseBuildResult } from "../contracts/build_result_v2.ts";
 import { appCheckout } from "../lib/target_testing.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
@@ -80,7 +80,7 @@ function resultArgs(overrides: Record<string, unknown> = {}) {
   });
 }
 
-Deno.test("result: records a build-result/v1 for the last draft", async () => {
+Deno.test("result: records a build-result/v2 for the last draft", async () => {
   await withDraft(async (_dir, ctx) => {
     await model.methods.result.execute(resultArgs(), ctx);
     const last = ctx.writes.at(-1)!;
@@ -91,7 +91,7 @@ Deno.test("result: records a build-result/v1 for the last draft", async () => {
     if (!parsed.ok) return;
     const { builtAt: _b, ...rest } = parsed.result;
     assertEquals(rest, {
-      apiVersion: "puddleworks.dev/build-result/v1",
+      apiVersion: "puddleworks.dev/build-result/v2",
       kind: "BuildResult",
       name: "obsidian-puddle-scanner",
       extension: "@puddleworks/obsidian-puddle-scanner",

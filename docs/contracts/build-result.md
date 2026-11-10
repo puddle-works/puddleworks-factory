@@ -10,8 +10,8 @@ this one.
 - Example: [`build-result.v1.example.json`](build-result.v1.example.json)
 
 [v2](build-result-v2.md) replaces it: it adds the published recipe and leaves
-the router test to the request's outcome owner. Factory writes v1 until the
-readers accept v2.
+the router test to the request's outcome owner. Factory writes v2 from
+puddleworks-factory#78 on; this page still describes the fields v2 keeps.
 
 This is Factory's copy. Any tool that reads or writes the build result can test
 against the same example file.

@@ -73,6 +73,7 @@ import {
   DRAFT_LINE,
   RECIPE_BUDGET_SECONDS,
   RECIPE_LABEL,
+  recipeAnswers,
   type RecipeFit,
   recipeFit,
   type RecipeInputs,
@@ -85,6 +86,7 @@ import {
 } from "../lib/recipe_check.ts";
 import {
   AssessmentSchema,
+  type DraftRecord,
   DraftSchema,
   PlanReviewSchema,
   PrefillSchema,
@@ -92,12 +94,12 @@ import {
   VisibilitySchema,
 } from "../lib/records.ts";
 import {
-  BUILD_RESULT_V1,
-  BuildExamplesSchema,
-  type BuildResult,
-  BuildResultSchema,
-  parseBuildResult,
-} from "../contracts/build_result_v1.ts";
+  AnyBuildResultSchema,
+  BUILD_RESULT_V2,
+  BuildExamplesV2Schema,
+  type BuildResultV2,
+  parseBuildResultV2,
+} from "../contracts/build_result_v2.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1226,7 +1228,7 @@ const ResultArgsSchema = z.object({
   /** The visibility it was pushed with. Give it with publishedVersion. */
   publishedVisibility: optional(z.enum(["public", "private"])),
   /** How each of the spec's recipe examples went, once they have been checked. */
-  examples: optional(BuildExamplesSchema),
+  examples: optional(BuildExamplesV2Schema),
 });
 
 type ResultArgs = z.infer<typeof ResultArgsSchema>;
@@ -1460,7 +1462,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
   assessment: AssessmentSchema,
   prefill: PrefillSchema,
   draft: DraftSchema,
-  buildResult: BuildResultSchema,
+  buildResult: AnyBuildResultSchema,
   visibility: VisibilitySchema,
   readiness: ReadinessSchema,
   planReview: PlanReviewSchema,
@@ -1471,6 +1473,40 @@ const SCHEMAS: Record<string, z.ZodType> = {
  * the resource's schema. A method that also writes a file checks first, so
  * it writes neither.
  */
+/**
+ * The recipe a published build shipped, for its build result: the tag's `id`
+ * and `empty`, and the agreed phrases the latest check found it answers. Left
+ * out, with a warning, when there is no recipe file or it can't be read.
+ */
+async function publishedRecipe(
+  draft: DraftRecord,
+  examples: Array<{ phrase: string; passed: boolean }> | undefined,
+  context: MethodContext,
+): Promise<{ id: string; phrases: string[]; empty: string } | undefined> {
+  const file = draft.recipe?.workflow;
+  if (!file) return undefined;
+  const leftOut = (why: string) => {
+    context.logger.warning(
+      "The build result leaves out the recipe: {why}",
+      { why },
+    );
+    return undefined;
+  };
+  let text: string;
+  try {
+    text = await Deno.readTextFile(`${draft.targetDir}/${file}`);
+  } catch {
+    return leftOut(`${file} could not be read in ${draft.targetDir}`);
+  }
+  const answers = recipeAnswers(text);
+  if ("error" in answers) return leftOut(`${file}: ${answers.error}`);
+  const phrases = (examples ?? []).filter((e) => e.passed).map((e) => e.phrase);
+  if (phrases.length === 0) {
+    return leftOut("no agreed phrase was checked as answered");
+  }
+  return { ...answers, phrases };
+}
+
 function checkedResource<T>(specName: string, data: T): T {
   const clean = safeData(data);
   const checked = SCHEMAS[specName]?.safeParse(clean);
@@ -1836,8 +1872,8 @@ export const model = {
     },
     buildResult: {
       description:
-        `A ${BUILD_RESULT_V1}: what a build produced and where it is, for anyone to read.`,
-      schema: BuildResultSchema,
+        `A ${BUILD_RESULT_V2} (or, recorded before it, v1): what a build produced and where it is, for anyone to read.`,
+      schema: AnyBuildResultSchema,
       lifetime: "infinite" as const,
       garbageCollection: 20,
     },
@@ -2176,10 +2212,10 @@ export const model = {
     },
     result: {
       description:
-        `Write a ${BUILD_RESULT_V1} for the last draft of an app spec: the extension, ` +
-        "its entry point, the repository, the branch or commit, the pull request, and " +
-        "how each recipe example went. Records it as a resource and, with out, as a " +
-        "JSON file.",
+        `Write a ${BUILD_RESULT_V2} for the last draft of an app spec: the extension, ` +
+        "its entry point, the repository, the branch or commit, the pull request, " +
+        "how each recipe example went and, once published, the recipe it published. " +
+        "Records it as a resource and, with out, as a JSON file.",
       arguments: ResultArgsSchema,
       execute: method(async (args: ResultArgs, context: MethodContext) => {
         context.logger.info("Recording the build result for {name}", {
@@ -2224,8 +2260,13 @@ export const model = {
           : checkedNow
           ? readiness.data?.examples
           : undefined;
-        const candidate: BuildResult = {
-          apiVersion: BUILD_RESULT_V1,
+        // Once published, the recipe as the checkout's tag says: what the
+        // tool the spec came from compares with the agreed spec.
+        const recipe = args.publishedVersion
+          ? await publishedRecipe(draft.data, examples, context)
+          : undefined;
+        const candidate: BuildResultV2 = {
+          apiVersion: BUILD_RESULT_V2,
           kind: "BuildResult",
           name: args.name,
           extension: draft.data.modelType,
@@ -2242,13 +2283,22 @@ export const model = {
               },
             }
             : {}),
-          ...(examples?.length ? { examples } : {}),
+          ...(examples?.length
+            ? {
+              examples: examples.map(({ phrase, passed, detail }) => ({
+                phrase,
+                passed,
+                ...(detail === undefined ? {} : { detail }),
+              })),
+            }
+            : {}),
+          ...(recipe ? { recipe } : {}),
           builtAt: new Date().toISOString(),
         };
-        const parsed = parseBuildResult(candidate);
+        const parsed = parseBuildResultV2(candidate);
         if (!parsed.ok) {
           throw new Error(
-            `The build result is not a valid ${BUILD_RESULT_V1}:\n- ${
+            `The build result is not a valid ${BUILD_RESULT_V2}:\n- ${
               parsed.problems.join("\n- ")
             }`,
           );

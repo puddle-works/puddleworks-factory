@@ -76,7 +76,7 @@ Deno.test("viewer apps: a record that fails its schema is left out, not an error
     record("readiness", `readiness-${NAME}`, { name: NAME, ready: "yes" }),
     record("buildResult", `build-result-${NAME}`, {
       ...buildResult(NAME),
-      apiVersion: "puddleworks.dev/build-result/v2",
+      apiVersion: "puddleworks.dev/build-result/v3",
     }),
     { name: "no-spec" },
     null,

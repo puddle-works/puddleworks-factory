@@ -1,7 +1,7 @@
 id: 3d1712da-b0e9-4aa6-973d-43eed007cfa6
 name: "@puddleworks/puddleworks-factory-result"
 description: >-
-  Write a puddleworks.dev/build-result/v1 for the last draft of an app spec:
+  Write a puddleworks.dev/build-result/v2 for the last draft of an app spec:
   the extension, its entry point, the repository, the branch or commit, and
   the pull request once there is one, and what was published. Run it after
   the draft is pushed, again once the pull request is open, and again once the

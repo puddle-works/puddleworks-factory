@@ -345,6 +345,29 @@ export interface RecipeFindings {
   none?: string;
 }
 
+/**
+ * The `id` and `empty` answer of the recipe in a recipe workflow's text, as
+ * its tag says, or what's wrong with it. A blank `empty` is wrong: the agreed
+ * spec must say what to answer when there is nothing to show.
+ */
+export function recipeAnswers(
+  text: string,
+): { id: string; empty: string } | { error: string } {
+  const read = recipeFromWorkflow(parsedOrNull(text));
+  if ("error" in read) return read;
+  const { id, empty } = read.recipe;
+  if (typeof id !== "string" || id.trim() === "") {
+    return { error: "the puddlerouterRecipe tag has no id" };
+  }
+  if (typeof empty !== "string" || empty.trim() === "") {
+    return {
+      error:
+        "the puddlerouterRecipe tag has no empty answer: set its empty to the agreed spec's whenEmpty, or, if the spec leaves whenEmpty blank, have the spec say what the answer is when there is nothing to show",
+    };
+  }
+  return { id, empty };
+}
+
 function parsedOrNull(text: string): unknown {
   try {
     return parseYaml(text);
@@ -493,6 +516,8 @@ export function assessRecipe(
       continue;
     }
     recipes.push(read.recipe);
+    const answers = recipeAnswers(f.text);
+    if ("error" in answers) blockers.push(`${f.path}: ${answers.error}.`);
     const each = read.recipe.each;
     if (isObj(each) && each.line === DRAFT_LINE) {
       blockers.push(
