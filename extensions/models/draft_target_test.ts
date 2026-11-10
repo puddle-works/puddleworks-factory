@@ -258,6 +258,15 @@ const CHECKS = {
       }),
       ctx,
     ),
+  revise: (ctx: ReturnType<typeof makeContext>, targetDir?: string) =>
+    model.methods.revise.execute(
+      model.methods.revise.arguments.parse({
+        name: NAME,
+        outcomeSpec: "spec/outcome-spec.v2.json",
+        ...(targetDir ? { targetDir } : {}),
+      }),
+      ctx,
+    ),
 };
 
 /** Render into a fresh app checkout, then run fn with it and the context. */

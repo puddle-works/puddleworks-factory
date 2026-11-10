@@ -40,6 +40,7 @@ import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
 import {
   type AppSpec,
   type DeliveryMethod,
+  parseAppSpec,
   specificationProblems,
   type SpecInput,
   type SpecSource,
@@ -1837,19 +1838,22 @@ export const model = {
         "records a review of the build plan with the plan's hash. assess and " +
         "planReview each keep a record of their own. render writes only into the " +
         "approved app checkout, refuses a spec whose SHA-256 isn't the specDigest " +
-        "a person approved, refuses an app name a built-in recipe has, removes a " +
-        "template's review file, writes TypeScript deno fmt leaves as it is, pins " +
-        "new drafts to puddle-tooling v0.2.3, and tells the app that a web UI is " +
-        "Preact rendered on the server. Building and publishing check the request " +
-        "is still at its agreed version. readiness scores and tests the checkout " +
-        "itself, takes the review only for the content hash as it is now, says " +
-        "what each passed example checked and why the engine dropped a recipe, and " +
-        "blocks a recipe with no empty answer. result writes build-result/v2: the " +
-        "published commit as buildRef and, once published, the recipe (id, the " +
-        "phrases it answers, empty), with no router evidence on examples. Results " +
-        "already stored as v1 still read. The factory-build skill runs its steps 1 " +
-        "to 13 in order and takes Capture's commands from builder-workbench's " +
-        "QUICKSTART.md. No data migration required.",
+        "a person approved, refuses an app name a built-in recipe has, writes " +
+        "TypeScript deno fmt leaves as it is, pins new drafts to puddle-tooling " +
+        "v0.2.3, and tells the app that a web UI is Preact rendered on the " +
+        "server. visibility, readiness and revise refuse a checkout whose origin " +
+        "isn't the draft's repository, and a draft recorded without one. revise " +
+        "writes only inside the checkout and, if stopped before its record, can " +
+        "be run again to finish. readiness scores and tests the checkout itself, " +
+        "takes the review only for the content hash as it is now, says what each " +
+        "passed example checked and why the engine dropped a recipe, and blocks " +
+        "a recipe with no empty answer. result writes build-result/v2, with the " +
+        "recipe (id, the phrases it answers, empty) once published and no router " +
+        "evidence on examples; results stored as v1 still read. The " +
+        "factory-build skill runs its steps 1 to 13 in order, passes the " +
+        "published commit as buildRef, checks the request is still at its agreed " +
+        "version before building and publishing, and takes Capture's commands " +
+        "from builder-workbench's QUICKSTART.md. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -2375,7 +2379,12 @@ export const model = {
         }
         const from = old.spec.specification.version;
         const to = now.specification.version;
-        if (to <= from) {
+        // The outcome spec is written last, so one already at this version
+        // with no record of it means the last run stopped before its record.
+        const finishing = to === from &&
+          old.spec.agreement.specHash === now.agreement.specHash &&
+          (draft.data.source?.version ?? to) < to;
+        if (to <= from && !finishing) {
           throw new Error(
             `${args.name} already meets version ${from} of the spec; this is version ${to}.`,
           );
@@ -2384,7 +2393,16 @@ export const model = {
         if (!(await exists(appSpecPath))) {
           throw new Error(`Could not read ${appSpecPath}: it does not exist.`);
         }
-        const appSpec = JSON.parse(await Deno.readTextFile(appSpecPath));
+        let appSpec;
+        try {
+          appSpec = JSON.parse(await Deno.readTextFile(appSpecPath));
+        } catch (e) {
+          throw new Error(
+            `${appSpecPath} is not valid JSON (${
+              e instanceof Error ? e.message : String(e)
+            }). Fix it, then run revise again.`,
+          );
+        }
         const changes = specChanges(old.spec, now);
         const source = {
           url: now.request.url,
@@ -2412,6 +2430,13 @@ export const model = {
           source,
         };
         if (!examples.length) delete revised.specification.recipe;
+        const checked = parseAppSpec(revised);
+        if (!checked.ok) {
+          throw new Error(
+            `${appSpecPath} brought up to version ${to} is not a valid app spec, ` +
+              `so nothing was written:\n- ${checked.problems.join("\n- ")}`,
+          );
+        }
         const record = checkedResource("draft", {
           ...draft.data,
           source,
@@ -2426,25 +2451,28 @@ export const model = {
           // A readiness check from before now was of the old phrases.
           renderedAt: new Date().toISOString(),
         });
-        const files: Array<[string, string]> = [
-          [
-            `spec/outcome-spec.v${to}.json`,
-            JSON.stringify(now, null, 2) + "\n",
-          ],
+        // The outcome spec goes last: until it is written, a rerun starts over.
+        const files: Array<[string, string]> = finishing ? [] : [
           ["spec/app-spec.json", JSON.stringify(revised, null, 2) + "\n"],
           [
             `spec/change-plan.v${to}.md`,
             changePlan(args.name, old.spec, now, changes),
           ],
+          [
+            `spec/outcome-spec.v${to}.json`,
+            JSON.stringify(now, null, 2) + "\n",
+          ],
         ];
+        for (const [path] of files) await checkOutputPath(root, path);
         for (const [path, text] of files) {
           await writeFileIn(`${root}/${path}`, text);
         }
-        context.logger.info("Revised {name} from version {from} to {to}", {
-          name: args.name,
-          from,
-          to,
-        });
+        context.logger.info(
+          finishing
+            ? "Recorded {name} at version {to}, whose files the last run wrote"
+            : "Revised {name} from version {from} to {to}",
+          { name: args.name, from, to },
+        );
         const handle = await context.writeResource("draft", args.name, record);
         return { dataHandles: [handle] };
       }),
@@ -2504,6 +2532,10 @@ export const model = {
           `${RESOURCE_PREFIX.planReview}${args.name}`,
           record,
         );
+        context.logger.info("Recorded the plan review for {name}: {verdict}", {
+          name: args.name,
+          verdict: args.verdict,
+        });
         return { dataHandles: [handle] };
       }),
     },
