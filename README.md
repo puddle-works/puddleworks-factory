@@ -46,15 +46,14 @@ flowchart LR
     validate --> visibility --> review --> publish --> record
 ```
 
-1. **Intake and reuse**: read the spec and check it against its contract.
-   Looking for an existing extension to reuse is not built yet.
+1. **Intake and reuse**: read the spec and check it against its contract. For an
+   outcome spec, `assess` records whether an existing extension method or recipe
+   already does the job, so a recipe or workflow for it is written instead of a
+   new app, or nothing is built.
 2. **Agree and select target**: from an outcome spec, prefill an app spec and
    agree its open choices; make the app's own repo and a draft branch in it.
 3. **Generate and implement**: generate a starter app that passes its own tests,
-   | Workflow | `@puddleworks/puddleworks-factory-assess` | Runs `assess`:
-   before anything is built, records whether an existing extension method fits
-   the outcome exactly, and so whether to write a recipe or workflow for it or
-   build an app | then build the behaviour test-first.
+   then build the behaviour test-first.
 4. **Validate**: format, tests, contracts, guardrails and quality all pass.
 5. **Decide visibility**: Factory recommends public or private; you decide.
 6. **Independent review**: a reviewer that didn't build it checks it against the
@@ -65,7 +64,12 @@ flowchart LR
 
 These are the stages in
 [the quality and gates plan](https://github.com/puddle-works/puddleworks-factory/blob/main/docs/factory-quality-and-gates-plan.md#lifecycle-and-gates),
-which says what each must have before the next.
+which says what each must have before the next. Today the `factory-build` skill
+keeps them in order, and each Factory method checks what it needs before it
+acts.
+[ADR-002](https://github.com/puddle-works/puddleworks-factory/blob/main/docs/adr/ADR-002-stagecraft-runs-the-stages.md)
+chose `@swamp/stagecraft` to run the stages, and its definition is written, but
+nothing drives it yet, so you don't need Stagecraft to build.
 
 ## What is in the package
 
@@ -73,6 +77,7 @@ which says what each must have before the next.
 | -------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Model    | `@puddleworks/puddleworks-factory/draft`       | `render` reads a spec and writes the extension, its tests, a workflow, the manifest, the app docs and a CI workflow; `planReview` records a review of the build plan; `visibility` recommends publishing it publicly or privately; `readiness` checks the review before publishing, against a fresh quality score and test run of the checkout |
 | Model    | `@puddleworks/puddleworks-factory/web`         | `serve` shows every app by stage, and each app's records, on a read-only page on 127.0.0.1                                                                                                                                                                                                                                                     |
+| Workflow | `@puddleworks/puddleworks-factory-assess`      | Runs `assess`: before anything is built, records whether an existing extension method or recipe already does what an outcome spec asks, and so whether to write a recipe or workflow for it, build nothing, or build an app                                                                                                                    |
 | Workflow | `@puddleworks/puddleworks-factory-prefill`     | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                                                                                                                                                                                                                                                        |
 | Workflow | `@puddleworks/puddleworks-factory-build`       | Runs `render` on the `puddleworks-factory` instance                                                                                                                                                                                                                                                                                            |
 | Workflow | `@puddleworks/puddleworks-factory-revise`      | Runs `revise`: takes an app already built to a newly agreed version of its spec, writing the new spec and a change plan, never the code                                                                                                                                                                                                        |
@@ -80,7 +85,7 @@ which says what each must have before the next.
 | Workflow | `@puddleworks/puddleworks-factory-plan-review` | Runs `planReview`: records a review of the build plan against the spec, with the plan's hash, so it stays with that version of the plan                                                                                                                                                                                                        |
 | Workflow | `@puddleworks/puddleworks-factory-readiness`   | Runs `readiness`: scores and tests the checkout itself, checks the review report is for its current content hash and that each acceptance criterion's tests passed, and writes a one-screen summary                                                                                                                                            |
 | Workflow | `@puddleworks/puddleworks-factory-result`      | Runs `result`: writes a `build-result/v2` for the last draft of a spec, with what was published                                                                                                                                                                                                                                                |
-| Skill    | `factory-build`                                | Takes a spec to a published extension: agree the spec, make the app repo, generate, build test-first, check, decide visibility, publish                                                                                                                                                                                                        |
+| Skill    | `factory-build`                                | Takes a spec to a published extension: check for reuse, agree the spec, make the app repo, generate, build test-first, check, decide visibility, publish                                                                                                                                                                                       |
 
 ## Use
 
@@ -123,11 +128,13 @@ overrides for one run):
 ```
 
 Your template needs a `Makefile` with `test`, `contracts-check`,
-`guardrails-check` and `publish` targets, and a `contracts.ts`. The skill
-prefills an app spec, asks you to confirm the name, inputs, output, settings and
-delivery, makes the app's own repo from your `template` if it does not exist yet
-(asking first), adds it to Orca (the worktree manager Puddleworks builds in) as
-a project when `worktrees` is `orca`, makes the `draft/NAME` branch in a new
+`guardrails-check` and `publish` targets, and a `contracts.ts`. The skill first
+checks whether an existing extension or recipe already does what the outcome
+spec asks, and asks you whether to use it. To build a new app, it prefills an
+app spec, asks you to confirm the name, inputs, output, settings and delivery,
+makes the app's own repo from your `template` if it does not exist yet (asking
+first), adds it to Orca (the worktree manager Puddleworks builds in) as a
+project when `worktrees` is `orca`, makes the `draft/NAME` branch in a new
 worktree, writes both specs to `spec/` there, and generates the draft. It then
 builds the behaviour test-first, gets it through the checks (tests, contracts,
 guardrails, quality 100%), recommends public or private and asks you, has a
@@ -305,9 +312,10 @@ the run logs the address. It shows the draft behavior named
 `puddleworks-factory`; set `draft` on `factory-viewer` to show another.
 
 `/` lists every app under the stage its records put it at, in Factory order,
-newest first. These are the stages in How it works that leave a record; Intake
-and reuse and Validate leave none. Each card's badge says what its records show.
-Agreeing and publishing are marked as waiting on you:
+newest first. These are the stages in How it works that the page reads a record
+for: Validate leaves none, and the page doesn't show the assessment that Intake
+and reuse writes. Each card's badge says what its records show. Agreeing and
+publishing are marked as waiting on you:
 
 | Group                   | Badge              | When                                                            |
 | ----------------------- | ------------------ | --------------------------------------------------------------- |
