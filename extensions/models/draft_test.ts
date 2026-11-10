@@ -280,7 +280,7 @@ Deno.test("render: ci.yml tests the app and dry-runs the publish with the manife
     const publish = ci.jobs.publish;
     assertEquals(
       publish.uses,
-      "puddle-works/puddle-tooling/.github/workflows/publish.yml@v0.2.1",
+      "puddle-works/puddle-tooling/.github/workflows/publish.yml@v0.2.3",
     );
     assertEquals(publish.with.visibility, manifest.visibility);
     assertEquals(publish.with["dry-run"], true);
@@ -1156,7 +1156,7 @@ Deno.test("method: a repo with no ci.yml gets one", async () => {
     await model.methods.render.execute(renderArgs(dir), makeContext());
     assertStringIncludes(
       await Deno.readTextFile(`${dir}/.github/workflows/ci.yml`),
-      "publish.yml@v0.2.1",
+      "publish.yml@v0.2.3",
     );
   } finally {
     await Deno.remove(dir, { recursive: true });

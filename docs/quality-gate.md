@@ -43,11 +43,11 @@ against the
 ## Gaps
 
 - An app's CI and `make publish` run `scripts/publish.sh` from
-  `puddle-works/puddle-tooling`. At `v0.2.1` it stops on `gateFailures` only, so
-  an app missing a client factor still publishes. The same `jq -e` check belongs
-  there.
-- Readiness takes the quality score as an input the builder supplies. Binding it
-  to a quality run on the reviewed content hash is #50.
+  `puddle-works/puddle-tooling`. From `v0.2.3` it also stops unless every client
+  factor is earned, and new drafts pin `v0.2.3`. Apps drafted earlier keep their
+  own `tooling-ref` until it is bumped.
+- Since #50, readiness runs `swamp extension quality` itself and ties the review
+  report to the content hash it reports.
 - The registry's actual grade is known only after an authorized publish. Read it
   from the extension page, or from `GET /api/v1/extensions/:name/score`.
 
