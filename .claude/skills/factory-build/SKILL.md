@@ -235,12 +235,15 @@ failed, and ask with `AskUserQuestion` whether to act on it; choosing someone
 else's extension over a new build is their call. `build-functionality`, or a
 no, carries on to step 1a. `done` means a recipe already answers every phrase:
 build nothing. Record it in Capture as a build result for the extension that
-already does it: write a build-result/v1 by hand (`docs/contracts/build-result.md`)
+already does it: write a build-result/v2 by hand (`docs/contracts/build-result-v2.md`)
 with `extension` the package the recipe calls, `entryPointRef` the recipe's
 workflow, `repository` and `path` that package's repo and the recipe file,
 `buildRef` its published commit, `published` its version and visibility,
-`examples` from running `match` and `execute` on each phrase, and `source` the
-outcome spec's `request.url`, `specification.version` and `agreement.specHash`.
+`examples` from running `match` and `execute` on each phrase, `recipe` the
+matched recipe's `id` and `empty` from its tag with the phrases it answered, and
+`source` the outcome spec's `request.url`, `specification.version` and
+`agreement.specHash`. If that recipe's `empty` isn't the agreed `whenEmpty`,
+exactly, Capture won't release on it: say so, rather than editing either.
 Run Capture's `record_build_result` with it, as the outcome owner or a builder
 on the request. Then tell the user the recipe, the extension, and links to it
 on `https://swamp-club.com/extensions/EXTENSION` and in its git repo. Otherwise
@@ -277,7 +280,7 @@ extension outside `@swamp/*`, `@mesgme/*`, `@webframp/*` and `@puddleworks/*`
 also needs an `allow:` entry in the user's `puddlerouter.yaml`: say so, and
 don't edit it. Then do steps 8 to 11 against that repo, asking before creating
 a repo, opening the PR and publishing. The `result` workflow needs a draft, so
-write the build-result/v1 by hand (`docs/contracts/build-result.md`):
+write the build-result/v2 by hand (`docs/contracts/build-result-v2.md`):
 `extension` is the package the workflow went into, `entryPointRef` the
 workflow, `path` its file, and `repository` and `pullRequest` that repo's.
 
@@ -534,8 +537,8 @@ git -C W commit -q \
 git -C W push -u origin draft/NAME
 ```
 
-Then write the build result (`puddleworks.dev/build-result/v1`, see
-`docs/contracts/build-result.md` in the puddleworks-factory repo), so whoever
+Then write the build result (`puddleworks.dev/build-result/v2`, see
+`docs/contracts/build-result-v2.md` in the puddleworks-factory repo), so whoever
 handed over the spec can see where the build went. The repository is the one
 the draft was built with:
 
@@ -965,6 +968,16 @@ Capture at all: say so to the user, rather than treating it as a failure. If
 Capture refuses the version, the request was revised during the build; tell the
 user, and don't edit the result to fit.
 
+Recording the published result doesn't release the request. Once published,
+the build result carries the recipe from the checkout's tag (`recipe`: its
+`id`, the agreed phrases readiness found it answers, and its `empty`), and
+Capture checks those against the agreed spec, exactly. Then the request's
+outcome owner, not you, installs the published version on their own desk,
+sends each agreed phrase through puddlerouter, and records what happened with
+Capture's `record_router_test` (Capture's README, "Record what was built").
+Until they do, Capture keeps the request at Building. If the result's log said
+it left out the recipe, Capture can't release it either: tell the user why.
+
 Tell the user: the package and version, its visibility and why, the PR (which
 they merge), the build result file and whether Capture took it, how long the
 run took, and anything
@@ -974,6 +987,8 @@ and each passed example's `detail` says whether the app ran. So say if a recipe'
 answers were not tried for real, and if `Recipe: none` says there is no recipe,
 say why. If the spec had a `source`, the build result
 names the request, version and hash, so it can be matched to the request later.
+For a request in Capture, say the outcome owner must test the phrases through
+puddlerouter and record it before the request is Released.
 
 ## Revising an app that is already built
 

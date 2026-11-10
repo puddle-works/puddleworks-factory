@@ -51,6 +51,9 @@ export const BuildResultV2Schema = V1.omit({ examples: true }).extend({
 /** A parsed `puddleworks.dev/build-result/v2`. */
 export type BuildResultV2 = z.infer<typeof BuildResultV2Schema>;
 
+/** A build result of either version, as one recorded before v2 may be. */
+export const AnyBuildResultSchema = z.union([V1, BuildResultV2Schema]);
+
 /** Read a v2 build result from parsed JSON or YAML. Problems are plain language. */
 export function parseBuildResultV2(
   value: unknown,

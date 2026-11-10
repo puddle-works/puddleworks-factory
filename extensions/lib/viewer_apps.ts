@@ -10,10 +10,11 @@
  *
  * @module
  */
+import type { BuildResult } from "../contracts/build_result_v1.ts";
 import {
-  type BuildResult,
-  BuildResultSchema,
-} from "../contracts/build_result_v1.ts";
+  AnyBuildResultSchema,
+  type BuildResultV2,
+} from "../contracts/build_result_v2.ts";
 import { RESOURCE_PREFIX } from "./names.ts";
 import {
   type DraftRecord,
@@ -33,7 +34,7 @@ export interface App {
   draft?: DraftRecord;
   visibility?: VisibilityRecord;
   readiness?: ReadinessRecord;
-  buildResult?: BuildResult;
+  buildResult?: BuildResult | BuildResultV2;
 }
 
 type RecordKey = Exclude<keyof App, "name">;
@@ -65,7 +66,7 @@ const SPECS: Readonly<
   buildResult: {
     key: "buildResult",
     prefix: RESOURCE_PREFIX.buildResult,
-    schema: BuildResultSchema,
+    schema: AnyBuildResultSchema,
   },
 };
 

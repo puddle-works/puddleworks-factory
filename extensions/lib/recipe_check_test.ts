@@ -98,6 +98,7 @@ tags:
       inputs: { number: { capture: 1, as: "int" } },
       each: { path: "items", line: "{title}" },
       template: "{lines}",
+      empty: "Nothing to show.",
     })
   }'
 jobs:

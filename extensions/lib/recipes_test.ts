@@ -304,6 +304,7 @@ const TAG = {
   inputs: { number: { capture: 1, as: "int" } },
   each: { path: "items", line: "{title}" },
   template: "Issues:\n{lines}",
+  empty: "No issues.",
 };
 
 function recipeYaml(
