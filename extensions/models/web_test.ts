@@ -14,7 +14,7 @@ import { DRAFT_TYPE, predicate } from "../lib/viewer_serve.ts";
 
 Deno.test("web model: the type, its version and one method", () => {
   assertEquals(model.type, "@puddleworks/puddleworks-factory/web");
-  assertEquals(model.version, "2026.11.09.1");
+  assertEquals(model.version, "2026.11.10.1");
   assertEquals(Object.keys(model.methods), ["serve"]);
 });
 

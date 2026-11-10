@@ -1685,7 +1685,7 @@ async function exists(path: string): Promise<boolean> {
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.11.09.1",
+  version: "2026.11.10.1",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -1829,21 +1829,27 @@ export const model = {
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
     {
-      toVersion: "2026.11.09.1",
+      toVersion: "2026.11.10.1",
       description:
         "Adds assess, which checks for an existing extension or recipe before " +
         "anything is built, revise, which takes an app already built to a newly " +
         "agreed version of its spec with a change plan, and planReview, which " +
         "records a review of the build plan with the plan's hash. assess and " +
-        "planReview each keep a record of their own. render writes only into the approved app checkout, refuses an " +
-        "app name a built-in recipe has, removes a template's review file, writes " +
-        "TypeScript deno fmt leaves as it is, and tells the app that a web UI is " +
+        "planReview each keep a record of their own. render writes only into the " +
+        "approved app checkout, refuses a spec whose SHA-256 isn't the specDigest " +
+        "a person approved, refuses an app name a built-in recipe has, removes a " +
+        "template's review file, writes TypeScript deno fmt leaves as it is, pins " +
+        "new drafts to puddle-tooling v0.2.3, and tells the app that a web UI is " +
         "Preact rendered on the server. Building and publishing check the request " +
-        "is still at its agreed version. result records the published commit as " +
-        "buildRef, and an example may carry its recipe id and router evidence. " +
-        "readiness says what each passed example checked, why the engine dropped a " +
-        "recipe, and blocks a phrase too long for a build result. No data " +
-        "migration required.",
+        "is still at its agreed version. readiness scores and tests the checkout " +
+        "itself, takes the review only for the content hash as it is now, says " +
+        "what each passed example checked and why the engine dropped a recipe, and " +
+        "blocks a recipe with no empty answer. result writes build-result/v2: the " +
+        "published commit as buildRef and, once published, the recipe (id, the " +
+        "phrases it answers, empty), with no router evidence on examples. Results " +
+        "already stored as v1 still read. The factory-build skill runs its steps 1 " +
+        "to 13 in order and takes Capture's commands from builder-workbench's " +
+        "QUICKSTART.md. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
