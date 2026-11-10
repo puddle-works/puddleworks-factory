@@ -763,9 +763,10 @@ Read nothing else outside W except SP/review.json.
 4. For each acceptance criterion in the outcome spec, read the test bodies and
    list the tests that really check it (a matching name is not enough). If no
    test does, check it yourself if you can (for example run the workflow as
-   W/README.md says) and say in "manual" what you ran and saw; otherwise leave
-   both empty. Write W/spec/acceptance.json:
-   {"criteria": [{"id": "AC1", "tests": ["exact Deno.test name"], "manual": ""}]}
+   W/README.md says) and record it in "manual" as {"check": what you ran and
+   saw, "by": "independent reviewer", "passed": true or false}; otherwise leave
+   "manual" out. Write W/spec/acceptance.json, one entry per criterion:
+   {"criteria": [{"id": "AC1", "tests": ["exact Deno.test name"]}]}
    Skip this step if there is no outcome spec.
 5. Write the .skeleton from SP/review.json to the path in its .file, with
    reviewedAt set to now and every dimension's verdict set to pass, na or
@@ -803,6 +804,18 @@ all):
   check`: write the test the criterion needs, then run this step again.
 - `names a test that is not in any *_test.ts`: the reviewer misnamed it; run
   this step again.
+- `is not for the content as it is now`: the code changed after the review
+  (readiness scores the checkout with `swamp extension quality` and compares
+  the content hash with the one the report is named for). Review again with a
+  new agent; never rename the report.
+- `test failed`, `<id>'s test "..." failed` or `did not run`, or `tests could
+  not be run`: readiness runs the app's tests itself; fix the code or the test
+  and run this step again.
+- `Quality gate: ...` or `client points; earn ...`: earn the factors it names,
+  as step 6 does.
+- `maps <id> more than once`, a dimension with `more than one verdict`, or a
+  manual check that `doesn't say who did it` or `did not pass`: the reviewer
+  must fix the map or report.
 - `The visibility check has not run`, or the manifest says public when its
   required checks failed: run step 7 again.
 - `each.line is still the draft's`: set it in the recipe workflow's tag, as the

@@ -46,8 +46,26 @@ Deno.test("run: handles \\"quoted\\" titles", async (t) => {
 });
 `;
 
+const HASH = "ab12".repeat(16);
 const REVIEW_PATH =
-  "swamp-extension-review/_puddleworks_obsidian-puddle-scanner-abc.json";
+  `swamp-extension-review/_puddleworks_obsidian-puddle-scanner-${HASH}.json`;
+
+/** What swamp extension quality said: every client point earned. */
+const QUALITY = {
+  contentHash: HASH,
+  earnedPoints: 14,
+  maxClientEarnablePoints: 14,
+  grade: "B",
+  gateFailures: [],
+  missing: [],
+  rubricVersion: 6,
+  swampVersion: null,
+};
+
+/** Every test in TESTS ran and passed. */
+const PASSED = {
+  tests: testNames(TESTS).map((name) => ({ name, passed: true })),
+};
 
 const review = (
   dimensions: Array<{ id: string; verdict: string; note?: string }> =
@@ -75,7 +93,15 @@ const ACCEPTANCE = JSON.stringify({
       tests: ["run: skips done tasks", "in a heading"],
       manual: "",
     },
-    { id: "AC3", tests: [], manual: "Ran the workflow on a real vault" },
+    {
+      id: "AC3",
+      tests: [],
+      manual: {
+        check: "Ran the workflow on a real vault",
+        by: "Mark",
+        passed: true,
+      },
+    },
   ],
 });
 
@@ -100,6 +126,8 @@ function facts(overrides: Partial<ReadinessFacts> = {}): ReadinessFacts {
     ],
     review: review(),
     visibility: { recommendation: "private", canBePublic: true },
+    quality: QUALITY,
+    tests: PASSED,
     pullRequest:
       "https://github.com/puddle-works/obsidian-puddle-scanner/pull/1",
     commit: "0123456789abcdef",
@@ -361,7 +389,8 @@ Deno.test("readiness: the summary fits one screen and says what is published", (
       "14 pass, 1 n/a, 0 issue, 0 pending",
       "3 of 3 acceptance criteria checked",
       "AC3",
-      "by hand: Ran the workflow on a real vault",
+      "by hand (Mark): Ran the workflow on a real vault",
+      "tests: 5 passed, 0 failed",
     ]
   ) assertStringIncludes(r.summary, s);
 });
@@ -434,4 +463,110 @@ Deno.test("AC4 runs", async (t) => {
     "AC4 runs",
     "AC5 step) with a bracket",
   ]);
+});
+
+// #50: evidence is taken from runs on the content as it is now.
+
+const blocks = (r: ReturnType<typeof assessReadiness>, text: string) => {
+  assertEquals(r.ready, false);
+  assertEquals(
+    r.blockers.some((b) => b.includes(text)),
+    true,
+    `no blocker with "${text}":\n${r.blockers.join("\n")}`,
+  );
+};
+
+Deno.test("evidence: a review report named for other content is stale", () => {
+  const r = assessReadiness(facts({
+    quality: { ...QUALITY, contentHash: "cd34".repeat(16) },
+  }));
+  blocks(r, "is not for the content as it is now (cd34cd34cd34)");
+});
+
+Deno.test("evidence: no quality run, a failed gate or a missing factor blocks", () => {
+  blocks(
+    assessReadiness(facts({ quality: { error: "swamp is not signed in" } })),
+    "quality check could not run",
+  );
+  blocks(
+    assessReadiness(facts({
+      quality: { ...QUALITY, gateFailures: ["Extension has lint issues."] },
+    })),
+    "Quality gate: Extension has lint issues.",
+  );
+  blocks(
+    assessReadiness(facts({
+      quality: { ...QUALITY, earnedPoints: 13, missing: ["rich-readme"] },
+    })),
+    "13/14 client points; earn rich-readme",
+  );
+});
+
+Deno.test("evidence: a mapped test that failed, or did not run, blocks", () => {
+  const failed = assessReadiness(facts({
+    tests: {
+      tests: PASSED.tests.map((t) => ({
+        ...t,
+        passed: t.name !== "run: skips done tasks",
+      })),
+    },
+  }));
+  blocks(failed, `AC2's test "run: skips done tasks" failed`);
+  blocks(failed, "1 test failed");
+  assertEquals(failed.criteria.find((c) => c.id === "AC2")?.ok, false);
+
+  const missing = assessReadiness(facts({
+    tests: {
+      tests: PASSED.tests.filter((t) => t.name !== "in a heading"),
+    },
+  }));
+  blocks(missing, `AC2's test "in a heading" did not run`);
+});
+
+Deno.test("evidence: tests that could not run block, even with no outcome spec", () => {
+  const files = facts().files.filter((f) => !f.path.startsWith("spec/"));
+  const r = assessReadiness(facts({
+    files,
+    tests: { tests: null, error: "deno test reported no tests (exit 1)" },
+  }));
+  blocks(r, "tests could not be run: deno test reported no tests");
+  assertStringIncludes(r.summary, "acceptance rests on the app's tests");
+  assertEquals(assessReadiness(facts({ files })).ready, true);
+});
+
+Deno.test("evidence: a dimension given twice, or a criterion mapped twice, blocks", () => {
+  const dims = REVIEW_DIMENSIONS.map((id) => ({ id, verdict: "pass" }));
+  blocks(
+    assessReadiness(facts({
+      review: review([...dims, { id: "error-handling", verdict: "pass" }]),
+    })),
+    "gives error-handling more than one verdict",
+  );
+  const twice = JSON.parse(ACCEPTANCE);
+  twice.criteria.push({ id: "AC1", tests: ["run: reads only the vault"] });
+  blocks(
+    assessReadiness(facts({
+      files: replace("spec/acceptance.json", JSON.stringify(twice)),
+    })),
+    "maps AC1 more than once",
+  );
+});
+
+Deno.test("evidence: a manual check must say who did it and that it passed", () => {
+  const withManual = (manual: unknown) => {
+    const a = JSON.parse(ACCEPTANCE);
+    a.criteria[2].manual = manual;
+    return assessReadiness(facts({
+      files: replace("spec/acceptance.json", JSON.stringify(a)),
+    }));
+  };
+  blocks(withManual("Ran it"), "doesn't say who did it or how it went");
+  blocks(
+    withManual({ check: "Ran it", by: "", passed: true }),
+    "needs both check and by",
+  );
+  blocks(
+    withManual({ check: "Ran it", by: "Mark", passed: false }),
+    "AC3's manual check did not pass",
+  );
 });

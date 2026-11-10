@@ -68,6 +68,7 @@ import { assessVisibility } from "../lib/visibility.ts";
 import { linkProblem, safeData, safeText } from "../lib/redact.ts";
 import { assessReadiness } from "../lib/readiness.ts";
 import { checkOutputPath, checkTarget } from "../lib/target.ts";
+import { qualityOf, realTests, type TestRunner } from "../lib/evidence.ts";
 import {
   DRAFT_LINE,
   RECIPE_BUDGET_SECONDS,
@@ -1414,6 +1415,8 @@ interface MethodContext {
   ) => Promise<Record<string, unknown> | null>;
   /** Stands in for swamp in tests. */
   runSwamp?: SwampRun;
+  /** Runs the app's tests for readiness; defaults to swamp's bundled deno. */
+  runTests?: TestRunner;
 }
 
 /** Where a check runs when it is not given a targetDir, as a start log says it. */
@@ -2540,10 +2543,19 @@ export const model = {
             provisionalQuality: answer.data.provisionalQuality,
             repoVisibility: answer.data.repoVisibility,
           });
+        const swamp = context.runSwamp ?? realSwamp;
+        // Evidence is taken from runs on the checkout as it is now, never from
+        // what the builder reports: the content hash and quality from swamp,
+        // and each test's outcome from running the tests.
+        context.logger.debug("Scoring and testing {targetDir}", {
+          targetDir: root,
+        });
+        const quality = await qualityOf(root, swamp);
+        const tests = await (context.runTests ?? realTests(swamp))(root);
         const recipe = await recipeReadiness(
           files,
           draft.data,
-          context.runSwamp ?? realSwamp,
+          swamp,
           { dir: root },
         );
         const readiness = assessReadiness({
@@ -2553,6 +2565,8 @@ export const model = {
             ? null
             : { path: reviewFile, text: reviewText },
           visibility,
+          quality,
+          tests,
           pullRequest: args.pullRequest,
           commit: args.commit,
         });

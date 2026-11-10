@@ -3,6 +3,7 @@
 import { assertEquals, assertRejects } from "jsr:@std/assert@1.0.19";
 import { model } from "./draft.ts";
 import { appCheckout } from "../lib/target_testing.ts";
+import { fakeSwamp, passingTests } from "../lib/evidence_testing.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
@@ -23,6 +24,8 @@ function makeContext() {
     readResource(name: string) {
       return Promise.resolve(store.get(name) ?? null);
     },
+    runSwamp: fakeSwamp,
+    runTests: passingTests,
     writes,
     store,
   };
