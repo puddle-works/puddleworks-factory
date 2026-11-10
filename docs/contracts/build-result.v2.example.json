@@ -1,0 +1,40 @@
+{
+  "apiVersion": "puddleworks.dev/build-result/v2",
+  "kind": "BuildResult",
+  "name": "obsidian-puddle-scanner",
+  "extension": "@puddleworks/obsidian-puddle-scanner",
+  "entryPointRef": "@puddleworks/obsidian-scan",
+  "repository": "https://github.com/example/obsidian-puddle-scanner",
+  "buildRef": "9f2c4e1a7b3d5f60718293a4b5c6d7e8f9012345",
+  "pullRequest": "https://github.com/example/obsidian-puddle-scanner/pull/42",
+  "source": {
+    "url": "https://capture.example.com/requests/8f0c6a52-3d1e-4b8a-9f62-0b7d4e6c2a11",
+    "version": 1,
+    "specHash": "67aa5763cfdaaed34cf7b98494a4d5a9ef462acf23b07a63db318b319961235a"
+  },
+  "published": {
+    "version": "2026.10.16.1",
+    "visibility": "private"
+  },
+  "examples": [
+    {
+      "phrase": "which notes need a request",
+      "passed": true,
+      "detail": "The recipe engine routed this phrase to the app; the app was not run."
+    },
+    {
+      "phrase": "what is waiting in my vault",
+      "passed": false,
+      "detail": "Answered for one folder only."
+    }
+  ],
+  "recipe": {
+    "id": "obsidian-puddle-scanner",
+    "phrases": [
+      "which notes need a request",
+      "what is waiting in my vault"
+    ],
+    "empty": "No notes need a request."
+  },
+  "builtAt": "2026-10-16T10:00:00.000Z"
+}
