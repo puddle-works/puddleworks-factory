@@ -13,6 +13,7 @@
 import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
 import { hideEmails, type Visibility } from "./visibility.ts";
 import type { QualityEvidence, TestRun } from "./evidence.ts";
+import { type ReviewRound, roundCheck } from "./rounds.ts";
 
 /** Where the reviewer maps each acceptance criterion to its tests. */
 export const ACCEPTANCE_PATH = "spec/acceptance.json";
@@ -50,6 +51,8 @@ export interface Readiness {
   /** What the visibility check recommended. */
   recommendation: Visibility | null;
   review: ReviewSummary | null;
+  /** The review round recorded for this content, or null when there is none. */
+  round: ReviewRound | null;
   criteria: CriterionCheck[];
   blockers: string[];
   /** How the recipe went, or why there is none; null when no phrase was agreed. */
@@ -93,6 +96,8 @@ export interface ReadinessFacts {
   quality: QualityEvidence | { error: string };
   /** The app's tests, run on the checkout as it is now. */
   tests: TestRun;
+  /** Every review round the round method recorded for the app. */
+  rounds: ReviewRound[];
   pullRequest?: string;
   commit?: string;
 }
@@ -452,14 +457,18 @@ function summarise(
       r.tests ? `${r.tests.passed} passed, ${r.tests.failed} failed` : "not run"
     }`,
   );
+  const round = roundCheck(facts.rounds, r.version, r.contentHash).line;
   if (r.review) {
     const c = r.review.counts;
     lines.push(
-      `Review: ${c.pass} pass, ${c.na} n/a, ${c.issue} issue, ${c.pending} pending (${
-        r.review.reviewedAt || "no date"
-      })`,
+      clip(
+        `Review: ${c.pass} pass, ${c.na} n/a, ${c.issue} issue, ${c.pending} pending (${
+          r.review.reviewedAt || "no date"
+        }); ${round}`,
+        160,
+      ),
     );
-  } else lines.push("Review: no report");
+  } else lines.push(`Review: no report; ${round}`);
 
   if (!outcomePath) {
     lines.push(
@@ -571,6 +580,10 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
   }
 
   const review = checkReview(facts.review, pkg, version, hash, blockers);
+  // Every review is a round the round method counted, so none goes past the
+  // limit unseen, and nothing that ships changes after the last one.
+  const rounds = roundCheck(facts.rounds, version, hash);
+  if (rounds.blocker) blockers.push(rounds.blocker);
   const { criteria, outcomePath } = checkCriteria(facts.files, run, blockers);
 
   const given = manifest?.visibility;
@@ -622,6 +635,7 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
     visibility,
     recommendation: checked?.recommendation ?? null,
     review,
+    round: rounds.round ?? null,
     criteria,
     blockers,
     recipe: facts.recipe?.line ?? null,

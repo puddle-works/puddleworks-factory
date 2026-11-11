@@ -42,6 +42,9 @@ Deno.test("review hook: a review round asks first, whatever the case of the word
       "ADVERSARIAL REVIEWER: check the fixes",
       "Act as an\nAdversarial Reviewer.",
       "an adversarial\n  reviewer, wrapped across two lines",
+      // The reviewer prompt of factory-build 2026.11.11.1 and older.
+      "Review a swamp extension before it is published. You did not build it;",
+      "review a swamp extension\nbefore it is published.",
     ]
   ) {
     const output = JSON.parse(await runHook(prompt)).hookSpecificOutput;
@@ -56,10 +59,27 @@ Deno.test("review hook: any other agent call is left alone", async () => {
     const prompt of [
       "Find where the manifest is read.",
       "Review the wording of the README.",
+      "Review a build plan before anything is built.",
       "",
       undefined,
     ]
   ) {
     assertEquals(await runHook(prompt), "", String(prompt));
   }
+});
+
+Deno.test("review hook: asks before step 10's reviewer, and not before the plan review", async () => {
+  const skill = await Deno.readTextFile(
+    new URL("./skills/factory-build/SKILL.md", import.meta.url),
+  );
+  const prompt = (step: string) => {
+    const at = skill.indexOf(`## Step ${step}:`);
+    const block = skill.slice(skill.indexOf("```text\n", at) + 8);
+    return block.slice(0, block.indexOf("```"));
+  };
+  assertStringIncludes(prompt("10"), "swamp extension before it is published");
+  const asked = JSON.parse(await runHook(prompt("10"))).hookSpecificOutput;
+  assertEquals(asked.permissionDecision, "ask");
+  assertStringIncludes(prompt("6"), "Review a build plan");
+  assertEquals(await runHook(prompt("6")), "");
 });

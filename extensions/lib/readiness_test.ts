@@ -14,6 +14,7 @@ import {
   REVIEW_DIMENSIONS,
   testNames,
 } from "./readiness.ts";
+import type { ReviewRound } from "./rounds.ts";
 
 const MANIFEST = `manifestVersion: 1
 name: "@puddleworks/obsidian-puddle-scanner"
@@ -105,6 +106,21 @@ const ACCEPTANCE = JSON.stringify({
   ],
 });
 
+/** Round 1, recorded for the content as it is. */
+const ROUND: ReviewRound = {
+  version: "2026.10.26.1",
+  kind: "review",
+  round: 1,
+  contentHash: HASH,
+  commit: "0123456789abcdef",
+  file: REVIEW_PATH,
+  base: null,
+  changed: [],
+  granted: false,
+  carriedFrom: null,
+  startedAt: "2026-10-26T15:00:00.000Z",
+};
+
 /** A reviewed app that is ready: report complete, every criterion checked. */
 function facts(overrides: Partial<ReadinessFacts> = {}): ReadinessFacts {
   return {
@@ -128,6 +144,7 @@ function facts(overrides: Partial<ReadinessFacts> = {}): ReadinessFacts {
     visibility: { recommendation: "private", canBePublic: true },
     quality: QUALITY,
     tests: PASSED,
+    rounds: [ROUND],
     pullRequest:
       "https://github.com/puddle-works/obsidian-puddle-scanner/pull/1",
     commit: "0123456789abcdef",

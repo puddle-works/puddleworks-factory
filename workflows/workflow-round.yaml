@@ -1,0 +1,58 @@
+id: bcec5857-dba2-4729-8208-5c567b2d59ea
+name: "@puddleworks/puddleworks-factory-round"
+description: >-
+  Start an adversarial review round of an app, or say why none may start, and
+  record it as a reviewRounds resource on the puddleworks-factory model. The
+  checkout must be committed and its publish dry run clean but for the review.
+  A build has at most two rounds; a third needs grant set to true, the user's
+  yes to that round. A change that only bumps the version carries the last
+  committed review over with no round. It writes nothing in the app's repo
+  but a carried review report.
+version: 1
+
+inputs:
+  type: object
+  properties:
+    name:
+      type: string
+      description: >-
+        The app spec's name, as drafted by @puddleworks/puddleworks-factory-build
+        on this swamp repo's puddleworks-factory model.
+    grant:
+      type: boolean
+      description: >-
+        The user said yes to one more round past the limit of two. It covers
+        this round only.
+      default: false
+    targetDir:
+      type: string
+      description: >-
+        The app repo checkout to review. Leave blank to use the one the draft
+        was written to.
+      default: ""
+  required:
+    - name
+
+jobs:
+  - name: round
+    description: >-
+      Check the checkout and its publish dry run, then count, carry or refuse
+      the review round.
+    dependsOn: []
+    weight: 0
+    steps:
+      - name: round
+        description: >-
+          Record the round, or the review it carries, on the
+          puddleworks-factory model.
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+        task:
+          type: model_method
+          modelIdOrName: puddleworks-factory
+          methodName: round
+          inputs:
+            name: ${{ inputs.name }}
+            grant: ${{ inputs.grant }}
+            targetDir: ${{ inputs.targetDir }}

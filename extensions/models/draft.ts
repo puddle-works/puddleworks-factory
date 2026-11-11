@@ -68,7 +68,18 @@ import {
 } from "../lib/names.ts";
 import { assessVisibility, type CommitPeople } from "../lib/visibility.ts";
 import { linkProblem, safeData, safeText } from "../lib/redact.ts";
-import { assessReadiness } from "../lib/readiness.ts";
+import { assessReadiness, REVIEW_DIMENSIONS } from "../lib/readiness.ts";
+import {
+  acceptedWarnings,
+  buildRounds,
+  completeReportVersion,
+  decideRound,
+  onlyBumped,
+  readDryRun,
+  reportFile,
+  type ReviewRound,
+} from "../lib/rounds.ts";
+import { git, type GitRun, realGit } from "../lib/git.ts";
 import { checkOutputPath, checkTarget } from "../lib/target.ts";
 import { qualityOf, realTests, type TestRunner } from "../lib/evidence.ts";
 import {
@@ -93,6 +104,7 @@ import {
   PlanReviewSchema,
   PrefillSchema,
   ReadinessSchema,
+  ReviewRoundsSchema,
   VisibilitySchema,
 } from "../lib/records.ts";
 import {
@@ -1328,6 +1340,23 @@ const ReadinessArgsSchema = z.object({
 
 type ReadinessArgs = z.infer<typeof ReadinessArgsSchema>;
 
+const RoundArgsSchema = z.object({
+  /** The app spec's name, as drafted by `render` on this instance. */
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+  /**
+   * The user said yes to one more round past the limit. It covers this round
+   * only: the next one past the limit needs a yes of its own.
+   */
+  grant: z.boolean().default(false),
+  /** The app repo checkout to review. Defaults to where the draft was written. */
+  targetDir: optional(z.string().min(1)),
+});
+
+type RoundArgs = z.infer<typeof RoundArgsSchema>;
+
+/** What a reviewer writes, which may be left uncommitted when a round starts. */
+const REVIEW_OUTPUT = /^(swamp-extension-review\/|spec\/acceptance\.json$)/;
+
 /** The part of a visibility resource that readiness needs. */
 const VisibilityAnswerSchema = VisibilitySchema.pick({
   targetDir: true,
@@ -1492,6 +1521,8 @@ interface MethodContext {
   runSwamp?: SwampRun;
   /** Runs the app's tests for readiness; defaults to swamp's bundled deno. */
   runTests?: TestRunner;
+  /** Stands in for git in tests. */
+  runGit?: GitRun;
 }
 
 /** Where a check runs when it is not given a targetDir, as a start log says it. */
@@ -1534,6 +1565,7 @@ const SCHEMAS: Record<string, z.ZodType> = {
   visibility: VisibilitySchema,
   readiness: ReadinessSchema,
   planReview: PlanReviewSchema,
+  reviewRounds: ReviewRoundsSchema,
 };
 
 /**
@@ -1739,6 +1771,116 @@ async function exists(path: string): Promise<boolean> {
     if (e instanceof Deno.errors.NotFound) return false;
     throw e;
   }
+}
+
+/** The review rounds recorded for an app, oldest first. */
+async function recordedRounds(
+  context: MethodContext,
+  name: string,
+): Promise<ReviewRound[]> {
+  const raw = await context.readResource?.(
+    `${RESOURCE_PREFIX.reviewRounds}${name}`,
+  );
+  const parsed = ReviewRoundsSchema.safeParse(raw);
+  return parsed.success ? parsed.data.rounds : [];
+}
+
+/** The version the app's build result last recorded as published, if any. */
+async function lastPublished(
+  context: MethodContext,
+  name: string,
+): Promise<string | null> {
+  const raw = await context.readResource?.(resultName(name));
+  const published = (raw as { published?: { version?: unknown } } | null)
+    ?.published?.version;
+  return typeof published === "string" ? published : null;
+}
+
+/** A file's text at a commit, or null when it isn't there. */
+async function textAt(
+  run: GitRun,
+  root: string,
+  commit: string,
+  path: string,
+): Promise<string | null> {
+  const out = await run(["show", `${commit}:${path}`], root);
+  return out.code === 0 ? out.stdout : null;
+}
+
+/** Copy dir to a new temp directory, leaving out git, swamp data and dependencies. */
+async function copyCheckout(root: string): Promise<string> {
+  const to = await Deno.makeTempDir({ prefix: "factory-carry-" });
+  const walk = async (rel: string) => {
+    for await (const e of Deno.readDir(rel ? `${root}/${rel}` : root)) {
+      const path = rel ? `${rel}/${e.name}` : e.name;
+      if (UNREAD.has(path)) continue;
+      if (e.isDirectory) {
+        await Deno.mkdir(`${to}/${path}`);
+        await walk(path);
+      } else if (e.isFile) {
+        await Deno.copyFile(`${root}/${path}`, `${to}/${path}`);
+      }
+    }
+  };
+  await walk("");
+  return to;
+}
+
+/**
+ * The committed review a version-only change carries over, or null. A
+ * complete report of another version, committed in HEAD, qualifies when
+ * undoing each file's bump to that version (lib/rounds.ts `onlyBumped`) in a
+ * copy of the checkout gives the content hash the report was written for:
+ * swamp itself then says nothing else that ships has changed.
+ */
+async function carriedReview(
+  root: string,
+  pkg: string,
+  version: string,
+  run: GitRun,
+  swamp: SwampRun,
+): Promise<{ text: string; version: string; contentHash: string } | null> {
+  const listed = await run(
+    ["ls-tree", "--name-only", "HEAD", "swamp-extension-review/"],
+    root,
+  );
+  if (listed.code !== 0) return null;
+  for (const file of listed.stdout.split("\n").filter(Boolean).reverse()) {
+    const oldHash = file.match(/-([0-9a-f]{64})\.json$/)?.[1];
+    const text = await textAt(run, root, "HEAD", file);
+    const oldVersion = text &&
+      completeReportVersion(text, pkg, REVIEW_DIMENSIONS);
+    if (!oldHash || !text || !oldVersion || oldVersion === version) continue;
+    const since =
+      (await git(run, ["log", "-n1", "--format=%H", "HEAD", "--", file], root))
+        .trim();
+    const changed =
+      (await git(run, ["diff", "--name-only", since, "HEAD"], root))
+        .split("\n").filter(Boolean);
+    const copy = await copyCheckout(root);
+    try {
+      for (const path of changed) {
+        const before = await textAt(run, root, since, path);
+        if (before === null || !(await exists(`${root}/${path}`))) continue;
+        const after = await Deno.readTextFile(`${root}/${path}`);
+        if (onlyBumped(before, after, oldVersion, version)) {
+          await Deno.writeTextFile(`${copy}/${path}`, before);
+        }
+      }
+      const quality = await qualityOf(copy, swamp);
+      if ("contentHash" in quality && quality.contentHash === oldHash) {
+        const report = JSON.parse(text);
+        return {
+          text: JSON.stringify({ ...report, version }, null, 2) + "\n",
+          version: oldVersion,
+          contentHash: oldHash,
+        };
+      }
+    } finally {
+      await Deno.remove(copy, { recursive: true });
+    }
+  }
+  return null;
 }
 
 /**
@@ -1984,14 +2126,28 @@ export const model = {
       lifetime: "infinite" as const,
       garbageCollection: 20,
     },
+    reviewRounds: {
+      description:
+        "Every adversarial review round of an app, by version and content hash, and what the latest one's reviewer needs: the report skeleton, the round before and the files changed since.",
+      schema: ReviewRoundsSchema,
+      lifetime: "infinite" as const,
+      garbageCollection: 20,
+    },
   },
   checks: {
     "draft-rendered": {
       description:
-        "Before result, revise, planReview, visibility and readiness: this instance has rendered a draft. " +
+        "Before result, revise, planReview, visibility, round and readiness: this instance has rendered a draft. " +
         "Which app's draft is the method's own check, since checks get no arguments.",
       labels: ["policy"],
-      appliesTo: ["result", "revise", "planReview", "visibility", "readiness"],
+      appliesTo: [
+        "result",
+        "revise",
+        "planReview",
+        "visibility",
+        "round",
+        "readiness",
+      ],
       execute: async (context: CheckContext): Promise<CheckResult> => {
         let names: string[];
         try {
@@ -2689,6 +2845,203 @@ export const model = {
         return { dataHandles: [handle] };
       }),
     },
+    round: {
+      description:
+        "Start an adversarial review round, or say why none may start, and record it. " +
+        "The checkout must be committed (but for the reviewer's own files), and the " +
+        "publish dry run clean but for the review: every other warning, and a version " +
+        "already published, is fixed first. A build has at most two rounds; a third " +
+        "needs grant=true, the user's yes to that round. The same content as a round " +
+        "already recorded is that round again. A change that only bumps the version " +
+        "carries the last committed review over, with no round: the method writes it " +
+        "to the new report path once the content hash, with the bump undone in a " +
+        "copy, is the one that review was for. Round 2 and later name the round " +
+        "before, its report and the files changed since. Starts swamp and git. " +
+        "Records the reviewRounds resource.",
+      arguments: RoundArgsSchema,
+      execute: method(async (args: RoundArgs, context: MethodContext) => {
+        context.logger.info(
+          "Asking for a review round of {name}, in {targetDir}",
+          {
+            name: args.name,
+            targetDir: args.targetDir ?? DRAFT_CHECKOUT,
+          },
+        );
+        const raw = context.readResource
+          ? await context.readResource(args.name)
+          : null;
+        const draft = raw ? DraftSchema.safeParse(raw) : null;
+        if (!draft?.success) {
+          throw new Error(
+            `No draft of "${args.name}" has been rendered by this model instance. ` +
+              "Run @puddleworks/puddleworks-factory-build for the spec first.",
+          );
+        }
+        const root = (args.targetDir ?? draft.data.targetDir).replace(
+          /\/+$/,
+          "",
+        );
+        await checkDraftTarget(root, draft.data);
+        const run = context.runGit ?? realGit;
+        const swamp = context.runSwamp ?? realSwamp;
+
+        // A round is of one commit, so what it reviews can be shown later.
+        const dirty = (await git(
+          run,
+          ["status", "--porcelain", "--untracked-files=all"],
+          root,
+        )).split("\n").filter(Boolean).map((l) => l.slice(3))
+          .filter((path) => !REVIEW_OUTPUT.test(path));
+        if (dirty.length) {
+          throw new Error(
+            `Commit these before a review round, so it reviews a commit: ${
+              dirty.slice(0, 5).join(", ")
+            }${dirty.length > 5 ? ", ..." : ""}.`,
+          );
+        }
+        const commit = (await git(run, ["rev-parse", "HEAD"], root)).trim();
+        let manifest: Record<string, unknown> | null = null;
+        try {
+          manifest = parseYaml(
+            await Deno.readTextFile(`${root}/manifest.yaml`),
+          ) as Record<string, unknown> | null;
+        } catch {
+          manifest = null;
+        }
+        const pkg = typeof manifest?.name === "string" ? manifest.name : "";
+        const version = typeof manifest?.version === "string"
+          ? manifest.version
+          : "";
+        if (!pkg || !version) {
+          throw new Error(
+            `${root}/manifest.yaml has no name and version to review.`,
+          );
+        }
+
+        // Everything publishing would stop on is fixed before the round, so
+        // fixing it can't need another.
+        const ci = await exists(`${root}/.github/workflows/ci.yml`)
+          ? await Deno.readTextFile(`${root}/.github/workflows/ci.yml`)
+          : null;
+        const dry = readDryRun(
+          (await swamp(
+            ["extension", "push", "manifest.yaml", "--dry-run", "--json"],
+            root,
+          )).stdout,
+          acceptedWarnings(ci),
+        );
+        if (dry.blockers.length || !dry.contentHash) {
+          throw new Error(
+            "Fix what the publish dry run says before a review round, then " +
+              `commit and ask again: ${dry.blockers.join(" | ")}`,
+          );
+        }
+        const contentHash = dry.contentHash;
+        const file = reportFile(pkg, contentHash);
+        const rounds = await recordedRounds(context, args.name);
+        const published = await lastPublished(context, args.name);
+        const decision = decideRound({
+          rounds,
+          version,
+          contentHash,
+          published,
+          grant: args.grant,
+        });
+        const base = {
+          version,
+          contentHash,
+          commit,
+          file,
+          base: null,
+          changed: [] as string[],
+          granted: false,
+          carriedFrom: null,
+          startedAt: new Date().toISOString(),
+        };
+        let round: ReviewRound;
+        let fresh = true;
+        let previous: unknown = null;
+        const committed = await textAt(run, root, "HEAD", file);
+        if (decision.kind === "same") {
+          round = decision.round;
+          fresh = false;
+        } else if (
+          committed &&
+          completeReportVersion(committed, pkg, REVIEW_DIMENSIONS) === version
+        ) {
+          round = { ...base, kind: "committed", round: 0 };
+        } else {
+          const carried = await carriedReview(root, pkg, version, run, swamp);
+          if (carried) {
+            await writeFileIn(`${root}/${file}`, carried.text);
+            round = {
+              ...base,
+              kind: "carried",
+              round: 0,
+              carriedFrom: {
+                version: carried.version,
+                contentHash: carried.contentHash,
+              },
+            };
+          } else if (decision.kind === "blocked") {
+            throw new Error(decision.message);
+          } else {
+            const before = decision.base;
+            round = {
+              ...base,
+              kind: "review",
+              round: decision.round,
+              granted: decision.granted,
+              base: before?.commit ?? null,
+              changed: before
+                ? (await git(
+                  run,
+                  ["diff", "--name-only", before.commit, commit],
+                  root,
+                )).split("\n").filter((p) => p && !REVIEW_OUTPUT.test(p))
+                : [],
+            };
+          }
+        }
+        // Round 2 and later start from the verdicts of the round before.
+        const before = round.kind === "review" && round.base
+          ? rounds.findLast((r) =>
+            r.kind === "review" && r.commit === round.base
+          )
+          : undefined;
+        if (before) {
+          const text = await exists(`${root}/${before.file}`)
+            ? await Deno.readTextFile(`${root}/${before.file}`)
+            : await textAt(run, root, "HEAD", before.file);
+          try {
+            previous = text === null ? null : JSON.parse(text);
+          } catch {
+            previous = null;
+          }
+        }
+        context.logger.info(
+          "Review of {name}@{version} ({hash}): {kind} {round}",
+          {
+            name: args.name,
+            version,
+            hash: contentHash.slice(0, 12),
+            kind: round.kind,
+            round: round.round,
+          },
+        );
+        const handle = await context.writeResource(
+          "reviewRounds",
+          `${RESOURCE_PREFIX.reviewRounds}${args.name}`,
+          {
+            name: args.name,
+            targetDir: root,
+            rounds: fresh ? [...rounds, round] : rounds,
+            latest: { ...round, skeleton: dry.skeleton, previous },
+          },
+        );
+        return { dataHandles: [handle] };
+      }),
+    },
     readiness: {
       description:
         "After the independent review, check the app is ready to publish: the review report " +
@@ -2768,8 +3121,13 @@ export const model = {
           swamp,
           { dir: root },
         );
+        const rounds = buildRounds(
+          await recordedRounds(context, args.name),
+          await lastPublished(context, args.name),
+        );
         const readiness = assessReadiness({
           files,
+          rounds,
           recipe,
           review: reviewText === null
             ? null

@@ -37,7 +37,7 @@ Do the steps in this order. The stages are those of
 | 7    | Generate and implement  | Build the behaviour test-first                                                |                                        |
 | 8    | Validate                | Format, tests, contracts, guardrails and quality all pass                     |                                        |
 | 9    | Decide visibility       | Recommend public or private                                                   | Always: public or private              |
-| 10   | Independent review      | A fresh agent reviews it; readiness checks nothing is left                    | Still not ready after two rounds       |
+| 10   | Independent review      | A fresh agent reviews it, two rounds at most; readiness checks nothing is left | A third round                         |
 | 11   | PR and publication      | Open the PR to the app repo                                                   |                                        |
 | 12   | PR and publication      | Publish, and write the build result with what was published                   | Confirm the summary; the version changed |
 | 13   | Record                  | Record the build result in the tool the spec came from, and report            |                                        |
@@ -304,7 +304,8 @@ criteria) and **propose** a value for each `toDecide` field, in one message:
 
 - `name`: short, lowercase, hyphens; the suggested slug is often too long.
   `render` refuses one starting `prefill-`, `build-result-`, `visibility-`,
-  `readiness-`, `plan-review-` or `assessment-` (the Factory's own records),
+  `readiness-`, `plan-review-`, `assessment-` or `review-rounds-` (the
+  Factory's own records),
   and the recipe engine drops `git-status`, `git-log` and `git-branch`, its own
   recipe ids, which the app's recipe would take.
 - `specification.purpose`: one bounded sentence.
@@ -724,26 +725,65 @@ You built it, so you do not review it. A fresh agent that has seen none of the
 build reads only the spec and the repo, writes the review report, and maps each
 acceptance criterion to the tests that check it. It changes no code.
 
-Clear out reports from earlier rounds, then get the report path and skeleton
-from a dry run:
+**At most two rounds, publish included.** Every round starts through the
+`round` workflow, which counts it for the build and refuses a third. The limit
+covers the whole build: steps 11 and 12, a late change of visibility and a new
+version all count against the same two. Only a publish ends the build. A
+round reviews what ships as it is at one commit, named by its content hash, so
+settle everything first. Commit, then run the full publish dry run:
 
 ```bash
-cd W
-rm -f swamp-extension-review/*.json
-mkdir -p swamp-extension-review
-SWAMP_EXTENSION_REVIEW_DIR=$(pwd) swamp extension push manifest.yaml --dry-run --json \
-  | jq '.warnings.review[] | select(.ruleId == "adversarial-review-report") | {file, skeleton}' > SP/review.json
-jq -r .file SP/review.json
+git -C W add -A && git -C W commit -q -m "Get NAME ready for review" || true
+(cd W && make publish VISIBILITY=V DRY_RUN=1)
 ```
 
-Expect a path under `W/swamp-extension-review/`. Start the reviewer with the
-`Agent` tool, `subagent_type: "general-purpose"`. Never `fork`: a fork carries
-this conversation, which is exactly what the reviewer must not see. Fill in
-`W`, `SPEC` and `SP`, and send this as the prompt:
+It must stop on nothing but `adversarial-review-report`. Fix every other
+warning before round 1, the way step 7 does, and commit: a `deno-command` or
+other safety warning (mark an intended one with a `swamp-quality-ignore`
+comment and name it in `ci.yml`'s `accepted-warnings:`, as the README says), a
+missing upgrade entry, quality. If the version is already published, choose the
+next one now (`swamp extension version manifest.yaml`), with its upgrade entry.
+Then ask for the round, from the swamp repo from step 1:
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-round --input name=NAME --json \
+  | jq -r '.status + " " + ([.jobs[].steps[] | select(.status=="failed") | .error] | join(" | "))'
+swamp data query 'behavior("puddleworks-factory") && name == "review-rounds-NAME"' \
+  --select content --json | jq '.results[0].latest | {kind, round, file, base, changed, skeleton, previous}' > SP/review.json
+jq -r '.kind + " " + (.round | tostring) + " " + .file' SP/review.json
+```
+
+`failed` names what to do, and starts no round:
+
+- `Commit these`: commit them, and ask again.
+- `Fix what the publish dry run says`: fix each warning it lists, commit, and
+  ask again. The same dry run would stop the publish.
+- `Round 3 would pass the limit`: what ships changed after round 2. Undo the
+  change, or ask the user with `AskUserQuestion` whether to have one more round,
+  saying why (the blockers, or the change). Only on yes, run the round again
+  with `--input grant=true`. Each round past two needs its own yes.
+
+`succeeded` prints the kind:
+
+- `committed 0`: a complete report for this exact content is already
+  committed. No round; go to step 11.
+- `carried 0`: only the version changed since the last committed review, so
+  the workflow wrote that review to the new report path (`.file`). No round;
+  commit it with `spec/`, and go to step 11.
+- `review N`: round `N` starts. The same content asked for again is the same
+  round, and isn't counted twice.
+
+For a round, remove any report from an earlier round of this build that is not
+committed (`git -C W status --porcelain swamp-extension-review/`), then start the
+reviewer with the `Agent` tool, `subagent_type: "general-purpose"`. Never
+`fork`: a fork carries this conversation, which is exactly what the reviewer
+must not see. Fill in `W`, `SPEC` and `SP`, and send this as the prompt. The
+words "adversarial reviewer" in its first line make the repo's hook ask the
+user before the round starts:
 
 ```text
-Review a swamp extension before it is published. You did not build it; judge
-it only by the spec and the repo.
+You are the adversarial reviewer of a swamp extension before it is published.
+You did not build it; judge it only by the spec and the repo.
 
 Repo: W (a git worktree; do not commit, push or change any code or spec).
 Spec: SPEC, and every file in W/spec/. The agreed request is
@@ -755,6 +795,11 @@ Read nothing else outside W except SP/review.json.
 2. Load the swamp skill and follow its
    references/extension/references/adversarial-review.md: the mechanical
    checks, then every dimension in the skeleton.
+   If SP/review.json has a .base, this is round 2: an earlier reviewer gave
+   .previous, and only the files in .changed have changed since. Review the
+   change (`git -C W diff BASE`, with BASE the .base), judge again each
+   dimension it touches and each issue in .previous, and keep .previous's
+   verdict and note for the others, saying "carried from round 1".
 3. Check the build stays within the spec: inputs and settings as the spec names
    them, nothing on the out-of-scope list, no permissions or secrets the
    settings do not name.
@@ -766,8 +811,9 @@ Read nothing else outside W except SP/review.json.
    name in "by", never an email); otherwise leave
    "manual" out. Write W/spec/acceptance.json, one entry per criterion:
    {"criteria": [{"id": "AC1", "tests": ["exact Deno.test name"]}]}
-   Skip this step if there is no outcome spec.
-5. Write the .skeleton from SP/review.json to the path in its .file, with
+   Skip this step if there is no outcome spec. In round 2, keep the earlier
+   map and change only what the diff touches.
+5. Write the .skeleton from SP/review.json to W/ followed by its .file, with
    reviewedAt set to now and every dimension's verdict set to pass, na or
    issue, each with a note saying what you checked. Leave none pending.
 
@@ -800,9 +846,13 @@ again:
 - `<id> is not in spec/acceptance.json`, or `<id> has no test and no manual
   check`: write the test the criterion needs.
 - `names a test that is not in any *_test.ts`: the reviewer misnamed it.
-- `is not for the content as it is now`: the code changed after the review
-  (readiness compares the checkout's content hash with the report's). Review
-  again with a new agent; never rename the report.
+- `is not for the content as it is now`, or `No review round is recorded for
+  this content`: what ships changed after the review (readiness compares the
+  checkout's content hash with the report's). Commit, and ask for a round as
+  above; never rename the report.
+- `after round 2, which froze it`: what ships changed after the last round the
+  build may have. Undo the change (the blocker names the `git diff`), or ask the
+  user for another round, as above.
 - `test failed`, `<id>'s test "..." failed`, `did not run`, or `tests could
   not be run`: readiness runs the tests itself; fix the code or the test.
 - `Quality gate: ...` or `client points; earn ...`: earn the factors it names,
@@ -828,11 +878,14 @@ again:
 - `The recipe could not be checked`: swamp or the network failed, not the app.
 
 `true`, with no scope problems in the reply, means go on to step 11. Otherwise
-fix each finding the way step 7 does (test first), run step 8's checks, commit
-with the message `Fix review findings for NAME`, and, if any file changed, run
-step 9's visibility workflow again (ask again only if its answer changed). Then
-repeat this step with a **new** agent; never send the fix back to the old one.
-If it is still not ready after two rounds, stop and show the user the blockers.
+fix each finding the way step 7 does (test first), run step 8's checks and the
+dry run above, commit with the message `Fix review findings for NAME`, and, if
+any file changed, run step 9's visibility workflow again (ask again only if its
+answer changed). Then ask for round 2 and start a **new** agent; never send the
+fix back to the old one. After round 2, change nothing that ships: tests,
+`spec/`, `ci.yml`, `puddle.mk` and `contracts.ts` may change, since they don't
+move the hash. If it is still not ready after two rounds, stop and show the
+user the blockers; another round needs their yes.
 
 ## Step 11: Open the PR
 
@@ -842,11 +895,13 @@ make publish VISIBILITY=V DRY_RUN=1
 ```
 
 Expect `dry run only; nothing was pushed`, after the tests, `deno check`,
-`fmt --check`, the quality gate and a dry run with no warnings. A
+`fmt --check`, the quality gate and a dry run with no warnings. Step 10 already
+had it clean but for the review, so nothing else should show. A
 `declares visibility` error means step 9's change was not committed; an
-`adversarial-review` warning means the code changed after the review, so run
-step 10 again. Commit the report and the criteria map, push, and open the PR to
-the app repo:
+`adversarial-review` warning means what ships changed after the review: undo
+it, or ask for a round as step 10 says, which counts against the same two.
+Commit the report and the criteria map, push, and open the PR to the app
+repo:
 
 ```bash
 git -C W add swamp-extension-review/ spec/
@@ -858,10 +913,11 @@ gh pr create --repo ORG/NAME --head draft/NAME --base main \
 
 `SP/pr.md` says what was built, how it was tested (and whether step 7's real
 run happened), the visibility and why, and that a fresh agent reviewed it in
-how many rounds, then gives the readiness `summary` in a code block, and ends
-with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. It names
-people by name only, never by email: the summary already hides any address. CI
-runs the same dry run, so it is green only with the report committed.
+how many rounds (readiness's `Review:` line says which round, or that the
+review was carried or committed), then gives the readiness `summary` in a code
+block, and ends with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+It names people by name only, never by email: the summary already hides any
+address. CI runs the same dry run, so it is green only with the report committed.
 
 ## Step 12: Publish, once the user confirms
 
@@ -908,8 +964,10 @@ which can move or go once the PR is merged.
 
 `make publish` never passes `--yes`; the clean dry run is its gate. If it stops,
 nothing is recorded: read what it lists, fix it, and repeat from step 10 (the
-report must match the new hash). A version that is already published needs a
-new `version:` in the manifest, which also means a new review. If the publish
+report must match the new hash). That round counts against the build's two, so
+step 10 refuses a third without the user's yes. A version that is already
+published needs a new `version:` in the manifest; if nothing else that ships
+changed, step 10 carries the review over instead of starting a round. If the publish
 worked but the result did not (`Pass publishedVersion and publishedVisibility
 together` means one was left out), run only the `swamp workflow run` command
 again, before committing anything in `W`.

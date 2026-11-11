@@ -95,6 +95,36 @@ export const VisibilitySchema = z.object({
   assessedAt: z.iso.datetime(),
 });
 
+/** One review round of an app, as the round method records it (lib/rounds.ts). */
+export const ReviewRoundSchema = z.object({
+  version: z.string(),
+  kind: z.enum(["review", "carried", "committed"]),
+  round: z.number().int(),
+  contentHash: z.string(),
+  commit: z.string(),
+  file: z.string(),
+  base: z.string().nullable(),
+  changed: z.array(z.string()),
+  granted: z.boolean(),
+  carriedFrom: z.object({ version: z.string(), contentHash: z.string() })
+    .nullable(),
+  startedAt: z.iso.datetime(),
+});
+
+/** Every review round of an app, and what the latest one needs. */
+export const ReviewRoundsSchema = z.object({
+  name: z.string(),
+  targetDir: z.string(),
+  rounds: z.array(ReviewRoundSchema),
+  /** The round just asked for, with what its reviewer needs. */
+  latest: ReviewRoundSchema.extend({
+    /** The skeleton to write the report from, from the publish dry run. */
+    skeleton: z.unknown(),
+    /** The report of the round before, whose verdicts round 2 starts from. */
+    previous: z.unknown().nullable(),
+  }),
+});
+
 export const ReadinessSchema = z.object({
   name: z.string(),
   targetDir: z.string(),
@@ -128,6 +158,8 @@ export const ReadinessSchema = z.object({
     ok: z.boolean(),
   })),
   blockers: z.array(z.string()),
+  /** The review round for this content, when one is recorded. */
+  round: ReviewRoundSchema.nullable().optional(),
   /** The content hash the evidence is for; absent on records before #50. */
   contentHash: z.string().nullable().optional(),
   /** How the app's tests went when readiness ran them. */
