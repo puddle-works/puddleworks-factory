@@ -1,0 +1,82 @@
+{
+  "extension": "@puddleworks/puddleworks-factory",
+  "version": "2026.11.10.1",
+  "reviewedAt": "2026-11-11T08:38:34Z",
+  "dimensions": [
+    {
+      "id": "credentials-secrets",
+      "verdict": "pass",
+      "note": "No credentials taken or stored. draft.ts method() wraps every execute in guarded(): log lines and resources pass through safeText/safeData (lib/redact.ts), errors through safeError, and checkedResource schema-checks each resource. render refuses a targetDir or app name that reads as a secret (secretNameProblem in lib/names.ts)."
+    },
+    {
+      "id": "logging-quality",
+      "verdict": "pass",
+      "note": "Every method in draft.ts logs at info on entry and after its work, with structured placeholders ({name}, {source}, {to}). revise logs its start and, after writeResource, either 'Revised {name} from version {from} to {to}' or the finishing message. planReview now logs after recording. visibility/readiness log unread files as warnings (warnNotRead)."
+    },
+    {
+      "id": "error-handling",
+      "verdict": "pass",
+      "note": "revise throws before any write when: no draft, wrong checkout origin (checkDraftTarget), wrong request id, version not newer, spec/app-spec.json missing, not JSON, not an object, or not a valid app spec once revised (parseAppSpec); checkOutputPath runs on every path before the first write. render stages files and builds/checks the record first. Smaller gap: if spec/change-plan.vN.md is deleted after a stopped run, revise says 'already meets version N' although the draft record is not at N (draft.ts ~L2390); the message is misleading but nothing is written."
+    },
+    {
+      "id": "testing-completeness",
+      "verdict": "pass",
+      "note": "deno test -A --permit-no-files: 605 passed, 0 failed. draft_revise_test.ts covers writing v2 and the plan without touching code, the app spec and record at v2, another request, a non-newer version, a symlinked spec/, a run stopped at writeResource with and without a source, invalid JSON, a non-object, an invalid revised app spec, and a v1 outcome spec with no plan. draft_target_test.ts adds revise to the wrong-checkout checks. No test covers finishing when spec/app-spec.json is no longer the revised one (see idempotency-resilience)."
+    },
+    {
+      "id": "idempotency-resilience",
+      "verdict": "issue",
+      "note": "revise's finishing path (draft.ts L2386-2389, files at L2467) trusts outcome-spec.vN.json plus change-plan.vN.md and writes no file, without checking spec/app-spec.json. Reproduced: make the first run's writeResource fail, then revert the tracked spec/app-spec.json (git restore or git stash, which leaves the untracked v2 files), then rerun. revise records the draft at v2, but app-spec.json keeps source v1 and the old outOfScope. Every later rerun is refused with 'already meets version 2', and the skill's version check then reports 'changed'. The same path also skips checkOutputPath, so a spec/ symlinked outside the checkout is accepted and recorded from those files. Smallest fix: always write spec/app-spec.json, since revised is built only from now and the current app spec, so it is idempotent. Write only the plan and outcome spec conditionally, e.g. files = [[\"spec/app-spec.json\", ...], ...(finishing ? [] : [plan, outcome])]. Add a test that reverts app-spec.json before the rerun."
+    },
+    {
+      "id": "api-contracts",
+      "verdict": "pass",
+      "note": "The only HTTP is reading a spec from an https URL (lib/spec_source.ts via loadAppSpec/loadOutcomeSpec): it follows redirects itself, refuses non-https hops, more than 5 hops, more than 30 s and more than 1 MB, and parses with parseAppSpec/parseOutcomeSpec before use. Nothing calls GitHub. readiness runs swamp through the injectable runSwamp/runTests."
+    },
+    {
+      "id": "resource-management",
+      "verdict": "pass",
+      "note": "render removes its staged .factory-<uuid>.tmp files on a failed write or move (draft.ts render). revise and prefill write directly, with no temp files. The web serve method (lib/viewer_serve.ts) runs until Ctrl-C and holds only its own instance's lock. Its routes are unchanged since eb62dc3 (no diff to viewer_server.ts, viewer_serve.ts or viewer_assets.ts)."
+    },
+    {
+      "id": "published-surface-hygiene",
+      "verdict": "pass",
+      "note": "Searched README.md, SKILL.md, workflows/ and the non-test extension code for IPv4 literals other than 127.0.0.1, home paths and internal domains. Found only '/Users/someone' in lib/viewer_fixtures.ts, a test fixture that no shipped model imports. Examples use capture.example.com and github.com/example/<name>. The repository URL is the public puddle-works repo."
+    },
+    {
+      "id": "schema-strictness",
+      "verdict": "pass",
+      "note": "No .passthrough(), looseObject or z.any() in the shipped code. lib/records.ts (DraftSchema, PlanReviewSchema, AssessmentSchema and the others) uses plain z.object. The method argument schemas (ReviseArgsSchema, PlanReviewArgsSchema, AssessArgsSchema) are z.object with slug regexes for name."
+    },
+    {
+      "id": "lifetime-gc",
+      "verdict": "pass",
+      "note": "All seven resources in draft.ts (assessment, prefill, draft, buildResult, visibility, planReview, readiness) set lifetime 'infinite' and garbageCollection 20. web.ts declares no resources."
+    },
+    {
+      "id": "crud-completeness",
+      "verdict": "na",
+      "note": "Not a cloud-resource lifecycle behavior. draft.ts writes local files and keeps records (assess, prefill, render, revise, planReview, visibility, readiness, result), and web.ts only serves a read-only page, so create/update/delete/sync does not apply."
+    },
+    {
+      "id": "preflight-checks",
+      "verdict": "pass",
+      "note": "The draft-rendered check (label 'policy') appliesTo result, revise, planReview, visibility and readiness. It passes on a read error and leaves the per-name check to each method. revise and planReview, which are new, are both included."
+    },
+    {
+      "id": "instance-names",
+      "verdict": "pass",
+      "note": "draft is stored under the bare name. Every other resource uses RESOURCE_PREFIX (lib/names.ts), which now includes 'assessment-' and 'plan-review-', and render refuses names with any prefix (reservedPrefix). revise rewrites only the draft instance it read, and planReview and assess use their own prefixes. Each method writes one instance."
+    },
+    {
+      "id": "data-access",
+      "verdict": "pass",
+      "note": "revise, planReview, visibility, readiness and result read the draft with context.readResource and DraftSchema.safeParse. readiness reads the visibility record with readResource. Only the draft-rendered check uses dataRepository.findAllForModel, which is what a check context has."
+    },
+    {
+      "id": "version-upgrades",
+      "verdict": "pass",
+      "note": "draft.ts and web.ts version, manifest version and both last upgrades[].toVersion are all 2026.11.10.1. git diff eb62dc3 HEAD shows GlobalArgsSchema (typeScope) in draft.ts and the draft setting in web.ts unchanged; the only GlobalArgs lines in the diff are inside the generated-app template. Claims checked against the code: assess/revise/planReview exist; checkDraftTarget is called in revise, visibility and readiness; checkTarget and checkOutputPath are called in render; there are specDigest, builtInRecipeProblem and TOOLING_REF v0.2.3; checkReview binds to the hash; recipeAnswers blocks an empty answer; result writes v2 with AnyBuildResultSchema; web uses Preact and has no route changes. The note credits buildRef, the version check and QUICKSTART to the skill. Caveats: specDigest is refused only when it is passed, and 'can be run again to finish' does not hold in the case under idempotency-resilience. No data migration is needed, since only optional fields were added."
+    }
+  ]
+}
