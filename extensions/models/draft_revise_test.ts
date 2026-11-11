@@ -150,3 +150,168 @@ Deno.test("revise: refuses another request, and a version that isn't newer", asy
     );
   });
 });
+
+Deno.test("revise: refuses a spec/ that is a symlink, and writes nothing through it", async () => {
+  await withApp(async (dir, ctx) => {
+    const outside = await Deno.realPath(
+      await Deno.makeTempDir({ prefix: "outside-" }),
+    );
+    try {
+      for (const e of Deno.readDirSync(`${dir}/spec`)) {
+        await Deno.copyFile(`${dir}/spec/${e.name}`, `${outside}/${e.name}`);
+      }
+      await Deno.remove(`${dir}/spec`, { recursive: true });
+      await Deno.symlink(outside, `${dir}/spec`);
+      const before = [...Deno.readDirSync(outside)].map((e) => e.name).sort();
+      await assertRejects(
+        () => run(ctx, { outcomeSpec: v2() }),
+        Error,
+        "spec in the checkout is a symlink",
+      );
+      assertEquals(
+        [...Deno.readDirSync(outside)].map((e) => e.name).sort(),
+        before,
+      );
+      const draft = ctx.store.get(NAME) as { source?: { version: number } };
+      assertEquals(draft.source?.version === 2, false);
+    } finally {
+      await Deno.remove(outside, { recursive: true });
+    }
+  });
+});
+
+Deno.test("revise: a run stopped before its record can be run again to finish", async () => {
+  await withApp(async (dir, ctx) => {
+    // Recorded at v1, as a draft built from the request would be.
+    const built = ctx.store.get(NAME)!;
+    ctx.store.set(NAME, {
+      ...built,
+      source: {
+        url: OUTCOME.request.url,
+        version: 1,
+        specHash: OUTCOME.agreement.specHash,
+      },
+    });
+    const write = ctx.writeResource;
+    ctx.writeResource = () => Promise.reject(new Error("store went away"));
+    await assertRejects(
+      () => run(ctx, { outcomeSpec: v2() }),
+      Error,
+      "store went away",
+    );
+    assertEquals(
+      (ctx.store.get(NAME) as { source: { version: number } }).source.version,
+      1,
+    );
+    ctx.writeResource = write;
+    await run(ctx, { outcomeSpec: v2() });
+    const draft = ctx.store.get(NAME) as { source: { version: number } };
+    assertEquals(draft.source.version, 2);
+    assertStringIncludes(
+      await Deno.readTextFile(`${dir}/spec/change-plan.v2.md`),
+      "- scope.in, added: Sending orders to suppliers",
+    );
+    // Once recorded, the same version is refused again.
+    await assertRejects(
+      () => run(ctx, { outcomeSpec: v2() }),
+      Error,
+      "already meets version 2",
+    );
+  });
+});
+
+Deno.test("revise: names spec/app-spec.json when it isn't JSON, and writes nothing", async () => {
+  await withApp(async (dir, ctx) => {
+    await Deno.writeTextFile(`${dir}/spec/app-spec.json`, "{ not json");
+    await assertRejects(
+      () => run(ctx, { outcomeSpec: v2() }),
+      Error,
+      "spec/app-spec.json is not valid JSON",
+    );
+    assertEquals(
+      [...Deno.readDirSync(`${dir}/spec`)].map((e) => e.name).sort(),
+      ["app-spec.json", "outcome-spec.v1.json"],
+    );
+  });
+});
+
+Deno.test("revise: a draft rendered without a source can finish a stopped run too", async () => {
+  await withApp(async (dir, ctx) => {
+    assertEquals(
+      (ctx.store.get(NAME) as { source?: unknown }).source,
+      undefined,
+    );
+    const write = ctx.writeResource;
+    ctx.writeResource = () => Promise.reject(new Error("store went away"));
+    await assertRejects(
+      () => run(ctx, { outcomeSpec: v2() }),
+      Error,
+      "store went away",
+    );
+    ctx.writeResource = write;
+    await run(ctx, { outcomeSpec: v2() });
+    const draft = ctx.store.get(NAME) as { source: { version: number } };
+    assertEquals(draft.source.version, 2);
+    await assertRejects(
+      () => run(ctx, { outcomeSpec: v2() }),
+      Error,
+      "already meets version 2",
+    );
+    assertStringIncludes(
+      await Deno.readTextFile(`${dir}/spec/change-plan.v2.md`),
+      "- scope.in, added: Sending orders to suppliers",
+    );
+  });
+});
+
+Deno.test("revise: an outcome spec at its version with no change plan is still refused", async () => {
+  await withApp(async (_dir, ctx) => {
+    // spec/ holds v1 from the build, not from a revise, and nothing records it.
+    await assertRejects(
+      () => run(ctx, { outcomeSpec: JSON.stringify(OUTCOME) }),
+      Error,
+      "already meets version 1",
+    );
+    assertEquals(
+      (ctx.store.get(NAME) as { source?: unknown }).source,
+      undefined,
+    );
+  });
+});
+
+Deno.test("revise: names spec/app-spec.json when it isn't an object, and writes nothing", async () => {
+  await withApp(async (dir, ctx) => {
+    await Deno.writeTextFile(`${dir}/spec/app-spec.json`, "null");
+    await assertRejects(
+      () => run(ctx, { outcomeSpec: v2() }),
+      Error,
+      "spec/app-spec.json is not a JSON object",
+    );
+    assertEquals(
+      [...Deno.readDirSync(`${dir}/spec`)].map((e) => e.name).sort(),
+      ["app-spec.json", "outcome-spec.v1.json"],
+    );
+  });
+});
+
+Deno.test("revise: refuses an app spec that isn't valid once revised, and writes nothing", async () => {
+  await withApp(async (dir, ctx) => {
+    await Deno.writeTextFile(
+      `${dir}/spec/app-spec.json`,
+      JSON.stringify({ name: NAME }),
+    );
+    await assertRejects(
+      () => run(ctx, { outcomeSpec: v2() }),
+      Error,
+      "is not a valid app spec, so nothing was written",
+    );
+    assertEquals(
+      [...Deno.readDirSync(`${dir}/spec`)].map((e) => e.name).sort(),
+      ["app-spec.json", "outcome-spec.v1.json"],
+    );
+    assertEquals(
+      (ctx.store.get(NAME) as { source?: unknown }).source,
+      undefined,
+    );
+  });
+});
