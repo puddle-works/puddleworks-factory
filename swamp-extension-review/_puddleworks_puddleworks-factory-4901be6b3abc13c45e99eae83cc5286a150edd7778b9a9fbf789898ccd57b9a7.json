@@ -1,0 +1,82 @@
+{
+  "extension": "@puddleworks/puddleworks-factory",
+  "version": "2026.11.11.1",
+  "reviewedAt": "2026-11-11T14:42:02Z",
+  "dimensions": [
+    {
+      "id": "credentials-secrets",
+      "verdict": "pass",
+      "note": "No credentials are taken or stored. Unchanged since 549aeb6: draft.ts method() passes log lines, resources and errors through safeText/safeData/safeError (lib/redact.ts), and render refuses names that read as secrets (secretNameProblem, lib/names.ts). New in this release: lib/evidence.ts:174-186 now runs the app's tests with whatever permission flags the checkout's ci.yml names, -A included. Those tests can then read the environment (SWAMP_API_KEY and others) and the network on the builder's machine. The tests come from the same checkout make test runs, so this is the same trust as make test (PR #146 says so); it is not an escalation. readiness records only test names and pass/fail (evidence.ts:187-194), not their output."
+    },
+    {
+      "id": "logging-quality",
+      "verdict": "pass",
+      "note": "Every draft.ts method logs at info on entry and completion with structured placeholders. readiness logs 'Readiness for {name}: {ready}' (draft.ts ~L2706) and 'Scoring and testing {targetDir}' at debug (~L2688). Gap in the new code: realTests (evidence.ts:165-186) does not log the permission flags it took from ci.yml, or that it found none, so when readiness reports failing tests the builder can't see that they ran with no permissions (see api-contracts). Logging that list at info would fix it."
+    },
+    {
+      "id": "error-handling",
+      "verdict": "pass",
+      "note": "realTests returns {tests:null, error} when swamp names no deno (evidence.ts:164) and when deno reports no tests, with the exit code (evidence.ts:188-192), including a 300 s timeout kill (exit 143). A missing or unreadable ci.yml falls back to no permissions, the old behaviour (evidence.ts:165-170). That catch is broad, but the fallback is the documented default. revise's throws before any write are unchanged since 549aeb6. #144's smaller gap still holds: if change-plan.vN.md is deleted after a stopped run, revise says 'already meets version N' (draft.ts:2399-2402). The message is misleading, but nothing is written."
+    },
+    {
+      "id": "testing-completeness",
+      "verdict": "pass",
+      "note": "deno test -A --permit-no-files: ok | 607 passed | 0 failed. evidence_test.ts adds a unit test of testPermissions (the rendered shape, -A/--deny-net with other words dropped, no flags, no tests: line, null) and an end-to-end realTests test. That test runs a real deno on a temp app whose test writes and reads a file: it fails with no ci.yml and passes with one. Not covered, and broken (see api-contracts): a job named 'tests:' above the publish job, a tests: value on the next line, short flags (-R/-W/-N/-E), and a quoted value. #144's revise rerun after reverting app-spec.json still has no test. ci.yml:29-31 makes Install zsh continue-on-error, so on an apt outage the zsh variants in package_test.ts:292 and :327 silently don't register and CI stays green. That is a deliberate tradeoff (commit dd57580), and ci.yml doesn't ship."
+    },
+    {
+      "id": "idempotency-resilience",
+      "verdict": "issue",
+      "note": "Already in #144 and still present: the revise code is unchanged since 549aeb6 (the only draft.ts diff is the version and upgrade lines). On the finishing path (draft.ts:2395-2398), files = finishing ? [] : [...] (draft.ts:2476), so spec/app-spec.json is never rewritten and checkOutputPath (draft.ts:2487) runs on nothing. To reproduce: make the first run fail at writeResource, revert the tracked spec/app-spec.json (git restore or git stash leaves the untracked v2 files), then rerun. revise records the draft at vN while app-spec.json keeps the old source and outOfScope. Every later rerun is refused at draft.ts:2399-2402 ('already meets version N'), because draft.source.version is now N. A spec/ symlinked outside the checkout is read and recorded without checkOutputPath. Smallest fix: always write spec/app-spec.json. revised is built only from now and the current app spec (draft.ts:2434-2455), so writing it is idempotent. Write the plan and outcome spec only when not finishing, and add a test that reverts app-spec.json before the rerun."
+    },
+    {
+      "id": "api-contracts",
+      "verdict": "issue",
+      "note": "New in this release: testPermissions (lib/evidence.ts:143-148) reads ci.yml with the line regex /^\\s*tests:\\s*(.+)$/m. \\s* also matches newlines, and the first match wins. Reproduced with testPermissions: a ci.yml with a job named 'tests:' (jobs:\\n  tests:\\n    runs-on: ubuntu-24.04 ...) ahead of publish.with.tests: deno test --allow-read --allow-run=git ... returns [], because the match is the job key with 'runs-on: ubuntu-24.04' captured from the next line. A folded 'tests: >-' value also returns []. The PERMISSION regex (evidence.ts:135) drops deno 2's short flags, so 'tests: deno test -R -W --allow-run=git' returns only ['--allow-run=git'], and a quoted value drops its last flag (--allow-write\" fails). In each case the app's CI passes, but readiness runs its tests with fewer or no permissions, reports them failing, and logs nothing that says why: the same bug #146 set out to fix. Repo template ci.yml and render's ci.yml (draft.ts:753-784) use the single-line --allow-* form, which works. Smallest fix: parse ci.yml with jsr:@std/yaml@1.0.12 (already imported in draft.ts:39 and readiness.ts:12), take the string at jobs.*.with.tests, and accept -[ARWNESI](=\\S+)? as well. Failing that, use /^[ \\t]*tests:[ \\t]*(\\S.*)$/m. Add those cases to evidence_test.ts and log the flags used."
+    },
+    {
+      "id": "resource-management",
+      "verdict": "pass",
+      "note": "render still removes its staged .factory-<uuid>.tmp files on failure. web serve is unchanged, with no diff to viewer_*.ts. realTests runs deno with an AbortSignal.timeout(300_000) (evidence.ts:185). Follow-up, newly reachable now that tests can get --allow-run: on that timeout only deno is killed. Reproduced with the same Command options and a 3 s timeout: a test that spawned 'sleep 20' left the sleep running after .output() returned 143. realSwamp already avoids this with detached: true and a process-group kill (lib/recipe_check.ts:69-83); realTests could do the same. This is rare (it needs a hung test that spawns), and the same leak happens under make test."
+    },
+    {
+      "id": "published-surface-hygiene",
+      "verdict": "pass",
+      "note": "Searched README.md, .claude/skills/factory-build/SKILL.md, workflows/ and the non-test code under extensions/ for private IPv4 literals, home paths, .internal and .corp. The only hit is '/Users/someone' in lib/viewer_fixtures.ts:81, a test fixture no shipped model imports. The new evidence_test.ts fixtures use a.example. swamp-extension-review/ and .github/ are not in manifest.yaml additionalFiles, so they don't ship."
+    },
+    {
+      "id": "schema-strictness",
+      "verdict": "pass",
+      "note": "No .passthrough(), looseObject or z.any() in the non-test code under extensions/ (rg). lib/records.ts and the method argument schemas use plain z.object. No schema changed since 549aeb6."
+    },
+    {
+      "id": "lifetime-gc",
+      "verdict": "pass",
+      "note": "All draft.ts resources set lifetime 'infinite' and garbageCollection 20 (draft.ts:1875-1918). web.ts declares no resources. Unchanged since 549aeb6."
+    },
+    {
+      "id": "crud-completeness",
+      "verdict": "na",
+      "note": "Not a cloud-resource lifecycle behavior. draft.ts writes local files and keeps records (assess, prefill, render, revise, planReview, visibility, readiness, result), and web.ts only serves a read-only page, so create/update/delete/sync doesn't apply."
+    },
+    {
+      "id": "preflight-checks",
+      "verdict": "pass",
+      "note": "The draft-rendered pre-flight check (label 'policy') still applies to result, revise, planReview, visibility and readiness. Unchanged since 549aeb6. readiness also runs checkDraftTarget before reading ci.yml, so permissions are only taken from a checkout whose origin is the draft's repository."
+    },
+    {
+      "id": "instance-names",
+      "verdict": "pass",
+      "note": "draft is stored under the bare name, and every other resource under its RESOURCE_PREFIX (lib/names.ts). readiness writes one instance, `${RESOURCE_PREFIX.readiness}${name}`. Each method writes one instance. Unchanged since 549aeb6."
+    },
+    {
+      "id": "data-access",
+      "verdict": "pass",
+      "note": "revise, planReview, visibility, readiness and result read through context.readResource with DraftSchema/VisibilityAnswerSchema.safeParse. Only the pre-flight check uses dataRepository.findAllForModel, which is what a check context has. The new code reads only the checkout's ci.yml, not stored data."
+    },
+    {
+      "id": "version-upgrades",
+      "verdict": "issue",
+      "note": "Versions agree: manifest.yaml, draft.ts:1689, web.ts:29 and the last upgrades[].toVersion (draft.ts:1860, web.ts:47) are all 2026.11.11.1. git diff 549aeb6 HEAD has no +/- line touching GlobalArgsSchema or globalArguments in draft.ts or web.ts, so the global arguments are unchanged. web.ts:47-51 is accurate: the only shipped code change is lib/evidence.ts, and no web or viewer file imports it. draft.ts:1860-1866 is mostly accurate, but 'the tests: line' really means the first line starting 'tests:', which can be a job key with the next line captured (see api-contracts). Already in #144 and not done: #144 asks for the two 2026.11.10.1 overclaims to be corrected in this release's entry. They stand at draft.ts:1840-1841 (specDigest is refused only when given, see draft.ts:1208 and :2089) and draft.ts:1846-1847 ('can be run again to finish' does not hold in the idempotency-resilience case), and the new entry doesn't correct either. Smallest fix: add to the 2026.11.11.1 description 'Corrects the 2026.11.10.1 note: render checks specDigest only when it is given, and revise can't always finish a stopped run (#144).' No data migration is needed: no schema changed."
+    }
+  ]
+}
