@@ -2379,11 +2379,14 @@ export const model = {
         }
         const from = old.spec.specification.version;
         const to = now.specification.version;
-        // The outcome spec is written last, so one already at this version
-        // with no record of it means the last run stopped before its record.
+        // Only revise writes the change plan, before the outcome spec, so an
+        // outcome spec at this version with its plan beside it and no record
+        // of it means the last run stopped before its record. A draft rendered
+        // without a source has none to compare, so the plan alone decides.
         const finishing = to === from &&
           old.spec.agreement.specHash === now.agreement.specHash &&
-          (draft.data.source?.version ?? to) < to;
+          (draft.data.source?.version ?? 0) < to &&
+          await exists(`${root}/spec/change-plan.v${to}.md`);
         if (to <= from && !finishing) {
           throw new Error(
             `${args.name} already meets version ${from} of the spec; this is version ${to}.`,
@@ -2401,6 +2404,15 @@ export const model = {
             `${appSpecPath} is not valid JSON (${
               e instanceof Error ? e.message : String(e)
             }). Fix it, then run revise again.`,
+          );
+        }
+        if (
+          typeof appSpec !== "object" || appSpec === null ||
+          Array.isArray(appSpec)
+        ) {
+          throw new Error(
+            `${appSpecPath} is not a JSON object, so it is not an app spec. ` +
+              "Fix it, then run revise again.",
           );
         }
         const changes = specChanges(old.spec, now);
@@ -2467,13 +2479,13 @@ export const model = {
         for (const [path, text] of files) {
           await writeFileIn(`${root}/${path}`, text);
         }
+        const handle = await context.writeResource("draft", args.name, record);
         context.logger.info(
           finishing
             ? "Recorded {name} at version {to}, whose files the last run wrote"
             : "Revised {name} from version {from} to {to}",
           { name: args.name, from, to },
         );
-        const handle = await context.writeResource("draft", args.name, record);
         return { dataHandles: [handle] };
       }),
     },
