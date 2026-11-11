@@ -63,15 +63,13 @@ export function slugFrom(title: string): string {
   return slug || words[0]?.slice(0, MAX_SLUG) || "app";
 }
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 
 /** Prefill an app spec from an outcome spec. Pure. */
 export function prefillAppSpec(outcome: OutcomeSpec): Prefill {
   const { request, specification: s, agreement } = outcome;
-  const recordedBy = EMAIL.test(agreement.agreedBy.email)
-    ? agreement.agreedBy.email
-    : "";
+  // A name, never the email: the app spec is kept in the app's repo (#145).
+  const recordedBy = agreement.agreedBy.name.trim();
   const recordedAt = ISO_TIME.test(agreement.agreedAt)
     ? agreement.agreedAt
     : "";
@@ -101,7 +99,7 @@ export function prefillAppSpec(outcome: OutcomeSpec): Prefill {
   }
   if (!recordedBy) {
     toDecide.push(
-      "specification.recordedBy: the agreement has no usable email; give the email of whoever agreed it",
+      "specification.recordedBy: the agreement has no name; give the name of whoever agreed it, not their email",
     );
   }
   if (!recordedAt) {

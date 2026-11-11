@@ -10,6 +10,7 @@
 import { assertEquals, assertStringIncludes } from "jsr:@std/assert@1.0.19";
 import {
   assessVisibility,
+  type CommitPeople,
   type FindingKind,
   findingText,
   type RepoFacts,
@@ -79,8 +80,9 @@ Deno.test("visibility: a clean app is recommended public", () => {
       ["repository", "required", true],
       ["quality", "required", true],
       ["secrets", "required", true],
+      ["emails", "required", true],
+      ["internal-details", "required", true],
       ["secrets-in-tests", "signal", true],
-      ["internal-details", "signal", true],
       ["audience", "signal", true],
       ["repo-visibility", "info", true],
     ],
@@ -155,7 +157,8 @@ Deno.test("visibility: quality below 100% even with the registry's points cannot
   assertEquals(a.canBePublic, false);
 });
 
-Deno.test("visibility: an internal detail recommends private but allows public", () => {
+// Every app is checked as if public (#145): an internal detail blocks it.
+Deno.test("visibility: an internal detail blocks public", () => {
   const a = assessVisibility(
     facts({
       files: replace(
@@ -165,8 +168,9 @@ Deno.test("visibility: an internal detail recommends private but allows public",
     }),
   );
   assertEquals(a.recommendation, "private");
-  assertEquals(a.canBePublic, true);
+  assertEquals(a.canBePublic, false);
   assertEquals(check(a, "internal-details").ok, false);
+  assertEquals(check(a, "emails").ok, true);
   assertEquals(a.findings, [{
     file: "extensions/models/obsidian_puddle_scanner.ts",
     line: 1,
@@ -313,13 +317,128 @@ Deno.test("visibility: spec wording about who it is for recommends private", () 
   assertStringIncludes(found[0].text, "our team");
 });
 
-Deno.test("visibility: a real address in the spec is an internal detail", () => {
+Deno.test("visibility: a real address in the spec blocks public", () => {
   const real = OUTCOME.replace("priya@example.com", "priya@acme-stores.co.uk");
   const a = assessVisibility(
     facts({ files: replace("spec/outcome-spec.v1.json", real) }),
   );
-  assertEquals(check(a, "internal-details").ok, false);
-  assertEquals(a.findings.map((f) => f.kind), ["email"]);
+  assertEquals(a.canBePublic, false);
+  assertEquals(check(a, "emails").ok, false);
+  assertEquals(check(a, "internal-details").ok, true);
+  assertEquals(a.findings.map((f) => [f.kind, f.text]), [
+    ["email", "…@acme-stores.co.uk"],
+  ]);
+  assertEquals(check(a, "emails").detail.includes("priya"), false);
+});
+
+// Unlike secrets, test code gets no exemption: a fixture can always use
+// example.com, ~ or a documentation address (#145).
+Deno.test("visibility: a real address or internal detail in test code, or a shell test script, blocks public", () => {
+  for (
+    const [path, text, id] of [
+      [
+        "extensions/models/app_test.ts",
+        'const to = "sam@acme.io";\n',
+        "emails",
+      ],
+      ["tests/run.sh", "notify ops@acme.io\n", "emails"],
+      [
+        "extensions/models/app_test.ts",
+        'const h = "nas.local";\n',
+        "internal-details",
+      ],
+      [
+        "extensions/models/app_test.ts",
+        'const ip = "10.1.2.3";\n',
+        "internal-details",
+      ],
+    ]
+  ) {
+    const a = assessVisibility(
+      facts({ files: [...facts().files, { path, text }] }),
+    );
+    assertEquals(a.canBePublic, false, `${path}: ${text}`);
+    assertEquals(check(a, id).ok, false, `${path}: ${text}`);
+  }
+});
+
+Deno.test("visibility: documentation, no-reply and tool addresses, and documentation IPs, are allowed", () => {
+  const text = [
+    "mail bob@example.com, ann@shop.example.org, x@host.example, y@a.invalid, z@b.test",
+    "from noreply@acme.io, no-reply@acme.io, 123+bob@users.noreply.github.com",
+    "Co-authored-by: Amp <amp@ampcode.com>",
+    "Co-authored-by: Claude <claude-code@anthropic.com>",
+    "servers 192.0.2.1, 198.51.100.7 and 203.0.113.9, in ~/vault",
+  ].join("\n");
+  const a = assessVisibility(
+    facts({ files: [...facts().files, { path: "README.md", text }] }),
+  );
+  assertEquals(a.findings, []);
+  assertEquals(a.canBePublic, true);
+});
+
+// The tool allowance is whole addresses, not domains.
+Deno.test("visibility: a person's address at a coding tool's domain is refused", () => {
+  for (const address of ["mark@ampcode.com", "jo@anthropic.com"]) {
+    const a = assessVisibility(
+      facts({
+        files: [...facts().files, {
+          path: "README.md",
+          text: `ask ${address}\n`,
+        }],
+      }),
+    );
+    assertEquals(check(a, "emails").ok, false, address);
+  }
+});
+
+const COMMIT = {
+  sha: "abc1234",
+  author: "Mark <29951681+mesgme@users.noreply.github.com>",
+  committer: "GitHub <noreply@github.com>",
+  trailers: ["Amp-Thread-ID: https://ampcode.com/threads/T-1"],
+};
+
+Deno.test("visibility: a new commit's real author, committer or co-author blocks public, and names where", () => {
+  const clean = assessVisibility(facts({ commits: [COMMIT] }));
+  assertEquals(check(clean, "emails").ok, true, check(clean, "emails").detail);
+  for (
+    const [over, where] of [
+      [
+        { author: "Mark <mark@isp.co.uk>" },
+        "commit abc1234 (author)",
+      ],
+      [{ committer: "Mark <mark@acme.io>" }, "commit abc1234 (committer)"],
+      [
+        {
+          trailers: [
+            ...COMMIT.trailers,
+            "Co-authored-by: Mark Ellens <mark@acme.io>",
+          ],
+        },
+        "commit abc1234 (Co-authored-by)",
+      ],
+    ] as Array<[Partial<CommitPeople>, string]>
+  ) {
+    const a = assessVisibility(facts({ commits: [{ ...COMMIT, ...over }] }));
+    assertEquals(a.canBePublic, false, where);
+    assertEquals(
+      a.findings.map((f) => [f.file, f.kind]),
+      [[where, "email"]],
+    );
+    assertStringIncludes(check(a, "emails").detail, where);
+    assertStringIncludes(check(a, "emails").detail, "user.email");
+    assertEquals(JSON.stringify(a).includes("mark@"), false);
+  }
+});
+
+Deno.test("visibility: commits git could not read block public, and say why", () => {
+  const a = assessVisibility(
+    facts({ commits: { error: "fatal: bad object HEAD" } }),
+  );
+  assertEquals(a.canBePublic, false);
+  assertStringIncludes(check(a, "emails").detail, "could not be read");
+  assertStringIncludes(check(a, "emails").detail, "bad object HEAD");
 });
 
 Deno.test("visibility: a repo that does not match the manifest is reported, not decided on", () => {

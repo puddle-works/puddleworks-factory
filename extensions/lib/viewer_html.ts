@@ -456,7 +456,7 @@ function Visibility({ app }: { app: App }) {
       ),
       v.canBePublic
         ? " Every required check passed, so it can be public."
-        : " A required check failed, so it must stay private.",
+        : " A required check failed, so it can't be published, public or private, until it is fixed.",
     ),
     h(Facts, {
       rows: [
@@ -490,7 +490,8 @@ function Visibility({ app }: { app: App }) {
     v.findings.length > 0
       ? h(List, {
         items: v.findings.map((f) => [
-          code(`${f.file}:${f.line}`),
+          // A commit's finding has no line.
+          code(f.line ? `${f.file}:${f.line}` : f.file),
           ` ${safe(f.kind)}: ${safe(findingText(f.kind, f.text))}`,
         ]),
       })

@@ -2,10 +2,12 @@
  * Whether a built app looks fit to share publicly, or should stay private.
  *
  * The same files give the same answer every time. Required checks (licence,
- * repository, quality, no secrets) must pass before the app can be public.
- * Signals (details that look internal, spec wording about who it is for)
- * recommend private but leave the choice to the builder. The repo's own
- * visibility is reported against the manifest's, and decides nothing.
+ * repository, quality, no secrets, no email addresses, no details that look
+ * internal) must pass before the app can be public, and readiness asks the
+ * same of a private app, since a private repo can be made public later (#145).
+ * Signals (secrets in test code, spec wording about who it is for) recommend
+ * private but leave the choice to the builder. The repo's own visibility is
+ * reported against the manifest's, and decides nothing.
  *
  * @module
  */
@@ -72,6 +74,21 @@ export interface RepoFacts {
   repoVisibility: Visibility;
   /** What the scan skipped and why, e.g. `data/big.json (over 512 KB)`. */
   notRead?: string[];
+  /**
+   * The commits this build adds, whose addresses go public with the repo, or
+   * why git could not list them. Absent when there is no git history to read.
+   */
+  commits?: CommitPeople[] | { error: string };
+}
+
+/** Who a commit names: its author, its committer and its trailers, like `Co-authored-by: Amp <amp@ampcode.com>`. */
+export interface CommitPeople {
+  /** The commit, abbreviated. */
+  sha: string;
+  author: string;
+  committer: string;
+  /** Each trailer line, as `Key: value`. */
+  trailers: string[];
 }
 
 /** What looks internal. Secrets are found by `secretSpans`. */
@@ -95,11 +112,55 @@ const PATTERNS: Array<
   { kind: "email", re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
 ];
 
-/** Addresses that name nobody: documentation domains and no-reply senders. */
+/**
+ * The addresses coding tools sign their commits with, which name no person.
+ * Listed whole, so a person's address at the same domain is still refused.
+ */
+const TOOL_ADDRESSES = new Set([
+  "amp@ampcode.com",
+  "claude-code@anthropic.com",
+]);
+
+/** Addresses that name nobody: documentation domains, no-reply senders and coding tools. */
 function harmlessEmail(address: string): boolean {
   const [local, domain] = address.toLowerCase().split("@");
   return /^no-?reply\b/.test(local) || exampleDomain(domain) ||
-    domain === "users.noreply.github.com";
+    domain === "users.noreply.github.com" ||
+    TOOL_ADDRESSES.has(address.toLowerCase());
+}
+
+const EMAIL = PATTERNS.find((p) => p.kind === "email")!.re;
+
+/**
+ * The text with every address that names someone replaced, for text that
+ * leaves the machine, like the readiness summary a PR body quotes.
+ */
+export const hideEmails = (text: string) =>
+  text.replace(EMAIL, (m) => harmlessEmail(m) ? m : "(email hidden)");
+
+/**
+ * Every address a commit names that is not harmless. The file is the commit
+ * and where in it, like `commit abc1234 (author)`; there is no line.
+ */
+function commitFindings(commit: CommitPeople): Finding[] {
+  const where: Array<[string, string]> = [
+    ["author", commit.author],
+    ["committer", commit.committer],
+    ...commit.trailers.map((t): [string, string] => [
+      t.slice(0, Math.max(t.indexOf(":"), 0)).trim() || "trailer",
+      t,
+    ]),
+  ];
+  return where.flatMap(([part, text]) =>
+    [...text.matchAll(EMAIL)]
+      .filter((m) => !harmlessEmail(m[0]))
+      .map((m) => ({
+        file: `commit ${commit.sha} (${part})`,
+        line: 0,
+        kind: "email" as const,
+        text: shown("email", m[0]),
+      }))
+  );
 }
 
 /**
@@ -225,7 +286,10 @@ const TEST_FILE =
   /(?:^|\/)(?:tests?|__tests__)\/|(?:^|\/)test_[^/]*$|[._]tests?\.[^/.]+$/i;
 
 function summarise(findings: Finding[]): string {
-  const where = [...new Set(findings.map((f) => `${f.file}:${f.line}`))];
+  // A commit's finding has no line.
+  const where = [
+    ...new Set(findings.map((f) => f.line ? `${f.file}:${f.line}` : f.file)),
+  ];
   const kinds = [...new Set(findings.map((f) => f.kind))].join(", ");
   return `${findings.length} found (${kinds}): ${where.slice(0, 5).join(", ")}${
     where.length > 5 ? ", ..." : ""
@@ -265,8 +329,15 @@ export function assessVisibility(facts: RepoFacts): Assessment {
     TEST_FILE.test(f.file) && SOURCE_CODE.test(f.file);
   const secrets = allSecrets.filter((f) => !inTestCode(f));
   const testSecrets = allSecrets.filter(inTestCode);
+  const commits = facts.commits ?? [];
+  const commitError = "error" in commits ? safeText(commits.error) : null;
+  const commitEmails = "error" in commits
+    ? []
+    : commits.flatMap(commitFindings);
+  findings.push(...commitEmails);
+  const emails = findings.filter((f) => f.kind === "email");
   const internal = findings.filter((f) =>
-    f.kind !== "secret" && f.kind !== "audience"
+    f.kind !== "secret" && f.kind !== "audience" && f.kind !== "email"
   );
   const audience = findings.filter((f) => f.kind === "audience");
 
@@ -328,6 +399,34 @@ export function assessVisibility(facts: RepoFacts): Assessment {
           : ""),
     },
     {
+      id: "emails",
+      role: "required",
+      ok: emails.length === 0 && commitError === null,
+      detail: [
+        emails.length === 0
+          ? "no email addresses, other than example, no-reply and tool ones, in the files or the new commits"
+          : `remove them, or use an example.com, no-reply or tool address: ${
+            summarise(emails)
+          }`,
+        commitEmails.length
+          ? "for a commit, set git config user.email to your GitHub no-reply address, then amend or rebase the commits that main does not have yet, and fix any Co-authored-by line"
+          : "",
+        commitError === null
+          ? ""
+          : `the new commits could not be read, so their addresses were not checked: ${commitError}`,
+      ].filter(Boolean).join("; "),
+    },
+    {
+      id: "internal-details",
+      role: "required",
+      ok: internal.length === 0,
+      detail: internal.length === 0
+        ? "no home paths, internal hosts or private IP addresses"
+        : `remove them, or use ~, an example.com host or a documentation address like 192.0.2.1: ${
+          summarise(internal)
+        }`,
+    },
+    {
       id: "secrets-in-tests",
       role: "signal",
       ok: testSecrets.length === 0,
@@ -336,14 +435,6 @@ export function assessVisibility(facts: RepoFacts): Assessment {
         : `a person must look: these are usually fixtures, but real secrets get pasted into tests. ${
           summarise(testSecrets)
         }`,
-    },
-    {
-      id: "internal-details",
-      role: "signal",
-      ok: internal.length === 0,
-      detail: internal.length === 0
-        ? "no paths, hosts, addresses or emails that look internal"
-        : summarise(internal),
     },
     {
       id: "audience",

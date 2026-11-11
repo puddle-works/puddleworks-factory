@@ -235,9 +235,19 @@ swamp data query 'behavior("puddleworks-factory") && name == "visibility-obsidia
   --select content --json | jq '.results[0] | {recommendation, canBePublic, checks, findings}'
 ```
 
-It can be public only when the licence, repository, quality and secrets checks
-pass (`canBePublic`). Anything that looks internal (home paths, internal hosts,
-private IPs, real email addresses) or spec wording that says it is for one team
+Every app is checked as if it will be public, since a private repo can be made
+public later. It can be public only when the licence, repository, quality,
+secrets, `emails` and `internal-details` checks pass (`canBePublic`), and
+readiness holds a private app to the same checks. `emails` refuses any address
+in the files, tests included, and in the author, committer and trailers of each
+commit that origin's main does not have yet. Documentation addresses
+(`example.com`, `.example`, `.invalid`, `.test`), no-reply addresses and the
+coding tools' own addresses are allowed. To list those commits, visibility and
+readiness run `git log` in the checkout as a subprocess, without a shell. A
+commit's finding names it and where, like `commit abc1234 (Co-authored-by)`: set
+`git config user.email` to your GitHub no-reply address, then amend or rebase
+the commits main doesn't have yet. `internal-details` refuses home paths,
+internal hosts and private IPs. Spec wording that says it is for one team
 recommends private, and leaves the choice to you. Secret-looking values in test
 code (`*_test.*`, `test_*`, `tests/`, in a source file) are still scanned but
 reported as their own `secrets-in-tests` signal for a person to look at, since

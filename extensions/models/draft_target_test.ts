@@ -88,7 +88,7 @@ Deno.test("target: a checkout of the app repo is accepted, on the branch asked f
 
 // sha256sum docs/contracts/app-spec.v1.example.json, taken outside the code.
 const EXAMPLE_SHA256 =
-  "5f76ddd99ab548c64304a4ee740fa650afce278c0b02444c0d8984dbacdc7e4d";
+  "c1b544cdd463bdbe74e6f93f1dfa88d67e39588ffb724c36e5082c2d1251cc8c";
 
 Deno.test("target: the spec file a person approved renders; the same file edited after does not", async () => {
   const dir = await appCheckout(REPO);

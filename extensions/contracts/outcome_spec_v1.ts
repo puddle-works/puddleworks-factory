@@ -84,3 +84,19 @@ export function parseOutcomeSpec(
     ),
   };
 }
+
+/**
+ * The outcome spec as an app repo keeps it, with every person's email blank,
+ * since the repo may be public one day (#145). Names stay. `agreement.specHash`
+ * covers only `specification`, so the copy still matches the agreed version.
+ */
+export function withoutEmails(spec: OutcomeSpec): OutcomeSpec {
+  return {
+    ...spec,
+    agreement: {
+      ...spec.agreement,
+      agreedBy: { ...spec.agreement.agreedBy, email: "" },
+    },
+    participants: spec.participants.map((p) => ({ ...p, email: "" })),
+  };
+}

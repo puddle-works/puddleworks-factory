@@ -7,7 +7,7 @@
 /**
  * A new directory, by its real path, holding `.swamp.yaml` and a `.git` whose
  * origin is `repository` and whose HEAD is `branch`, like a fresh clone made
- * from the template. No git command runs.
+ * from the template, with nothing committed. No git command runs.
  */
 export async function appCheckout(
   repository: string,
@@ -16,7 +16,9 @@ export async function appCheckout(
 ): Promise<string> {
   const dir = await Deno.realPath(await Deno.makeTempDir({ prefix }));
   await Deno.writeTextFile(`${dir}/.swamp.yaml`, "tools:\n  - claude\n");
-  await Deno.mkdir(`${dir}/.git`);
+  // objects/ and refs/ make it a repo git reads, with nothing committed yet.
+  await Deno.mkdir(`${dir}/.git/objects`, { recursive: true });
+  await Deno.mkdir(`${dir}/.git/refs/heads`, { recursive: true });
   await Deno.writeTextFile(`${dir}/.git/HEAD`, `ref: refs/heads/${branch}\n`);
   await Deno.writeTextFile(
     `${dir}/.git/config`,

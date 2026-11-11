@@ -330,6 +330,44 @@ Deno.test("readiness: public when the required checks failed blocks", () => {
   assertStringIncludes(chosen.summary, "against a private recommendation");
 });
 
+// A private repo can be made public later, so private is held to the same
+// required checks (#145).
+Deno.test("readiness: private when the required checks failed blocks, and names them", () => {
+  const r = assessReadiness(facts({
+    visibility: {
+      recommendation: "private",
+      canBePublic: false,
+      checks: [
+        { id: "secrets", role: "required", ok: true },
+        { id: "emails", role: "required", ok: false },
+        { id: "internal-details", role: "required", ok: false },
+        { id: "audience", role: "signal", ok: false },
+      ],
+    },
+  }));
+  assertEquals(r.visibility, "private");
+  assertEquals(r.ready, false);
+  const said = r.blockers.join("\n");
+  assertStringIncludes(said, "(emails, internal-details)");
+  assertStringIncludes(said, "made public later");
+  assertEquals(said.includes("audience"), false);
+});
+
+// The summary goes into the PR body, so a manual check's `by` is no address.
+Deno.test("readiness: the summary hides a person's email, and keeps an example one", () => {
+  const files = replace(
+    "spec/acceptance.json",
+    ACCEPTANCE.replace(
+      '"by":"Mark"',
+      '"by":"mark.ellens@acme.io for qa@example.com"',
+    ),
+  );
+  const r = assessReadiness(facts({ files }));
+  assertEquals(r.summary.includes("acme.io"), false, r.summary);
+  assertStringIncludes(r.summary, "(email hidden)");
+  assertStringIncludes(r.summary, "qa@example.com");
+});
+
 // The registry publishes a manifest with no `visibility:` line as public.
 Deno.test("readiness: no visibility line is public, and blocks when the required checks failed", () => {
   const files = replace(

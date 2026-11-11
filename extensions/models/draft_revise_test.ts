@@ -111,6 +111,38 @@ Deno.test("revise: writes v2 and its plan, and never touches the app's code", as
   });
 });
 
+// The app repo may be public one day (#145). specHash covers only the
+// specification, so the copy still matches the agreed version.
+Deno.test("revise: keeps v2 in spec/ without anyone's email, names and hash as agreed", async () => {
+  await withApp(async (dir, ctx) => {
+    const outcome = v2((n) => {
+      const next = n as typeof OUTCOME;
+      next.agreement.agreedBy.email = "priya.shah@acme-stores.co.uk";
+      next.participants[1].email = "tom.reyes@acme-stores.co.uk";
+    });
+    await run(ctx, { outcomeSpec: outcome });
+    const text = await Deno.readTextFile(`${dir}/spec/outcome-spec.v2.json`);
+    assertEquals(text.includes("@"), false, text);
+    const saved = JSON.parse(text);
+    assertEquals(saved.agreement.agreedBy, { name: "Priya Shah", email: "" });
+    assertEquals(
+      saved.participants.map((p: { name: string }) => p.name),
+      ["Priya Shah", "Tom Reyes"],
+    );
+    assertEquals(saved.agreement.specHash, "f".repeat(64));
+    assertEquals(
+      saved.specification.changeSummary,
+      JSON.parse(outcome).specification.changeSummary,
+    );
+    // The copy is read back as v2: the same version again is refused.
+    await assertRejects(
+      () => run(ctx, { outcomeSpec: outcome }),
+      Error,
+      "already meets version 2",
+    );
+  });
+});
+
 Deno.test("revise: the app spec and the draft record now meet v2", async () => {
   await withApp(async (dir, ctx) => {
     const purpose = JSON.parse(APP_SPEC).specification.purpose;

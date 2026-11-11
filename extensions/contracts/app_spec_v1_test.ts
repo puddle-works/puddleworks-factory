@@ -29,6 +29,20 @@ Deno.test("app-spec: the documented example parses", () => {
   }
 });
 
+// A name, since the spec is kept in the app's repo (#145); an email from an
+// older spec still parses, and a blank one does not.
+Deno.test("app-spec: recordedBy takes a name, still takes an older spec's email, and not blank", () => {
+  const by = (recordedBy: string) => ({
+    ...EXAMPLE,
+    specification: { ...EXAMPLE.specification, recordedBy },
+  });
+  assertEquals(problemsOf(by("Priya Shah")), []);
+  assertEquals(problemsOf(by("priya@example.com")), []);
+  for (const blank of ["", "   "]) {
+    assertStringIncludes(problemsOf(by(blank)).join("\n"), "recordedBy");
+  }
+});
+
 Deno.test("app-spec: the example uses packaged_script, not the deprecated workflow_form", () => {
   assertEquals(EXAMPLE.delivery.method, "packaged_script");
 });

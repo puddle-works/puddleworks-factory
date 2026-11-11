@@ -114,6 +114,79 @@ Deno.test("visibility: reads the repo's files, not .git or .swamp", async () => 
   });
 });
 
+/** Run git in dir as `who`, with no global config, so the test sets every address. */
+async function git(dir: string, who: string, ...args: string[]) {
+  const [name, email] = who.split(/ <|>/);
+  const out = await new Deno.Command("git", {
+    args: ["-C", dir, ...args],
+    env: {
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_AUTHOR_NAME: name,
+      GIT_AUTHOR_EMAIL: email,
+      GIT_COMMITTER_NAME: name,
+      GIT_COMMITTER_EMAIL: email,
+    },
+    stdout: "piped",
+    stderr: "piped",
+  }).output();
+  const text = new TextDecoder().decode(out.stdout).trim();
+  if (out.code !== 0) {
+    throw new Error(new TextDecoder().decode(out.stderr));
+  }
+  return text;
+}
+
+const emailsCheck = (data: Record<string, unknown>) =>
+  (data.checks as Array<{ id: string; ok: boolean; detail: string }>)
+    .find((c) => c.id === "emails")!;
+
+// The commits go public with the repo, so a private build is checked too, and
+// only the commits origin's main does not have are the build's to fix (#145).
+Deno.test("visibility: a real address on a commit main does not have blocks; one already on main does not", async () => {
+  await withDraft(async (dir, ctx) => {
+    const old = "Old <old.author@acme.io>";
+    const builder = "Builder <42+builder@users.noreply.github.com>";
+    await git(dir, old, "commit", "-q", "--allow-empty", "-m", "Template");
+    await git(dir, old, "update-ref", "refs/remotes/origin/main", "HEAD");
+    await git(dir, builder, "add", "-A");
+    await git(
+      dir,
+      builder,
+      "commit",
+      "-q",
+      "-m",
+      "Build it\n\nCo-authored-by: Amp <amp@ampcode.com>",
+    );
+    await model.methods.visibility.execute(args(), ctx);
+    let data = ctx.store.get(`visibility-${NAME}`)!;
+    assertEquals(emailsCheck(data).ok, true, emailsCheck(data).detail);
+    assertEquals(data.canBePublic, true, JSON.stringify(data.checks));
+
+    await git(
+      dir,
+      builder,
+      "commit",
+      "-q",
+      "--allow-empty",
+      "-m",
+      "Fix it\n\nCo-authored-by: Sam Jones <sam.jones@acme.io>",
+    );
+    const sha = await git(dir, builder, "rev-parse", "--short", "HEAD");
+    await model.methods.visibility.execute(args(), ctx);
+    data = ctx.store.get(`visibility-${NAME}`)!;
+    assertEquals(data.canBePublic, false);
+    assertEquals(data.recommendation, "private");
+    assertEquals(
+      (data.findings as Array<{ file: string; text: string }>)
+        .map((f) => [f.file, f.text]),
+      [[`commit ${sha} (Co-authored-by)`, "…@acme.io"]],
+    );
+    assertEquals(JSON.stringify(data).includes("sam.jones"), false);
+    assertEquals(JSON.stringify(data).includes("old.author"), false);
+  });
+});
+
 Deno.test("visibility: says which files it did not read", async () => {
   await withDraft(async (dir, ctx) => {
     await Deno.mkdir(`${dir}/.claude/skills/app`, { recursive: true });
