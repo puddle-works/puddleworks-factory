@@ -131,9 +131,26 @@ export function parseJunit(xml: string): TestOutcome[] {
 
 const decoder = new TextDecoder();
 
+/** A deno permission flag: `-A`, or `--allow-…`/`--deny-…` with any value. */
+const PERMISSION = /^(-A|--(allow|deny)-[a-z-]+(=\S+)?)$/;
+
+/**
+ * The permission flags of the tests command in the app's `ci.yml` (the
+ * publish job's `tests:` input, which render writes and the app's README
+ * says to extend when its tests need permissions). Every other word is
+ * dropped, so only permissions carry over; none when there is no such line.
+ */
+export function testPermissions(ciYml: string | null): string[] {
+  const line = ciYml?.match(/^\s*tests:\s*(.+)$/m)?.[1] ?? "";
+  return line.replace(/\s#.*$/, "").trim().split(/\s+/).filter((w) =>
+    PERMISSION.test(w)
+  );
+}
+
 /**
  * The app's tests, run with swamp's bundled deno, as the app's CI runs them
- * (`deno test extensions/models/`), with the junit reporter.
+ * (`deno test extensions/models/` with the permissions its `ci.yml` gives
+ * them, see `testPermissions`), with the junit reporter.
  */
 export function realTests(runSwamp: SwampRun): TestRunner {
   return async (dir) => {
@@ -145,11 +162,22 @@ export function realTests(runSwamp: SwampRun): TestRunner {
       deno = "";
     }
     if (!deno) return { tests: null, error: "swamp named no deno to run" };
-    // The app's own tests, the same command its CI runs. No shell is
-    // involved; the README says readiness runs them.
+    let ci: string | null = null;
+    try {
+      ci = await Deno.readTextFile(`${dir}/.github/workflows/ci.yml`);
+    } catch {
+      ci = null;
+    }
+    // The app's own tests, the same command and permissions its CI runs. No
+    // shell is involved; the README says readiness runs them.
     // swamp-quality-ignore deno-command
     const run = await new Deno.Command(deno, {
-      args: ["test", "--reporter=junit", "extensions/models/"],
+      args: [
+        "test",
+        ...testPermissions(ci),
+        "--reporter=junit",
+        "extensions/models/",
+      ],
       cwd: dir,
       stdin: "null",
       stdout: "piped",
