@@ -1686,7 +1686,7 @@ async function exists(path: string): Promise<boolean> {
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.11.10.1",
+  version: "2026.11.11.1",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -1854,6 +1854,15 @@ export const model = {
         "published commit as buildRef, checks the request is still at its agreed " +
         "version before building and publishing, and takes Capture's commands " +
         "from builder-workbench's QUICKSTART.md. No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.11.11.1",
+      description:
+        "readiness runs the app's tests with the deno permission flags (-A, " +
+        "--allow-*, --deny-*) from the tests: line in the app's ci.yml, and " +
+        "drops every other word on that line; with no such line they run with " +
+        "no permissions, as before. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
