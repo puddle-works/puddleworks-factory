@@ -5,12 +5,13 @@
  * The same files give the same answer every time. It reads the manifest, the
  * review report, the outcome spec's acceptance criteria and the reviewer's map
  * of each criterion to the tests that check it (`spec/acceptance.json`), and
- * the visibility check. Anything left undone is a blocker.
+ * the visibility check, whose required checks must pass whatever the
+ * manifest's visibility (#145). Anything left undone is a blocker.
  *
  * @module
  */
 import { parse as parseYaml } from "jsr:@std/yaml@1.0.12";
-import type { Visibility } from "./visibility.ts";
+import { hideEmails, type Visibility } from "./visibility.ts";
 import type { QualityEvidence, TestRun } from "./evidence.ts";
 
 /** Where the reviewer maps each acceptance criterion to its tests. */
@@ -75,7 +76,11 @@ export interface ReadinessFacts {
    * when it has not run.
    */
   visibility:
-    | { recommendation: Visibility; canBePublic: boolean }
+    | {
+      recommendation: Visibility;
+      canBePublic: boolean;
+      checks?: Array<{ id: string; role: string; ok: boolean }>;
+    }
     | "outdated"
     | null;
   /** What checking the recipe found, when it was checked. */
@@ -579,15 +584,22 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
     blockers.push(
       "The visibility check has not run: run @puddleworks/puddleworks-factory-visibility.",
     );
-  } else if (visibility === "public" && !checked.canBePublic) {
+  } else if (!checked.canBePublic) {
+    // Every app is checked as if public, since a private repo can be made
+    // public later (#145). Only the check ids: their details name domains.
+    const failed = (checked.checks ?? [])
+      .filter((c) => c.role === "required" && !c.ok).map((c) => c.id);
+    const which = failed.length ? ` (${failed.join(", ")})` : "";
     blockers.push(
       given === undefined
-        ? "The manifest has no visibility: line, so it publishes public, but the visibility check's required checks failed."
+        ? `The manifest has no visibility: line, so it publishes public, but the visibility check's required checks failed${which}.`
         : given === null || given === ""
-        ? "The manifest has an empty visibility:, so it publishes public, but the visibility check's required checks failed."
+        ? `The manifest has an empty visibility:, so it publishes public, but the visibility check's required checks failed${which}.`
         : given === "public"
-        ? "The manifest says public, but the visibility check's required checks failed."
-        : "The visibility check's required checks failed, so it can't be public.",
+        ? `The manifest says public, but the visibility check's required checks failed${which}.`
+        : given === "private"
+        ? `The visibility check's required checks failed${which}. A private app must pass them too, since its repo can be made public later.`
+        : `The visibility check's required checks failed${which}, so it can't be public.`,
     );
   }
   if (
@@ -622,5 +634,9 @@ export function assessReadiness(facts: ReadinessFacts): Readiness {
       }
       : null,
   };
-  return { ...result, summary: summarise(result, facts, outcomePath) };
+  // The summary is pasted into the PR body, so it names nobody by address.
+  return {
+    ...result,
+    summary: hideEmails(summarise(result, facts, outcomePath)),
+  };
 }

@@ -57,6 +57,7 @@ import { changePlan, specChanges } from "../lib/revision.ts";
 import {
   type OutcomeSpec,
   parseOutcomeSpec,
+  withoutEmails,
 } from "../contracts/outcome_spec_v1.ts";
 import {
   builtInRecipeProblem,
@@ -65,7 +66,7 @@ import {
   RESOURCE_PREFIX,
   secretNameProblem,
 } from "../lib/names.ts";
-import { assessVisibility } from "../lib/visibility.ts";
+import { assessVisibility, type CommitPeople } from "../lib/visibility.ts";
 import { linkProblem, safeData, safeText } from "../lib/redact.ts";
 import { assessReadiness } from "../lib/readiness.ts";
 import { checkOutputPath, checkTarget } from "../lib/target.ts";
@@ -1396,6 +1397,72 @@ async function textFiles(
   };
 }
 
+/**
+ * The commits on HEAD that origin's default branch does not have: what this
+ * build adds, whose author, committer and trailers go public with the repo.
+ * Every commit on HEAD when origin's branches were never fetched, none before
+ * the first commit, and why git could not say, when it could not.
+ */
+async function newCommits(
+  root: string,
+): Promise<CommitPeople[] | { error: string }> {
+  const git = async (...args: string[]) => {
+    // Only git can list the commits. No shell is involved, and every argument
+    // is fixed here but the checkout's path; the README says visibility and
+    // readiness run git.
+    // swamp-quality-ignore deno-command
+    const out = await new Deno.Command("git", {
+      args: ["-C", root, ...args],
+      // Never a repo above the checkout.
+      env: { GIT_CEILING_DIRECTORIES: root.replace(/\/[^/]*$/, "") || "/" },
+      stdout: "piped",
+      stderr: "piped",
+    }).output();
+    const d = new TextDecoder();
+    return {
+      code: out.code,
+      out: d.decode(out.stdout),
+      err: d.decode(out.stderr).trim(),
+    };
+  };
+  try {
+    const head = await git("rev-parse", "--verify", "--quiet", "HEAD");
+    // 1 is an unborn branch: nothing is committed yet.
+    if (head.code === 1) return [];
+    if (head.code !== 0) return { error: head.err || "git rev-parse failed" };
+    let base: string | null = null;
+    for (
+      const ref of ["refs/remotes/origin/HEAD", "refs/remotes/origin/main"]
+    ) {
+      if ((await git("rev-parse", "--verify", "--quiet", ref)).code === 0) {
+        base = ref;
+        break;
+      }
+    }
+    const log = await git(
+      "log",
+      "--no-show-signature",
+      "--format=%h%x1f%an <%ae>%x1f%cn <%ce>%x1f%(trailers:only,unfold)%x1e",
+      "HEAD",
+      ...(base ? ["--not", base] : []),
+    );
+    if (log.code !== 0) return { error: log.err || "git log failed" };
+    return log.out.split("\x1e").map((r) => r.trim()).filter(Boolean).map(
+      (r) => {
+        const [sha, author, committer, trailers = ""] = r.split("\x1f");
+        return {
+          sha,
+          author,
+          committer,
+          trailers: trailers.split("\n").map((t) => t.trim()).filter(Boolean),
+        };
+      },
+    );
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /** Name of the build result resource for an app spec. */
 const resultName = (name: string) => `${RESOURCE_PREFIX.buildResult}${name}`;
 
@@ -2481,7 +2548,7 @@ export const model = {
           ],
           [
             `spec/outcome-spec.v${to}.json`,
-            JSON.stringify(now, null, 2) + "\n",
+            JSON.stringify(withoutEmails(now), null, 2) + "\n",
           ],
         ];
         for (const [path] of files) await checkOutputPath(root, path);
@@ -2562,10 +2629,13 @@ export const model = {
     },
     visibility: {
       description:
-        "Check the app's repo before publishing and recommend public or private: licence, " +
-        "repository and quality must pass to go public; paths, hosts, addresses and emails " +
-        "that look internal, or spec wording about who the app is for, recommend private. " +
-        "Secrets block public and are never repeated; emails are kept as their domain. " +
+        "Check the app's repo before publishing and recommend public or private. Every app " +
+        "is checked as if public, since a private repo can be made public later: licence, " +
+        "repository, quality, no secrets, no email addresses in the files or the commits " +
+        "main does not have yet (other than example, no-reply and tool ones), and no home " +
+        "paths, internal hosts or private IPs must pass, and readiness holds a private app " +
+        "to them too. Spec wording about who the app is for, or a secret in test code, " +
+        "recommends private. Secrets are never repeated; emails are kept as their domain. " +
         "Records the visibility resource.",
       arguments: VisibilityArgsSchema,
       execute: method(async (args: VisibilityArgs, context: MethodContext) => {
@@ -2594,6 +2664,7 @@ export const model = {
         const assessment = assessVisibility({
           files,
           notRead,
+          commits: await newCommits(root),
           quality: args.quality,
           provisionalQuality: args.provisionalQuality,
           repoVisibility: args.repoVisibility,
@@ -2624,8 +2695,8 @@ export const model = {
         "matches the manifest's name and version with no issue or pending verdict, every " +
         "acceptance criterion in spec/ maps to tests that exist or a manual check " +
         "(spec/acceptance.json), and the visibility checks, run again on the files as they " +
-        "are now with the quality and repo visibility last given, allow the manifest's " +
-        "visibility. If the spec has a recipe, each agreed phrase goes through the recipe " +
+        "are now with the quality and repo visibility last given, pass, whatever the " +
+        "manifest's visibility. If the spec has a recipe, each agreed phrase goes through the recipe " +
         "engine in a throwaway swamp repo, which needs swamp and network access, and " +
         "an app whose manifest says effects-read is run there to time it. " +
         "Records the readiness resource with a one-screen summary.",
@@ -2677,6 +2748,7 @@ export const model = {
           : assessVisibility({
             files,
             notRead,
+            commits: await newCommits(root),
             quality: answer.data.quality,
             provisionalQuality: answer.data.provisionalQuality,
             repoVisibility: answer.data.repoVisibility,

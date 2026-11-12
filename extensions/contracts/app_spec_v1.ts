@@ -98,7 +98,12 @@ export const SpecificationSchema = z.object({
   outOfScope: z.array(z.string().min(1)),
   settings: z.array(SpecSettingSchema).optional(),
   recipe: RecipeSchema.optional(),
-  recordedBy: z.string().email(),
+  /**
+   * The name of whoever agreed it. A name, not an email, since the spec is
+   * kept in the app's repo, which may be public one day (#145). Specs written
+   * before this hold an email here, and still parse.
+   */
+  recordedBy: z.string().trim().min(1),
   recordedAt: z.iso.datetime(),
 });
 

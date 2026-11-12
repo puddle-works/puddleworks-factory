@@ -109,8 +109,10 @@ the arguments to be fixed. Don't carry on with the defaults.
 The template must give each app a `Makefile` with `test`, `contracts-check`,
 `guardrails-check` and `publish` targets, and a `contracts.ts`.
 
-Commits use the git config of the machine, and end with whatever attribution the
-user's instructions ask for.
+Commits in the app repo use the `user.email` step 4 sets there, the builder's
+GitHub no-reply address, and end with whatever attribution the user's
+instructions ask for, naming people by name or a no-reply address only: step
+9 refuses any other address in the commits main does not have yet.
 
 ## Input
 
@@ -355,11 +357,15 @@ jq -e '.name and .specification.output != "" and .delivery.method != ""' SP/app-
 ```
 
 `NAME` is now the agreed `name`. After step 4, both specs are kept beside the
-skeleton, so the build can always be traced back to what was agreed:
+skeleton, so the build can always be traced back to what was agreed. The app
+repo may be public one day, so the outcome spec is kept with every person's
+email blank; names stay, and `agreement.specHash` covers only `specification`,
+so the copy still matches the agreed version:
 
 ```bash
 mkdir -p W/spec
-cp OUTCOME W/spec/outcome-spec.v$(jq -r .specification.version OUTCOME).json
+jq '.agreement.agreedBy.email = "" | .participants |= map(.email = "")' OUTCOME \
+  > W/spec/outcome-spec.v$(jq -r .specification.version OUTCOME).json
 cp SP/app-spec.json W/spec/app-spec.json
 ```
 
@@ -394,7 +400,17 @@ The last lines grant the org secrets CI's publish dry run needs (skipped when
 `secrets` is empty). They need a token with `admin:org`; on `403`, tell the user
 to add the repo under **Repository access** at
 `https://github.com/organizations/ORG/settings/secrets/actions` for each secret.
-Every app starts private; visibility is decided in step 9. If `git -C APP log`
+Every app starts private; visibility is decided in step 9, and every app is
+checked as if public whichever is chosen. Make every commit in it name the
+builder by their GitHub no-reply address, never a real one (worktrees share
+this setting):
+
+```bash
+git -C APP config user.email "$(gh api user --jq '"\(.id)+\(.login)@users.noreply.github.com"')"
+git -C APP config user.email
+```
+
+Expect `<digits>+<login>@users.noreply.github.com`. If `git -C APP log`
 says `does not have any commits yet`, GitHub is still copying the template:
 wait a few seconds, delete `APP` and clone again.
 
@@ -642,8 +658,11 @@ swamp data query 'behavior("puddleworks-factory") && name == "visibility-NAME"' 
 
 Run this from the swamp repo from step 1, like the other Factory
 workflows. The method reads every text file in `W` (not `.git`, `.swamp`,
-`node_modules`, or skills the manifest doesn't ship) and gives the same answer
-for the same files:
+`node_modules`, or skills the manifest doesn't ship), and the author, committer
+and trailers of each commit in `W` that `origin/main` does not have yet, and
+gives the same answer for the same files and commits. Every app is checked as if
+public, since a private repo can be made public later: step 12's readiness
+check refuses a **private** app whose required checks fail, too.
 
 | Check              | Role     | Fails when                                                                   |
 | ------------------ | -------- | ---------------------------------------------------------------------------- |
@@ -651,14 +670,21 @@ for the same files:
 | `repository`       | required | No `https://` `repository:` in the manifest                                  |
 | `quality`          | required | Quality below 100%, even with the registry's provisional points              |
 | `secrets`          | required | A key or token is in the files (its text is never shown)                     |
+| `emails`           | required | An email in the files or new commits, except example, no-reply, tool ones    |
+| `internal-details` | required | Home paths, internal hosts or private IPs in the files, tests included       |
 | `secrets-in-tests` | signal   | Something like a key or token is in test code                                |
-| `internal-details` | signal   | Home paths, internal hosts, private IPs or real email addresses              |
 | `audience`         | signal   | The spec's `specification` says it is internal, confidential, for "our team" |
 | `repo-visibility`  | info     | The GitHub repo and the manifest disagree; decides nothing                   |
 
 A failed `secrets` check means the secret is in git history: tell the user to
 rotate it, and remove it before anything else. Look at each `secrets-in-tests`
 finding: most are made-up fixtures, and a real one is a failed `secrets` check.
+Fix a failed `emails` or `internal-details` check before going on, whichever
+visibility the user wants: use `example.com` addresses, `~`, `*.example` hosts
+and documentation IPs such as `192.0.2.1` in fixtures and docs. A commit finding
+names the commit and where (`commit abc1234 (author)`): set `user.email` as in
+step 4, and amend or rebase the commits on `draft/NAME` that `origin/main` does
+not have yet, before anything is pushed.
 Show the recommendation, every check that failed, and each finding (`file:line` and its `text`, which is only
 what matched, never the line; a secret's is `(hidden)`), then ask with
 `AskUserQuestion`, the recommendation first.
@@ -736,7 +762,8 @@ Read nothing else outside W except SP/review.json.
    list the tests that really check it (a matching name is not enough). If no
    test does, check it yourself if you can (for example run the workflow as
    W/README.md says) and record it in "manual" as {"check": what you ran and
-   saw, "by": "independent reviewer", "passed": true or false}; otherwise leave
+   saw, "by": "independent reviewer", "passed": true or false} (a role or a
+   name in "by", never an email); otherwise leave
    "manual" out. Write W/spec/acceptance.json, one entry per criterion:
    {"criteria": [{"id": "AC1", "tests": ["exact Deno.test name"]}]}
    Skip this step if there is no outcome spec.
@@ -832,8 +859,9 @@ gh pr create --repo ORG/NAME --head draft/NAME --base main \
 `SP/pr.md` says what was built, how it was tested (and whether step 7's real
 run happened), the visibility and why, and that a fresh agent reviewed it in
 how many rounds, then gives the readiness `summary` in a code block, and ends
-with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. CI runs
-the same dry run, so it is green only with the report committed.
+with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. It names
+people by name only, never by email: the summary already hides any address. CI
+runs the same dry run, so it is green only with the report committed.
 
 ## Step 12: Publish, once the user confirms
 

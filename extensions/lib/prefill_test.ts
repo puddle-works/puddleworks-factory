@@ -64,7 +64,8 @@ Deno.test("prefill: copies what the outcome spec says", () => {
     "Sending orders to suppliers",
     "Prices and invoices",
   ]);
-  assertEquals(spec.specification.recordedBy, "priya@example.com");
+  // The name, never the email: the app spec is kept in the app's repo (#145).
+  assertEquals(spec.specification.recordedBy, "Priya Shah");
   assertEquals(spec.specification.recordedAt, "2026-10-07T08:45:00.000Z");
 });
 
@@ -143,9 +144,9 @@ Deno.test("prefill: once the builder decides, it is a valid app spec that keeps 
   if (result.ok) assertEquals(result.spec.source?.version, 1);
 });
 
-Deno.test("prefill: an agreement with no usable email or time is left to the builder", () => {
+Deno.test("prefill: an agreement with no name or usable time is left to the builder", () => {
   const outcome = structuredClone(OUTCOME);
-  outcome.agreement.agreedBy.email = "";
+  outcome.agreement.agreedBy.name = "  ";
   outcome.agreement.agreedAt = "last week";
   const { spec, toDecide } = prefillAppSpec(outcome);
   assertEquals(spec.specification.recordedBy, "");
@@ -153,6 +154,20 @@ Deno.test("prefill: an agreement with no usable email or time is left to the bui
   const fields = toDecide.map((t) => t.split(":")[0]);
   assertEquals(fields.includes("specification.recordedBy"), true);
   assertEquals(fields.includes("specification.recordedAt"), true);
+});
+
+Deno.test("prefill: recordedBy is the name even when the agreement has a real email", () => {
+  const outcome = structuredClone(OUTCOME);
+  outcome.agreement.agreedBy.email = "priya.shah@acme-stores.co.uk";
+  const result = parseAppSpec(decide(prefillAppSpec(outcome).spec));
+  assertEquals(result.ok, true, JSON.stringify(result));
+  if (result.ok) {
+    assertEquals(result.spec.specification.recordedBy, "Priya Shah");
+  }
+  assertEquals(
+    JSON.stringify(prefillAppSpec(outcome)).includes("acme-stores"),
+    false,
+  );
 });
 
 Deno.test("prefill: open questions and missing acceptance criteria are warned about", () => {

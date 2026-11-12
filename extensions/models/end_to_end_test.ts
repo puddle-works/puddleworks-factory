@@ -31,7 +31,7 @@ const SPEC_PATH = new URL(
 const SPEC_TEXT = await Deno.readTextFile(SPEC_PATH);
 // sha256sum docs/contracts/app-spec.v1.example.json, taken outside the code.
 const SPEC_SHA256 =
-  "5f76ddd99ab548c64304a4ee740fa650afce278c0b02444c0d8984dbacdc7e4d";
+  "c1b544cdd463bdbe74e6f93f1dfa88d67e39588ffb724c36e5082c2d1251cc8c";
 const REPO = "https://github.com/example/obsidian-puddle-scanner";
 const NAME = "obsidian-puddle-scanner";
 const PKG = `@puddleworks/${NAME}`;

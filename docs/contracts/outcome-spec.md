@@ -36,7 +36,7 @@ out first (`warnings`: open questions, no acceptance criteria).
 | `title`                    | `request.title`                                                   |
 | `specification.purpose`    | `specification.desiredOutcome`; the builder makes it one sentence |
 | `specification.outOfScope` | `specification.scope.out`                                         |
-| `specification.recordedBy` | `agreement.agreedBy.email`                                        |
+| `specification.recordedBy` | `agreement.agreedBy.name`, never the email                        |
 | `specification.recordedAt` | `agreement.agreedAt`                                              |
 | `source`                   | `request.url`, `specification.version` and `agreement.specHash`   |
 | `specification.inputs`     | Left empty for the builder                                        |
