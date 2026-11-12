@@ -2,11 +2,12 @@ id: 71ccc195-1e5f-4e27-b2f2-dba57ae2b972
 name: "@puddleworks/puddleworks-factory-visibility"
 description: >-
   Before publishing, check an app's repo and recommend sharing it publicly or
-  keeping it private. A licence, a repository link and 100% quality are
-  required for public; paths, hosts, addresses or emails that look internal,
-  or spec wording about who the app is for, recommend private; secrets block
-  public. The answer is recorded as a visibility resource on the
-  puddleworks-factory model. It changes nothing: the builder decides.
+  keeping it private. A licence, a repository link, 100% quality, and no
+  secrets, email addresses, home paths, internal hosts or private IP addresses
+  are required, and readiness holds a private app to them too; spec wording
+  about who the app is for, or a secret in test code, recommends private. The
+  answer is recorded as a visibility resource on the puddleworks-factory
+  model. It changes nothing: the builder decides.
 version: 1
 
 inputs:

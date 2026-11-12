@@ -21,6 +21,8 @@
  *
  * @module
  */
+import { ciInput } from "./ci.ts";
+
 /** Rounds a build may have before the user must agree to another. */
 export const ROUND_LIMIT = 2;
 
@@ -73,14 +75,12 @@ export interface DryRun {
 }
 
 /**
- * The warnings an app accepts on purpose: the `accepted-warnings:` line of its
- * ci.yml, which puddle-tooling's publish passes to publish.sh as
- * ACCEPTED_WARNINGS. None when there is no such line.
+ * The warnings an app accepts on purpose: the `accepted-warnings` input of
+ * the publish job in its ci.yml, which puddle-tooling's publish passes to
+ * publish.sh as ACCEPTED_WARNINGS. None when no job gives it a value.
  */
 export function acceptedWarnings(ciYml: string | null): string[] {
-  const line = ciYml?.match(/^\s*accepted-warnings:\s*(.+)$/m)?.[1] ?? "";
-  return line.replace(/\s#.*$/, "").replace(/^["']|["']$/g, "").trim()
-    .split(/\s+/).filter(Boolean);
+  return ciInput(ciYml, "accepted-warnings").split(/\s+/).filter(Boolean);
 }
 
 /**
@@ -208,7 +208,7 @@ export function decideRound(input: {
   rounds: ReviewRound[];
   version: string;
   contentHash: string;
-  /** The version the app's build result last recorded as published. */
+  /** The version `result` last recorded as published. */
   published: string | null;
   grant: boolean;
 }): RoundDecision {

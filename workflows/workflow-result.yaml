@@ -7,7 +7,8 @@ description: >-
   the draft is pushed, again once the pull request is open, and again once the
   extension is published. The result is recorded as a resource
   on the puddleworks-factory model and, with out, written to a JSON file that
-  anyone can read.
+  anyone can read. Once published, the version is also recorded on the app's
+  review rounds, so the next build's two rounds count from there.
 version: 1
 
 inputs:

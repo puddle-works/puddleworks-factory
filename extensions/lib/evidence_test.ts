@@ -75,18 +75,60 @@ Deno.test("testPermissions: the permission flags of ci.yml's tests command, noth
     "--allow-write",
     "--allow-run=git",
   ]);
+  const withTests = (value: string) =>
+    `jobs:\n  publish:\n    with:\n      tests: ${value}\n      dry-run: true\n`;
   assertEquals(
     testPermissions(
-      "    with:\n      tests: deno test -A --reporter=dot --config x.json --deny-net=a.example extensions/models/\n",
+      withTests(
+        "deno test -A --reporter=dot --config x.json --deny-net=a.example extensions/models/",
+      ),
     ),
     ["-A", "--deny-net=a.example"],
   );
-  assertEquals(
-    testPermissions("      tests: deno test extensions/models/\n"),
-    [],
-  );
+  assertEquals(testPermissions(withTests("deno test extensions/models/")), []);
   assertEquals(testPermissions("jobs: {}\n"), []);
   assertEquals(testPermissions(null), []);
+});
+
+Deno.test("testPermissions: reads the publish job's tests input however ci.yml writes it", () => {
+  const ci = (value: string) =>
+    `jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: deno test extensions/models/
+  publish:
+    with:
+      tests: ${value}
+      dry-run: true
+`;
+  // A job named tests above it is not the tests command.
+  assertEquals(
+    testPermissions(ci("deno test --allow-read --allow-run=git extensions/")),
+    ["--allow-read", "--allow-run=git"],
+  );
+  // Deno 2's short flags, with and without a value.
+  assertEquals(
+    testPermissions(
+      ci("deno test -R -W=. -N=a.example -E -S -I --allow-run=git -q"),
+    ),
+    ["-R", "-W=.", "-N=a.example", "-E", "-S", "-I", "--allow-run=git"],
+  );
+  // A quoted value keeps its last flag, and a folded one is one command.
+  assertEquals(
+    testPermissions(ci('"deno test --allow-read --allow-write"')),
+    ["--allow-read", "--allow-write"],
+  );
+  assertEquals(
+    testPermissions(
+      ci(
+        ">-\n        deno test --allow-read\n        --allow-write extensions/",
+      ),
+    ),
+    ["--allow-read", "--allow-write"],
+  );
+  // An empty value gives none, not the next line's words.
+  assertEquals(testPermissions(ci("")), []);
 });
 
 Deno.test("realTests runs the app's tests with the permissions its ci.yml gives them", async () => {

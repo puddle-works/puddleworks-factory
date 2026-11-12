@@ -4,8 +4,9 @@ description: >-
   After the independent review, check an app is ready to publish: the review
   report matches the manifest's name and version with no issue or pending
   verdict, every acceptance criterion in spec/ maps to tests that exist or a
-  manual check (spec/acceptance.json), and the visibility check allows the
-  manifest's visibility. If the spec has a recipe, each agreed phrase goes
+  manual check (spec/acceptance.json), a review round is recorded for the
+  content as it is now, and every required visibility check passes, whatever
+  the manifest's visibility. If the spec has a recipe, each agreed phrase goes
   through the recipe engine in a throwaway swamp repo. The answer, with a
   one-screen summary to confirm publishing against, is recorded as a readiness
   resource on the puddleworks-factory model. It changes nothing in the app's repo.

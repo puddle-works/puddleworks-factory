@@ -119,7 +119,7 @@ export const realSwamp: SwampRun = async (
 const message = (e: unknown) => e instanceof Error ? e.message : String(e);
 
 /** What a failed swamp command said, or that it failed. */
-function failure(
+export function failure(
   args: string[],
   r: { code: number; stdout: string; stderr: string },
 ): string {

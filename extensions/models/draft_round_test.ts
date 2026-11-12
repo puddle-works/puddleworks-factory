@@ -58,6 +58,8 @@ async function shipped(dir: string): Promise<string> {
 interface Registry {
   warnings?: Record<string, unknown[]>;
   published?: string[];
+  /** The push fails before it hashes anything, saying this on stderr. */
+  broken?: string;
 }
 
 function fakeSwamp(registry: Registry): SwampRun {
@@ -75,6 +77,13 @@ function fakeSwamp(registry: Registry): SwampRun {
           factors: [],
         }),
         stderr: "",
+      };
+    }
+    if (args[1] === "push" && registry.broken) {
+      return {
+        code: 1,
+        stdout: JSON.stringify({ status: "failed" }),
+        stderr: registry.broken,
       };
     }
     if (args[1] === "push") {
@@ -353,6 +362,17 @@ Deno.test("round: freezes what ships after round 2, as readiness says", async ()
   });
 });
 
+/** Write the build result, as the skill does at each step that has one. */
+const result = (ctx: Ctx, over: Record<string, unknown> = {}) =>
+  model.methods.result.execute(
+    model.methods.result.arguments.parse({
+      name: NAME,
+      buildRef: `draft/${NAME}`,
+      ...over,
+    }),
+    ctx,
+  );
+
 /** Publish the reviewed version: commit the report, and record it. */
 async function publish(
   w: { dir: string; commit: (m?: string) => Promise<string> },
@@ -360,10 +380,14 @@ async function publish(
   registry: Registry,
 ) {
   await review(w.dir, ctx);
-  await w.commit("Review for publishing");
+  const buildRef = await w.commit("Review for publishing");
   const version = await versionOf(w.dir);
   registry.published = [...(registry.published ?? []), version];
-  ctx.store.set(`build-result-${NAME}`, { published: { version } });
+  await result(ctx, {
+    buildRef,
+    publishedVersion: version,
+    publishedVisibility: "private",
+  });
 }
 
 /** Bump the manifest and the behavior to `next`, with a no-op upgrade. */
@@ -445,5 +469,56 @@ Deno.test("round: a report already committed for this content needs no round", a
       "committed",
       0,
     ]);
+  });
+});
+
+Deno.test("round: a build result written before publishing keeps where the last build ended", async () => {
+  await withDraft(async (w, ctx, registry) => {
+    await round(ctx);
+    await fix(w.dir, 1);
+    await w.commit("fix 1");
+    await round(ctx);
+    await publish(w, ctx, registry);
+    const published = await versionOf(w.dir);
+
+    // The next build: its first result has nothing published yet, and so
+    // has the one written when the user stops before publishing.
+    await bump(w.dir, "2099.1.1.1", "\n    run: {},\n  ");
+    await w.commit("Release with a change");
+    await result(ctx);
+    assertEquals(
+      (ctx.store.get(`build-result-${NAME}`) as { published?: unknown })
+        .published,
+      undefined,
+    );
+    await round(ctx);
+    const one = record(ctx).latest;
+    assertEquals([one.kind, one.round, one.base], ["review", 1, null]);
+    await review(w.dir, ctx);
+
+    // It has its own two rounds, and no more without a yes.
+    await fix(w.dir, 2);
+    await w.commit("fix 2");
+    await result(ctx, { pullRequest: `${REPO}/pull/2` });
+    await round(ctx);
+    assertEquals(record(ctx).latest.round, 2);
+    await fix(w.dir, 3);
+    await w.commit("fix 3");
+    await assertRejects(() => round(ctx), Error, "Round 3 would pass");
+    assertEquals(
+      (record(ctx) as unknown as { published: string }).published,
+      published,
+    );
+  });
+});
+
+Deno.test("round: a publish dry run that fails says what swamp said", async () => {
+  await withDraft(async (_w, ctx, registry) => {
+    registry.broken =
+      "Error: Model file not found: extensions/models/missing.ts\n";
+    const e = await assertRejects(() => round(ctx), Error);
+    assertStringIncludes(e.message, "swamp extension push exited 1");
+    assertStringIncludes(e.message, "Model file not found");
+    assertEquals(record(ctx), undefined);
   });
 });

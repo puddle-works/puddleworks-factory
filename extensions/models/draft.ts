@@ -93,6 +93,7 @@ import {
   recipeSource,
 } from "../lib/recipes.ts";
 import {
+  failure,
   realSwamp,
   recipeReadiness,
   type SwampRun,
@@ -104,6 +105,7 @@ import {
   PlanReviewSchema,
   PrefillSchema,
   ReadinessSchema,
+  type ReviewRoundsRecord,
   ReviewRoundsSchema,
   VisibilitySchema,
 } from "../lib/records.ts";
@@ -1444,8 +1446,11 @@ async function newCommits(
       args: ["-C", root, ...args],
       // Never a repo above the checkout.
       env: { GIT_CEILING_DIRECTORIES: root.replace(/\/[^/]*$/, "") || "/" },
+      stdin: "null",
       stdout: "piped",
       stderr: "piped",
+      // As realGit: a git that waits, say for a password, is given up on.
+      signal: AbortSignal.timeout(60_000),
     }).output();
     const d = new TextDecoder();
     return {
@@ -1773,27 +1778,19 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-/** The review rounds recorded for an app, oldest first. */
-async function recordedRounds(
+/**
+ * The review rounds recorded for an app, oldest first, with the version last
+ * published. Null when none is recorded yet.
+ */
+async function reviewRounds(
   context: MethodContext,
   name: string,
-): Promise<ReviewRound[]> {
+): Promise<ReviewRoundsRecord | null> {
   const raw = await context.readResource?.(
     `${RESOURCE_PREFIX.reviewRounds}${name}`,
   );
   const parsed = ReviewRoundsSchema.safeParse(raw);
-  return parsed.success ? parsed.data.rounds : [];
-}
-
-/** The version the app's build result last recorded as published, if any. */
-async function lastPublished(
-  context: MethodContext,
-  name: string,
-): Promise<string | null> {
-  const raw = await context.readResource?.(resultName(name));
-  const published = (raw as { published?: { version?: unknown } } | null)
-    ?.published?.version;
-  return typeof published === "string" ? published : null;
+  return parsed.success ? parsed.data : null;
 }
 
 /** A file's text at a commit, or null when it isn't there. */
@@ -2079,20 +2076,34 @@ export const model = {
       description:
         "Every build is held to the public checks: readiness blocks on any " +
         "failed required visibility check, private apps included. emails is a " +
-        "new required check, of the files and of each commit origin/main lacks, " +
-        "and internal-details is now required. revise keeps the outcome spec " +
-        "with each person's email blank, an app spec's recordedBy is a name, and " +
-        "the readiness summary hides addresses. The new round method and round " +
-        "workflow start and record every review round: a build has two until it " +
-        "is published, a third needs grant=true, a round starts only on a " +
-        "committed checkout whose publish dry run warns of nothing but the " +
-        "review and what ci.yml's accepted-warnings names, and a change that " +
-        "only bumps the version carries the last committed review over. " +
-        "readiness blocks content with no recorded round. An app can't be " +
-        "named review-rounds-*. The factory-build skill uses that count in " +
-        "steps 10 to 12, and with its engine setting at stagecraft drives a " +
-        "Stagecraft work item on the definition this release ships. No data " +
-        "migration required.",
+        "new required check, of the files and of each commit origin's default " +
+        "branch lacks (origin/HEAD, else origin/main; every commit when neither " +
+        "was fetched), and internal-details is now required. revise keeps the " +
+        "outcome spec with each person's email blank, an app spec's recordedBy " +
+        "is a name, and the readiness summary hides addresses. The new round " +
+        "method and round workflow start and record every review round: a build " +
+        "has two until it is published, a third needs grant=true, a round starts " +
+        "only on a committed checkout whose publish dry run warns of nothing but " +
+        "the review, version drift and what ci.yml's accepted-warnings names, " +
+        "and a change that only bumps the version carries the last committed " +
+        "review over. result with publishedVersion records that version on the " +
+        "review rounds, which is where the next build's count starts. readiness " +
+        "blocks content with no recorded round. An app can't be named " +
+        "review-rounds-*. readiness and round read the tests and " +
+        "accepted-warnings inputs of a job in ci.yml as YAML, not the first line " +
+        "that looks like one, and the short permission flags -R, -W, -N, -E, -S " +
+        "and -I carry over to the test run. revise, run again after it stopped " +
+        "before its record, now writes spec/app-spec.json again: until now it " +
+        "could record the new version over an old app spec, though the " +
+        "2026.11.10.1 note said it finished. That note also said render " +
+        "refuses a spec whose SHA-256 isn't the approved specDigest; it does " +
+        "so only when specDigest is given. The factory-build skill " +
+        "uses the round count in steps 10 to 12, and with its engine setting at " +
+        "stagecraft drives a Stagecraft work item on the definition this " +
+        "release ships. No data migration required. An app built before this " +
+        "release keeps people's addresses in spec/outcome-spec.v*.json, which " +
+        "the emails check now fails, private apps included: blank each email " +
+        "there, as the skill's step 3 does for a new build, and commit.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
@@ -2478,7 +2489,9 @@ export const model = {
         `Write a ${BUILD_RESULT_V2} for the last draft of an app spec: the extension, ` +
         "its entry point, the repository, the branch or commit, the pull request, " +
         "how each recipe example went and, once published, the recipe it published. " +
-        "Records it as a resource and, with out, as a JSON file.",
+        "Records it as a resource and, with out, as a JSON file. With publishedVersion " +
+        "it also records that version on the app's review rounds, if it has any: the " +
+        "next build's two rounds count from there.",
       arguments: ResultArgsSchema,
       execute: method(async (args: ResultArgs, context: MethodContext) => {
         context.logger.info("Recording the build result for {name}", {
@@ -2580,12 +2593,29 @@ export const model = {
           name: args.name,
           buildRef: args.buildRef,
         });
-        const handle = await context.writeResource(
-          "buildResult",
-          resultName(args.name),
-          result,
-        );
-        return { dataHandles: [handle] };
+        const handles = [
+          await context.writeResource(
+            "buildResult",
+            resultName(args.name),
+            result,
+          ),
+        ];
+        // Publishing ends the build. The rounds record keeps that, because
+        // the next build's first result has nothing published, and its
+        // rounds must still count from here.
+        const recorded = args.publishedVersion
+          ? await reviewRounds(context, args.name)
+          : null;
+        if (recorded) {
+          handles.push(
+            await context.writeResource(
+              "reviewRounds",
+              `${RESOURCE_PREFIX.reviewRounds}${args.name}`,
+              { ...recorded, published: args.publishedVersion },
+            ),
+          );
+        }
+        return { dataHandles: handles };
       }),
     },
     revise: {
@@ -2716,9 +2746,15 @@ export const model = {
           // A readiness check from before now was of the old phrases.
           renderedAt: new Date().toISOString(),
         });
-        // The outcome spec goes last: until it is written, a rerun starts over.
-        const files: Array<[string, string]> = finishing ? [] : [
-          ["spec/app-spec.json", JSON.stringify(revised, null, 2) + "\n"],
+        // The app spec is written again when finishing too, since a restore
+        // or stash may have put the old one back. The outcome spec goes
+        // last: until it is written, a rerun starts over.
+        const appSpecFile: [string, string] = [
+          "spec/app-spec.json",
+          JSON.stringify(revised, null, 2) + "\n",
+        ];
+        const files: Array<[string, string]> = finishing ? [appSpecFile] : [
+          appSpecFile,
           [
             `spec/change-plan.v${to}.md`,
             changePlan(args.name, old.spec, now, changes),
@@ -2944,23 +2980,30 @@ export const model = {
         const ci = await exists(`${root}/.github/workflows/ci.yml`)
           ? await Deno.readTextFile(`${root}/.github/workflows/ci.yml`)
           : null;
-        const dry = readDryRun(
-          (await swamp(
-            ["extension", "push", "manifest.yaml", "--dry-run", "--json"],
-            root,
-          )).stdout,
-          acceptedWarnings(ci),
-        );
+        const push = [
+          "extension",
+          "push",
+          "manifest.yaml",
+          "--dry-run",
+          "--json",
+        ];
+        const pushed = await swamp(push, root);
+        const dry = readDryRun(pushed.stdout, acceptedWarnings(ci));
         if (dry.blockers.length || !dry.contentHash) {
+          // With no hash the push itself failed, and only swamp says why.
+          const why = dry.contentHash
+            ? dry.blockers
+            : [...dry.blockers, failure(push, pushed)];
           throw new Error(
             "Fix what the publish dry run says before a review round, then " +
-              `commit and ask again: ${dry.blockers.join(" | ")}`,
+              `commit and ask again: ${why.join(" | ")}`,
           );
         }
         const contentHash = dry.contentHash;
         const file = reportFile(pkg, contentHash);
-        const rounds = await recordedRounds(context, args.name);
-        const published = await lastPublished(context, args.name);
+        const recorded = await reviewRounds(context, args.name);
+        const rounds = recorded?.rounds ?? [];
+        const published = recorded?.published ?? null;
         const decision = decideRound({
           rounds,
           version,
@@ -3057,6 +3100,7 @@ export const model = {
             name: args.name,
             targetDir: root,
             rounds: fresh ? [...rounds, round] : rounds,
+            ...(published === null ? {} : { published }),
             latest: { ...round, skeleton: dry.skeleton, previous },
           },
         );
@@ -3142,9 +3186,10 @@ export const model = {
           swamp,
           { dir: root },
         );
+        const recorded = await reviewRounds(context, args.name);
         const rounds = buildRounds(
-          await recordedRounds(context, args.name),
-          await lastPublished(context, args.name),
+          recorded?.rounds ?? [],
+          recorded?.published ?? null,
         );
         const readiness = assessReadiness({
           files,

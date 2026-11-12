@@ -95,17 +95,38 @@ Deno.test("rounds: a dry run that isn't JSON or has no hash blocks", () => {
   );
 });
 
+/** An app's ci.yml, with these lines among the publish job's inputs. */
+const ciWith = (lines: string) =>
+  `jobs:
+  publish:
+    with:
+      visibility: private
+${lines}
+      dry-run: true
+`;
+
 Deno.test("rounds: accepted warnings come from ci.yml as publish.sh gets them", () => {
   assertEquals(
     acceptedWarnings(
-      "    with:\n      accepted-warnings: deno-command env-read # why\n",
+      ciWith("      accepted-warnings: deno-command env-read # why"),
     ),
     ["deno-command", "env-read"],
   );
-  assertEquals(acceptedWarnings('      accepted-warnings: "deno-command"'), [
-    "deno-command",
-  ]);
-  assertEquals(acceptedWarnings("      dry-run: true\n"), []);
+  assertEquals(
+    acceptedWarnings(ciWith('      accepted-warnings: "deno-command"')),
+    ["deno-command"],
+  );
+  assertEquals(
+    acceptedWarnings(
+      ciWith(
+        "      accepted-warnings: >-\n        deno-command\n        env-read",
+      ),
+    ),
+    ["deno-command", "env-read"],
+  );
+  // An empty value accepts nothing: the next line is another input.
+  assertEquals(acceptedWarnings(ciWith("      accepted-warnings:")), []);
+  assertEquals(acceptedWarnings(ciWith("      tests: deno test")), []);
   assertEquals(acceptedWarnings(null), []);
 });
 
