@@ -69,3 +69,14 @@ jobs:
           git config --global user.email ci@example.com
           git config --global user.name ci
           .github/scripts/sandbox-dry-run.sh
+
+      # Drive a real Stagecraft work item on the Factory's definition through
+      # the swamp CLI (#47): dispatch packets, refusals that write nothing, two
+      # writes at once, interrupted and capped dispatches, and the two review
+      # rounds. Nothing is pushed or published.
+      - name: Stagecraft drive
+        if: hashFiles('manifest.yaml') != ''
+        env:
+          SWAMP_API_KEY: ${{ secrets.SWAMP_API_KEY }}
+          SWAMP_SIGNIN_TOKEN: ${{ secrets.SWAMP_SIGNIN_TOKEN }}
+        run: .github/scripts/stagecraft-drive.sh
