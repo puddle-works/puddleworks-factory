@@ -68,8 +68,11 @@ which says what each must have before the next. Today the `factory-build` skill
 keeps them in order, and each Factory method checks what it needs before it
 acts.
 [ADR-002](https://github.com/puddle-works/puddleworks-factory/blob/main/docs/adr/ADR-002-stagecraft-runs-the-stages.md)
-chose `@swamp/stagecraft` to run the stages, and its definition is written, but
-nothing drives it yet, so you don't need Stagecraft to build.
+chose `@swamp/stagecraft` to run the stages. Its definition, a copy of
+Stagecraft's `build-swamp-extension.yaml` example with Factory's stages added,
+ships in the package. With the skill's `engine` setting at `stagecraft`, a
+Stagecraft work item keeps the stages; at `steps`, the default, the skill's
+steps do, and you don't need Stagecraft to build.
 
 ## What is in the package
 

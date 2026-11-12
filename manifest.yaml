@@ -9,6 +9,7 @@ labels:
 additionalFiles:
   - README.md
   - LICENSE
+  - docs/stagecraft/factory-build.yaml
 models:
   - draft.ts
   - web.ts
