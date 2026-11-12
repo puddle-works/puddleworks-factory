@@ -19,6 +19,7 @@ export const RESOURCE_PREFIX = {
   readiness: "readiness-",
   assessment: "assessment-",
   planReview: "plan-review-",
+  reviewRounds: "review-rounds-",
 } as const;
 
 /** The reserved prefix an app name starts with, or undefined if none. */

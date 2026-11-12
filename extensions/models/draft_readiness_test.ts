@@ -20,6 +20,7 @@ import {
   fakeSwamp,
   passingTests,
   reviewPathFor,
+  roundRecord,
 } from "../lib/evidence_testing.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
@@ -81,6 +82,10 @@ async function withReviewedDraft(
     );
     const manifest = await Deno.readTextFile(`${dir}/manifest.yaml`);
     const version = manifest.match(/^version: "(.+)"$/m)![1];
+    ctx.store.set(
+      `review-rounds-${NAME}`,
+      roundRecord(NAME, `@puddleworks/${NAME}`, version),
+    );
     await Deno.mkdir(`${dir}/swamp-extension-review`, { recursive: true });
     await Deno.writeTextFile(
       `${dir}/${REVIEW}`,

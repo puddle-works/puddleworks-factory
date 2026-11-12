@@ -73,19 +73,20 @@ nothing drives it yet, so you don't need Stagecraft to build.
 
 ## What is in the package
 
-| Kind     | Name                                           | What it does                                                                                                                                                                                                                                                                                                                                   |
-| -------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Model    | `@puddleworks/puddleworks-factory/draft`       | `render` reads a spec and writes the extension, its tests, a workflow, the manifest, the app docs and a CI workflow; `planReview` records a review of the build plan; `visibility` recommends publishing it publicly or privately; `readiness` checks the review before publishing, against a fresh quality score and test run of the checkout |
-| Model    | `@puddleworks/puddleworks-factory/web`         | `serve` shows every app by stage, and each app's records, on a read-only page on 127.0.0.1                                                                                                                                                                                                                                                     |
-| Workflow | `@puddleworks/puddleworks-factory-assess`      | Runs `assess`: before anything is built, records whether an existing extension method or recipe already does what an outcome spec asks, and so whether to write a recipe or workflow for it, build nothing, or build an app                                                                                                                    |
-| Workflow | `@puddleworks/puddleworks-factory-prefill`     | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                                                                                                                                                                                                                                                        |
-| Workflow | `@puddleworks/puddleworks-factory-build`       | Runs `render` on the `puddleworks-factory` instance                                                                                                                                                                                                                                                                                            |
-| Workflow | `@puddleworks/puddleworks-factory-revise`      | Runs `revise`: takes an app already built to a newly agreed version of its spec, writing the new spec and a change plan, never the code                                                                                                                                                                                                        |
-| Workflow | `@puddleworks/puddleworks-factory-visibility`  | Runs `visibility`: checks the built app's repo and recommends public or private                                                                                                                                                                                                                                                                |
-| Workflow | `@puddleworks/puddleworks-factory-plan-review` | Runs `planReview`: records a review of the build plan against the spec, with the plan's hash, so it stays with that version of the plan                                                                                                                                                                                                        |
-| Workflow | `@puddleworks/puddleworks-factory-readiness`   | Runs `readiness`: scores and tests the checkout itself, checks the review report is for its current content hash and that each acceptance criterion's tests passed, and writes a one-screen summary                                                                                                                                            |
-| Workflow | `@puddleworks/puddleworks-factory-result`      | Runs `result`: writes a `build-result/v2` for the last draft of a spec, with what was published                                                                                                                                                                                                                                                |
-| Skill    | `factory-build`                                | Takes a spec to a published extension: check for reuse, agree the spec, make the app repo, generate, build test-first, check, decide visibility, publish                                                                                                                                                                                       |
+| Kind     | Name                                           | What it does                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Model    | `@puddleworks/puddleworks-factory/draft`       | `render` reads a spec and writes the extension, its tests, a workflow, the manifest, the app docs and a CI workflow; `planReview` records a review of the build plan; `visibility` recommends publishing it publicly or privately; `round` starts and counts each review round, two at most; `readiness` checks the review before publishing, against a fresh quality score and test run of the checkout |
+| Model    | `@puddleworks/puddleworks-factory/web`         | `serve` shows every app by stage, and each app's records, on a read-only page on 127.0.0.1                                                                                                                                                                                                                                                                                                               |
+| Workflow | `@puddleworks/puddleworks-factory-assess`      | Runs `assess`: before anything is built, records whether an existing extension method or recipe already does what an outcome spec asks, and so whether to write a recipe or workflow for it, build nothing, or build an app                                                                                                                                                                              |
+| Workflow | `@puddleworks/puddleworks-factory-prefill`     | Runs `prefill`: turns an `outcome-spec/v1` into a starter `app-spec/v1`                                                                                                                                                                                                                                                                                                                                  |
+| Workflow | `@puddleworks/puddleworks-factory-build`       | Runs `render` on the `puddleworks-factory` instance                                                                                                                                                                                                                                                                                                                                                      |
+| Workflow | `@puddleworks/puddleworks-factory-revise`      | Runs `revise`: takes an app already built to a newly agreed version of its spec, writing the new spec and a change plan, never the code                                                                                                                                                                                                                                                                  |
+| Workflow | `@puddleworks/puddleworks-factory-visibility`  | Runs `visibility`: checks the built app's repo and recommends public or private                                                                                                                                                                                                                                                                                                                          |
+| Workflow | `@puddleworks/puddleworks-factory-plan-review` | Runs `planReview`: records a review of the build plan against the spec, with the plan's hash, so it stays with that version of the plan                                                                                                                                                                                                                                                                  |
+| Workflow | `@puddleworks/puddleworks-factory-readiness`   | Runs `readiness`: scores and tests the checkout itself, checks the review report is for its current content hash and that each acceptance criterion's tests passed, and writes a one-screen summary                                                                                                                                                                                                      |
+| Workflow | `@puddleworks/puddleworks-factory-round`       | Runs `round`: starts a review round once the publish dry run is clean but for the review, counts it against the limit of two, and carries the last review over a change that only bumps the version                                                                                                                                                                                                      |
+| Workflow | `@puddleworks/puddleworks-factory-result`      | Runs `result`: writes a `build-result/v2` for the last draft of a spec, with what was published                                                                                                                                                                                                                                                                                                          |
+| Skill    | `factory-build`                                | Takes a spec to a published extension: check for reuse, agree the spec, make the app repo, generate, build test-first, check, decide visibility, publish                                                                                                                                                                                                                                                 |
 
 ## Use
 
@@ -258,10 +259,35 @@ one, unless the repo already has its own) before writing the review report: the
 report is bound to the content hash, which the manifest is part of, so it is
 never passed as `--visibility`.
 
-Before publishing, have someone other than the builder review it: write the
-review report from the publish dry run's skeleton, and map each acceptance
-criterion in `spec/outcome-spec.v*.json` to the tests that check it in
-`spec/acceptance.json`
+Before publishing, have someone other than the builder review it, in at most two
+rounds. Commit everything first, then start each round with `round`:
+
+```bash
+swamp workflow run @puddleworks/puddleworks-factory-round \
+  --input name=obsidian-puddle-scanner
+swamp data query 'behavior("puddleworks-factory") && name == "review-rounds-obsidian-puddle-scanner"' \
+  --select content --json | jq '.results[0].latest | {kind, round, file, base, changed}'
+```
+
+A round starts only when the publish dry run has nothing but the review left to
+fix, and the version isn't published yet, so publishing can't need another
+round. A warning the app accepts on purpose is named in `ci.yml`'s
+`accepted-warnings:`, as the publish job takes it. `kind` is `review` for a
+round, with `round` its number; round 2 names the round before in `base` and the
+files changed since in `changed`. A third round fails until the user agrees and
+you run it with `--input grant=true`, and each one after needs a yes of its own.
+The same content again is the same round. After a version is published, the next
+version is a new build. A change that only bumps the version (the manifest's
+`version:`, a behavior's `version:` and a no-op upgrade to it) is `carried`:
+`round` writes the last committed review to the new report path, once the
+content hash with the bump undone is the one that review was for. To check that
+it starts `git` and `swamp` as subprocesses, without a shell, and copies the
+checkout to a temporary directory. `committed` means a complete report for this
+exact content is already committed.
+
+For a round, write the review report from the publish dry run's skeleton, and
+map each acceptance criterion in `spec/outcome-spec.v*.json` to the tests that
+check it in `spec/acceptance.json`
 (`{"criteria": [{"id": "AC1", "tests": ["a Deno.test name"], "manual": ""}]}`,
 with `manual` saying how it was checked by hand when no test can). Then check
 nothing is left. `review` is the report's path, from the dry run:
@@ -275,9 +301,11 @@ swamp data query 'behavior("puddleworks-factory") && name == "readiness-obsidian
 ```
 
 It is ready when the report matches the manifest's name and version with no
-`issue` or `pending` verdict, every criterion has a test that exists or a manual
-check, and the visibility check allows the manifest's visibility. The summary
-fits on one screen: confirm publishing against it.
+`issue` or `pending` verdict, a round is recorded for the content as it is now,
+every criterion has a test that exists or a manual check, and the visibility
+check allows the manifest's visibility. Once round 2 is recorded, anything that
+ships is frozen: a later change blocks until it is undone or the user grants
+another round. The summary fits on one screen: confirm publishing against it.
 
 Write the build result once the draft is pushed. Add `pullRequest` once the pull
 request is open, and `publishedVersion` with `publishedVisibility` once it is

@@ -18,6 +18,7 @@ import {
   fakeQuality,
   passingTests,
   reviewPathFor,
+  roundRecord,
 } from "../lib/evidence_testing.ts";
 
 const EXAMPLE = JSON.parse(
@@ -302,12 +303,17 @@ const readinessOf = async (
   ctx: ReturnType<typeof makeContext>,
 ) => {
   const manifest = await Deno.readTextFile(`${dir}/manifest.yaml`);
+  const version = manifest.match(/^version: "(.+)"$/m)![1];
+  ctx.store.set(
+    "review-rounds-my-app",
+    roundRecord("my-app", "@puddleworks/my-app", version),
+  );
   await Deno.mkdir(`${dir}/swamp-extension-review`, { recursive: true });
   await Deno.writeTextFile(
     `${dir}/${REVIEW}`,
     JSON.stringify({
       extension: "@puddleworks/my-app",
-      version: manifest.match(/^version: "(.+)"$/m)![1],
+      version,
       reviewedAt: "2026-10-26T16:00:00Z",
       dimensions: REVIEW_DIMENSIONS.map((id) => ({ id, verdict: "pass" })),
     }),

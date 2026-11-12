@@ -20,7 +20,7 @@ import {
 } from "jsr:@std/assert@1.0.19";
 import { model } from "./draft.ts";
 import { REVIEW_DIMENSIONS } from "../lib/readiness.ts";
-import { appCheckout } from "../lib/target_testing.ts";
+import { appCheckout, gitCheckout, gitIn } from "../lib/target_testing.ts";
 import { passingTests } from "../lib/evidence_testing.ts";
 import type { SwampRun } from "../lib/recipe_check.ts";
 
@@ -70,6 +70,23 @@ async function contentHash(dir: string): Promise<string> {
 /** `swamp extension quality`, scoring the checkout as it is now. */
 function fakeSwamp(score: { earned: number; gateFailures: string[] }) {
   const run: SwampRun = async (args, dir) => {
+    if (args[0] === "extension" && args[1] === "push") {
+      // The dry run with no review recorded, as push names it.
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          contentHash: await contentHash(dir!),
+          registryChecks: [],
+          warnings: {
+            review: [{
+              ruleId: "adversarial-review-report",
+              skeleton: { extension: PKG },
+            }],
+          },
+        }),
+        stderr: "",
+      };
+    }
     if (args[0] !== "extension" || args[1] !== "quality") {
       return { code: 1, stdout: "", stderr: `not faked: ${args}` };
     }
@@ -139,13 +156,29 @@ const run = <M extends keyof typeof model.methods>(
     ctx,
   );
 
-/** The independent review's report, named for the checkout's content now. */
-async function writeReview(dir: string): Promise<string> {
+/**
+ * Commit the checkout, start a review round, and write the independent
+ * review's report where the round says, named for the content now.
+ */
+async function writeReview(
+  dir: string,
+  store: Map<string, Record<string, unknown>>,
+): Promise<string> {
   const manifest = await Deno.readTextFile(`${dir}/manifest.yaml`);
   const version = manifest.match(/^version: "(.+)"$/m)![1];
-  const path = `swamp-extension-review/${
-    PKG.replaceAll("@", "_").replaceAll("/", "_")
-  }-${await contentHash(dir)}.json`;
+  await gitIn(dir, "add", "-A");
+  await gitIn(dir, "commit", "-q", "--allow-empty", "-m", "build");
+  await run("round", { name: NAME }, contextOver(store));
+  const latest = store.get(`review-rounds-${NAME}`)!.latest as {
+    file: string;
+  };
+  const path = latest.file;
+  assertEquals(
+    path,
+    `swamp-extension-review/${
+      PKG.replaceAll("@", "_").replaceAll("/", "_")
+    }-${await contentHash(dir)}.json`,
+  );
   await Deno.mkdir(`${dir}/swamp-extension-review`, { recursive: true });
   await Deno.writeTextFile(
     `${dir}/${path}`,
@@ -217,7 +250,7 @@ async function built(
     store: Map<string, Record<string, unknown>>,
   ) => Promise<void>,
 ) {
-  const dir = await appCheckout(REPO, "factory-e2e-", `draft/${NAME}`);
+  const { dir } = await gitCheckout(REPO, "factory-e2e-", `draft/${NAME}`);
   const store = new Map<string, Record<string, unknown>>();
   try {
     const ctx = contextOver(store);
@@ -249,7 +282,7 @@ Deno.test("end to end: an approved spec goes to a recorded publish, each step's 
 
     // A later run, in a new process, reads what the earlier ones recorded.
     const resumed = contextOver(store);
-    const review = await writeReview(dir);
+    const review = await writeReview(dir, store);
     assertEquals(await readiness(review, resumed), `readiness-${NAME}`);
     const ready = store.get(`readiness-${NAME}`)!;
     assertEquals(ready.ready, true, String(ready.summary));
@@ -279,17 +312,21 @@ Deno.test("end to end: an approved spec goes to a recorded publish, each step's 
 
 Deno.test("end to end: a change after the review makes it stale", async () => {
   await built(async (dir, store) => {
-    const review = await writeReview(dir);
+    const review = await writeReview(dir, store);
     await implement(dir, "a late change");
     await acceptance(dir, ["lists open tasks"]);
     await readiness(review, contextOver(store));
-    blockedBy(store, "the code changed after the review");
+    blockedBy(
+      store,
+      "the code changed after the review",
+      "No review round is recorded for this content",
+    );
   });
 });
 
 Deno.test("end to end: a failed or missing quality factor blocks", async () => {
   await built(async (dir, store) => {
-    const review = await writeReview(dir);
+    const review = await writeReview(dir, store);
     await readiness(
       review,
       contextOver(store, { earned: 13, gateFailures: [] }),
@@ -306,7 +343,7 @@ Deno.test("end to end: a failed or missing quality factor blocks", async () => {
 Deno.test("end to end: an acceptance criterion with no test, or a failing one, blocks", async () => {
   await built(async (dir, store) => {
     await acceptance(dir, ["a test nobody wrote"]);
-    const review = await writeReview(dir);
+    const review = await writeReview(dir, store);
     await readiness(review, contextOver(store));
     blockedBy(store, "not in any *_test.ts");
     await acceptance(dir, []);
@@ -332,7 +369,11 @@ Deno.test("end to end: an acceptance criterion with no test, or a failing one, b
 Deno.test("end to end: a missing review report blocks", async () => {
   await built(async (_dir, store) => {
     await readiness("swamp-extension-review/none.json", contextOver(store));
-    blockedBy(store, "could not be read");
+    blockedBy(
+      store,
+      "could not be read",
+      "No review round is recorded for this content",
+    );
   });
 });
 

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -c 'if ((.tool_input.prompt // \"\") | gsub(\"\\\\s+\"; \" \") | ascii_downcase | contains(\"adversarial reviewer\")) then {hookSpecificOutput: {hookEventName: \"PreToolUse\", permissionDecision: \"ask\", permissionDecisionReason: \"This starts a review round, which costs a fresh Opus agent. Allow it only if you agreed to this round.\"}} else empty end'"
+            "command": "jq -c '((.tool_input.prompt // \"\") | gsub(\"\\\\s+\"; \" \") | ascii_downcase) as $p | if ($p | contains(\"adversarial reviewer\") or contains(\"review a swamp extension before it is published\")) then {hookSpecificOutput: {hookEventName: \"PreToolUse\", permissionDecision: \"ask\", permissionDecisionReason: \"This starts a review round, which costs a fresh Opus agent. A build has two at most; allow it only if you agreed to this round.\"}} else empty end'"
           }
         ]
       }

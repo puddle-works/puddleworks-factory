@@ -697,6 +697,7 @@ const RESERVED = [
   "readiness-",
   "plan-review-",
   "assessment-",
+  "review-rounds-",
 ];
 
 Deno.test("render: refuses an app name that starts with a reserved prefix", () => {
@@ -1449,7 +1450,7 @@ function checkContext(names: string[] | Error, methodName = "readiness") {
   };
 }
 
-Deno.test("check draft-rendered: a policy check before result, visibility and readiness", () => {
+Deno.test("check draft-rendered: a policy check before result, visibility, round and readiness", () => {
   const check = model.checks["draft-rendered"];
   assertEquals(check.labels, ["policy"]);
   assertEquals(check.appliesTo, [
@@ -1457,6 +1458,7 @@ Deno.test("check draft-rendered: a policy check before result, visibility and re
     "revise",
     "planReview",
     "visibility",
+    "round",
     "readiness",
   ]);
 });

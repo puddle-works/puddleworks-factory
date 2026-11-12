@@ -58,3 +58,29 @@ export const passingTests: TestRunner = async (dir) => {
   await walk(`${dir}/extensions`).catch(() => {});
   return { tests };
 };
+
+/**
+ * A reviewRounds record holding round 1 of `version` at FAKE_HASH, for
+ * tests of readiness that are not about rounds.
+ */
+export const roundRecord = (name: string, pkg: string, version: string) => {
+  const round = {
+    version,
+    kind: "review",
+    round: 1,
+    contentHash: FAKE_HASH,
+    commit: "0123456789abcdef",
+    file: reviewPathFor(pkg),
+    base: null,
+    changed: [],
+    granted: false,
+    carriedFrom: null,
+    startedAt: "2026-11-11T12:00:00.000Z",
+  };
+  return {
+    name,
+    targetDir: "/",
+    rounds: [round],
+    latest: { ...round, skeleton: null, previous: null },
+  };
+};
