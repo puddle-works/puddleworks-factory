@@ -55,7 +55,7 @@ deno=$(swamp doctor extensions --json | jq -r .denoPath)
 (cd "$app" && "$deno" test -A extensions/models/)
 
 echo "==> the Stagecraft definition and its saved scenarios"
-swamp extension pull @swamp/stagecraft@2026.11.05.3 --json > /dev/null
+swamp extension pull @swamp/stagecraft@2026.11.11.1 --json > /dev/null
 swamp behavior create @swamp/stagecraft/tracker board --global-arg prefix=fb --json > /dev/null
 swamp behavior create @swamp/stagecraft/factory fb --global-arg tracker=board --json > /dev/null
 f=models/@swamp/stagecraft/factory/fb.yaml

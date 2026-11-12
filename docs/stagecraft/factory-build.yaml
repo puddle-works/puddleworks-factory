@@ -1,30 +1,48 @@
 definition:
   schemaVersion: 5
   description: |-
-    Build a swamp app from an agreed app spec: agree the spec, pick the target
-    repo, generate the draft, implement it, check it, decide visibility, have a
-    fresh agent review it, open the PR, and publish once a person approves.
+    Build a swamp app from an agreed spec: assess what already exists, agree
+    the spec, pick the target repo, generate the draft, then plan, implement,
+    check, decide visibility, review, open the PR, publish once a person
+    approves, and record the build result against the request.
 
-    For: the Puddleworks Factory's factory-build skill. A lean definition: one
-    independent review and no plan review; a person decides only where the
-    skill asks today.
+    For: the Puddleworks Factory's factory-build skill. It is a copy of
+    stagecraft's build-swamp-extension.yaml (@swamp/stagecraft 2026.11.11.1)
+    with Factory's stages added. The example's stages (plan, plan-review,
+    implement, check, code-review, release, duplicate) are kept as written,
+    so a diff against the example shows only what is listed here:
+    plan is no longer the initial stage; check's passed exits go to
+    visibility; code-review allows two reviews (maxCycles 2), its prompt
+    names the round, the spec and the report, and round 2 reviews only the
+    change since round 1; code-review's accept goes to pr; release's
+    released goes to record. Factory adds intake, record-existing, target,
+    create-repo, generate, visibility, round, pr, pre-publish, record and
+    reused. release is the example's: the driver publishes the approved
+    publish-request head with make publish, and records release with the
+    reviewed commit as commit, adding head and visibility, which record
+    checks against the approval.
 
-    Change first: review's maxCycles, the number of reviews a work item may
-    have (the first one plus re-reviews) before a person must grant another.
+    Change first: nothing here. The review limit is Factory's: its round
+    workflow counts two reviews per build until a publish, and code-review's
+    maxCycles mirrors it. A third review needs the person's yes, given both
+    as a cycle override for code-review and as grant=true to the round
+    workflow.
 
-    People decide at six points: reusing what the assessment found or
-    building nothing (reuse-approval), the spec (spec-approval), creating a
-    repo that does not exist yet (repo-creation), publishing a named commit,
-    version and visibility (publish-approval), granting another review past
-    the limit (a cycle override) and abandoning (abandon-confirmation). Each
+    People decide at: reusing what the assessment found (reuse-approval),
+    the spec (spec-approval), creating a repo (repo-creation), the plan
+    (plan-approval), waiving the quality score (quality-waiver), public or
+    private (visibility-choice), the reviewed change (release-approval),
+    publishing a named head, version and visibility (publish-approval), a
+    review past the limit (a cycle override), a duplicate
+    (duplicate-confirmation) and abandoning (abandon-confirmation). Each
     approval is bound to the products recorded before it, so changing what
-    was approved voids it. The checks, the review, the PR and the release are
-    bound to the commit named in change-summary. Approving publishing is
-    never approval to merge; the person merges the PR.
+    was approved voids it. Approving publishing is never approval to merge;
+    the person merges the PR.
 
   stages:
     - id: intake
       initial: true
+      tracker: { status: open }
       description: >-
         Assess whether an existing recipe or extension already does the job
         (Factory's assess, #41 and #55), then take that path with the person's
@@ -142,13 +160,14 @@ definition:
               config: { id: reuse-approval }
 
     - id: record-existing
+      tracker: { status: open }
       description: >-
-        Nothing is built. Record a build-result/v1 in Capture for the
+        Nothing is built. Record a build-result/v2 in Capture for the
         extension whose recipe already does the job.
       work:
         mode: interactive
         systemPrompt: |
-          Write the build-result/v1 by hand for the extension the recipe
+          Write the build-result/v2 by hand for the extension the recipe
           calls, run Capture's record_build_result with it, and record
           build-result.
       evidence:
@@ -169,6 +188,7 @@ definition:
               config: { name: build-result }
 
     - id: target
+      tracker: { status: open }
       description: >-
         Name the app repo, its checkout and the draft branch. A repo that
         does not exist yet is created only in create-repo, after a person
@@ -220,7 +240,7 @@ definition:
                   the repo does not exist yet (take create-repo), or this is
                   a recipe or workflow (take existing-reuse)
         - name: existing-reuse
-          to: implement
+          to: plan
           description: >-
             A recipe or workflow goes into an existing repo; nothing is
             generated.
@@ -265,6 +285,7 @@ definition:
               config: { id: repo-creation }
 
     - id: create-repo
+      tracker: { status: open }
       description: Create the approved repo from the template, private, and clone it.
       work:
         mode: interactive
@@ -304,7 +325,7 @@ definition:
                   the repo created is not the approved private target, or this
                   is a recipe or workflow (take created-reuse)
         - name: created-reuse
-          to: implement
+          to: plan
           description: >-
             A new repo for a recipe or workflow: public for the external
             recipes pack, private for a workflow app. Nothing is generated.
@@ -328,6 +349,7 @@ definition:
                   visibility its verdict needs
 
     - id: generate
+      tracker: { status: open }
       description: >-
         Run Factory's build workflow, which renders the draft into the target
         checkout.
@@ -335,41 +357,262 @@ definition:
         mode: workflow
         workflow:
           name: "@puddleworks/puddleworks-factory-build"
-          passAsInputs: [spec, targetDir, repository, specDigest]
+          passAsInputs: [spec, targetDir, repository, branch, specDigest]
         let:
           spec: artifacts["spec"].payload.source
           specDigest: artifacts["spec"].payload.digest
           targetDir: evidence["target"].payload.checkout
           repository: evidence["target"].payload.repository
+          branch: evidence["target"].payload.branch
         resultEvidence: draft
       transitions:
         - name: generated
-          to: implement
+          to: plan
           gates:
             - type: evidence-recorded
               config: { name: draft, requireField: { status: succeeded } }
 
-    - id: implement
-      maxCycles: 5
-      description: Fill in the behaviour test-first, within the spec, and commit it.
+    - id: plan
+      tracker:
+        status: open
+        entries:
+          - on: { record: plan }
+            cycle: first
+            step: plan_generated
+            emoji: "📝"
+            summary: "Plan generated (v{{$version}}): {{summary}}"
+          - on: { record: plan }
+            cycle: later
+            step: plan_revised
+            emoji: "🔄"
+            summary: "Plan revised (v{{$version}}), round {{$cycle}}: {{summary}}"
+        duplicate:
+          on: { approve: duplicate-confirmation }
+          record: duplicate-of
+          field: primary
+      description: Plan the change to the extension.
       work:
         mode: interactive
         systemPrompt: |
-          Build the app test-first within the spec. Commit the work, then
-          record change-summary with the full SHA of the commit to check and
-          review. After a failed check or review, record it again for the new
-          commit.
+          First, check the work is not a duplicate of another ticket. If it
+          is, find out whether that ticket, the primary, already has a work
+          item: run the tracker's claim on it with dryRun=true, which writes
+          nothing. Record duplicate-of with the primary's stable id, its
+          display id and why, and wait for a person to approve
+          duplicate-confirmation; do not plan. Once it is approved, move the
+          work to the primary. When the primary has no work item, retarget
+          this work item onto the primary's externalRefs and publish at once,
+          so the ticket index follows before anyone claims the primary, then
+          plan the primary's work here. When it has one, take the duplicate
+          exit.
+
+          Plan the change. Name the files each step touches, how it will be
+          tested, and whether the manifest version needs a bump (any behaviour
+          change to a published extension does).
+
+          On a later plan, read the injected plan (the last one), plan-review
+          (its review) and plan-feedback (the person's latest feedback); the
+          first plan has none of them. After rework, address the review's open
+          critical and high findings. After revise, address the feedback.
+          Record feedbackIncorporated as the last plan's list, adding the
+          feedback word for word unless it is already the list's last entry:
+          after rework, plan-feedback is the feedback the last plan already
+          answered.
         context:
-          inject: [assessment, spec, review]
-          optional: [spec, review]
+          inject: [plan, plan-review, plan-feedback]
+      artifacts:
+        - name: plan
+          schema:
+            type: object
+            required: [summary, steps, testingStrategy, versionBump]
+            properties:
+              summary: { type: string, minLength: 1 }
+              steps:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [description, files]
+                  additionalProperties: false
+                  properties:
+                    description: { type: string, minLength: 1 }
+                    files: {
+                      type: array,
+                      items: { type: string, minLength: 1 },
+                    }
+              testingStrategy: { type: string, minLength: 1 }
+              versionBump:
+                type: object
+                required: [needed, reason]
+                additionalProperties: false
+                properties:
+                  needed: { type: boolean }
+                  reason: { type: string, minLength: 1 }
+              feedbackIncorporated:
+                description: >-
+                  Every round of a person's plan feedback this plan answers,
+                  oldest first.
+                type: array
+                items: { type: string, minLength: 1 }
+        - name: duplicate-of
+          schema:
+            type: object
+            required: [primary, display, reason]
+            additionalProperties: false
+            properties:
+              primary:
+                description: The primary ticket's stable id.
+                type: string
+                minLength: 1
+              display:
+                description: The primary ticket's display id.
+                type: string
+                minLength: 1
+              reason: { type: string, minLength: 1 }
+      transitions:
+        - name: submit
+          to: plan-review
+          gates:
+            - type: artifact-exists
+              config: { artifact: plan }
+        - name: duplicate
+          to: duplicate
+          description: >-
+            The work duplicates a primary ticket that already has a work item;
+            a person confirms it. When the primary has none, the work item is
+            retargeted onto it instead, and the cel gate closes this exit to
+            it. "builtin" there is the built-in tracker's externalRefs key; a
+            definition for Linear names "linear".
+          gates:
+            - type: human-approval
+              config: { id: duplicate-confirmation }
+            - type: cel
+              config:
+                expr: >-
+                  "duplicate-of" in artifacts &&
+                  (!("builtin" in item.externalRefs) ||
+                  item.externalRefs["builtin"] !=
+                  artifacts["duplicate-of"].payload.primary)
+                message: >-
+                  this work item is on the primary ticket now; plan it here
+
+    - id: plan-review
+      tracker:
+        status: open
+        entries:
+          - on: { record: plan-review }
+            step: plan_reviewed
+            emoji: "🔍"
+            summary: >-
+              Plan review (plan v{{$version.plan}}): {{count findings
+              severity=critical}} critical, {{count findings severity=high}}
+              high, {{count findings}} in all
+          - on: { approve: plan-approval }
+            step: plan_approved
+            emoji: "✅"
+            summary: "Plan approved (v{{$version.plan}})"
+      description: >-
+        Adversarial review of the current plan. Approval needs a fresh review
+        with no open critical or high findings and a person's sign-off; open
+        critical or high findings send the plan back. Approving carries the open
+        medium and low findings into implement, which receives plan-review;
+        revise is for when the person wants the plan itself changed and
+        reviewed again.
+      work:
+        mode: dispatch
+        systemPrompt: |
+          You are an adversarial reviewer. Try to refute this plan:
+          {{planSummary}}
+          Check its steps against the code, its testing strategy against the
+          risks, and whether the version bump call is right.
+          Rate a finding critical or high only if the plan would ship a
+          defect, lose data, break a stated rule, or make the declared checks
+          meaningless. Gaps in process, logistics or manual verification that
+          the automated checks already cover are medium at most. Judge the
+          plan against the size of the change: do not ask for verification
+          machinery bigger than the change, and give the smallest adequate fix
+          for each finding. Report findings with severities, and do not soften
+          the severity of a real defect.
+        let:
+          planSummary: artifacts["plan"].payload.summary
+        context:
+          inject: [plan]
+      artifacts:
+        - name: plan-review
+          kind: findings
+          reviews: plan
+      evidence:
+        - name: plan-feedback
+          description: >-
+            A person's feedback on the plan, in their words; revise needs it.
+            The round is the cycle it was recorded in.
+          recordedBy: person
+          schema:
+            type: object
+            required: [feedback]
+            additionalProperties: false
+            properties:
+              feedback: { type: string, minLength: 1 }
+      transitions:
+        - name: approve
+          to: implement
+          gates:
+            - type: artifact-fresh
+              config: { artifact: plan-review, recordedThisCycle: true }
+            - type: findings-clear
+              config: { artifact: plan-review, blocking: [critical, high] }
+            - type: human-approval
+              config: { id: plan-approval }
+        - name: rework
+          to: plan
+          description: >-
+            The fresh plan review has an open critical or high finding, so the
+            plan goes back to be fixed.
+          gates:
+            - type: artifact-fresh
+              config: { artifact: plan-review, recordedThisCycle: true }
+            - type: cel
+              config:
+                expr: >-
+                  "plan-review" in artifacts &&
+                  artifacts["plan-review"].payload.findings.exists(f,
+                  (f.severity == "critical" || f.severity == "high") &&
+                  !(has(f.resolved) && f.resolved))
+                message: rework needs an open critical or high finding
+        - name: revise
+          to: plan
+          manual: true
+          description: >-
+            A person declined the plan without a blocking finding, to change
+            the plan itself and have it reviewed again. To act on non-blocking
+            findings during implement, approve instead. Manual, so it never
+            fires on its own, and the person's feedback is recorded first, so
+            every revision carries its reason to the next plan.
+          gates:
+            - type: evidence-recorded
+              description: The person's feedback on this plan is recorded.
+              config: { name: plan-feedback }
+
+    - id: implement
+      tracker: { status: in_progress }
+      description: Implement the approved plan and commit it.
+      work:
+        mode: interactive
+        systemPrompt: |
+          Implement the approved plan. Commit the work, then record
+          change-summary with the full SHA of the commit you want checked and
+          reviewed. After rework, record it again for the new commit.
+        context:
+          inject: [plan, plan-review]
       artifacts:
         - name: change-summary
           schema:
             type: object
-            required: [summary, commit, manifestVersion]
+            required: [summary, commit, files]
             properties:
               summary: { type: string, minLength: 1 }
               commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              files: { type: array, minItems: 1, items: { type: string } }
               manifestVersion:
                 type: string
                 pattern: "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"
@@ -382,9 +625,9 @@ definition:
             - type: cel
               config:
                 expr: >-
-                  "change-summary" in artifacts && (!("checks" in evidence) ||
+                  !("checks" in evidence) ||
                   evidence["checks"].payload.commit !=
-                  artifacts["change-summary"].payload.commit)
+                  artifacts["change-summary"].payload.commit
                 message: >-
                   change-summary still names the commit already checked; record
                   it for the new commit
@@ -392,20 +635,46 @@ definition:
           to: check
           manual: true
           description: >-
-            Check the same commit again, for a failure that was not the
-            code's. A person decides.
+            Check the same commit again, for a failure that was not the code's
+            (a flaky test, a broken tool). A person decides.
 
     - id: check
+      tracker:
+        status: in_progress
+        entries:
+          - on: dispatch
+            step: checks_started
+            emoji: "🧪"
+            summary: "Checks started on {{$input.commit}}, attempt {{$cycle}}"
+          - on: { record: checks }
+            match: { status: passed }
+            step: checks_passed
+            emoji: "✅"
+            summary: "Checks passed on {{commit}}"
+          - on: { record: checks }
+            match: { status: failed }
+            step: checks_failed
+            emoji: "❌"
+            summary: "Checks failed on {{commit}}"
       description: >-
-        Format, tests, contracts, guardrails, workflow validation and swamp
-        extension quality on the change-summary commit.
+        Run the extension's checks (swamp extension fmt, type check, lint,
+        tests) and swamp extension quality on the change-summary commit. An
+        extension with no manifest yet cannot be scored; a person can waive the
+        quality score instead. If the waiver is granted while a recorded quality
+        score also failed, both passed-with-quality-waiver and quality-failed
+        are satisfied, and the driver asks which to take. When checks and
+        quality both fail, failed and quality-failed are both satisfied; both
+        return to implement.
       work:
         mode: interactive
         systemPrompt: |
-          Check commit {{commit}}: make test, deno check, fmt --check, the
-          contract and guardrail checks and swamp workflow validate. Record
-          checks. Run swamp extension quality --json and record quality from
-          its output, adding the commit.
+          Check commit {{commit}}. Run swamp extension fmt, the type check,
+          lint and tests, and record checks. Then run
+          swamp extension quality --json and record quality from its output,
+          adding the commit it scored.
+          If the extension has no manifest yet, record checks and ask the person
+          whether to waive quality, and why. Record their answer as
+          quality-waiver, adding the commit, and ask for the waiver's approval.
         let:
           commit: artifacts["change-summary"].payload.commit
       evidence:
@@ -422,9 +691,12 @@ definition:
                 items:
                   type: object
                   required: [name, status]
+                  additionalProperties: false
                   properties:
                     name: { type: string, minLength: 1 }
                     status: { enum: [passed, failed, skipped] }
+                    detail: { type: string }
+            $comment: An overall pass cannot contain a failed result.
             if:
               properties: { status: { const: passed } }
             then:
@@ -434,13 +706,42 @@ definition:
                     contains:
                       properties: { status: { const: failed } }
         - name: quality
+          description: >-
+            The output of swamp extension quality --json, plus the commit it
+            scored. Only the stable top-level fields are named; the rest is kept
+            as recorded.
           schema:
             type: object
-            required: [commit, allPassed]
+            required: [commit, status, allPassed]
             properties:
               commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              status: { type: string, minLength: 1 }
               allPassed: { type: boolean }
+              rubricVersion: { type: integer }
+              earnedPoints: { type: integer, minimum: 0 }
+              maxClientEarnablePoints: { type: integer, minimum: 0 }
               percentage: { type: number, minimum: 0, maximum: 100 }
+              factors:
+                type: array
+                items:
+                  type: object
+                  required: [id, status]
+                  properties:
+                    id: { type: string, minLength: 1 }
+                    status: { type: string, minLength: 1 }
+        - name: quality-waiver
+          description: >-
+            A person's decision to waive the quality score for one commit, and
+            why, in their words; passed-with-quality-waiver needs it, and the
+            code reviewer reads it.
+          recordedBy: person
+          schema:
+            type: object
+            required: [commit, reason]
+            additionalProperties: false
+            properties:
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              reason: { type: string, minLength: 1 }
       transitions:
         - name: passed
           to: visibility
@@ -452,42 +753,81 @@ definition:
             - type: cel
               config:
                 expr: >-
-                  "checks" in evidence && "change-summary" in artifacts && "quality"
-                  in evidence && (evidence["checks"].payload.commit ==
+                  evidence["checks"].payload.commit ==
                   artifacts["change-summary"].payload.commit &&
+                  "quality" in evidence &&
                   evidence["quality"].payload.commit ==
+                  artifacts["change-summary"].payload.commit
+                message: >-
+                  checks and quality must be for the change-summary commit
+        - name: passed-with-quality-waiver
+          to: visibility
+          gates:
+            - type: evidence-recorded
+              config: { name: checks, requireField: { status: passed } }
+            - type: evidence-recorded
+              config: { name: quality-waiver }
+            - type: human-approval
+              config: { id: quality-waiver }
+            - type: cel
+              config:
+                expr: >-
+                  evidence["checks"].payload.commit ==
+                  artifacts["change-summary"].payload.commit &&
+                  (!("quality-waiver" in evidence) ||
+                  evidence["quality-waiver"].cycle != stage.cycle ||
+                  evidence["quality-waiver"].payload.commit ==
                   artifacts["change-summary"].payload.commit)
-                message: checks and quality must be for the change-summary commit
+                message: >-
+                  checks and the quality waiver must be for the change-summary
+                  commit
         - name: failed
           to: implement
-          description: The checks failed, so the change goes back to be fixed.
+          description: >-
+            The checks failed, so the change goes back to be fixed.
           gates:
             - type: evidence-recorded
               config: { name: checks, requireField: { status: failed } }
         - name: quality-failed
           to: implement
-          description: The quality score did not all pass, so the change goes back.
+          description: >-
+            The quality checks did not all pass, so the change goes back to be
+            fixed.
           gates:
             - type: evidence-recorded
               config: { name: quality, requireField: { allPassed: false } }
 
     - id: visibility
+      tracker: { status: in_progress }
       description: >-
-        Recommend public or private and record the person's choice. The
-        choice carries over to later passes, so rework does not ask again.
+        Recommend public or private for the checked commit and record the
+        person's choice. The visibility workflow runs again on every pass, and
+        the person is asked again only when its recommendation changed. A
+        manifest that does not say the chosen visibility, or a public choice
+        that the required checks block, goes back to implement.
       work:
         mode: interactive
         systemPrompt: |
-          If visibility-choice is already recorded, move on. Otherwise run the
-          visibility workflow, record its recommendation, show it to the person
-          and record their answer as visibility-choice.
+          Run Factory's visibility workflow on commit {{commit}} and record
+          visibility-recommendation from its record, adding the commit. If
+          visibility-choice is already recorded and the recommendation is the
+          same as last time, do not ask again. Otherwise show the person the
+          recommendation, every failed check and each finding, and record
+          their answer as visibility-choice. Then record manifest-visibility:
+          the visibility manifest.yaml and ci.yml say at {{commit}}, and
+          matchesChoice: whether that is the choice, and public is not blocked
+          by a required check.
+        let:
+          commit: artifacts["change-summary"].payload.commit
       artifacts:
         - name: visibility-recommendation
           schema:
             type: object
-            required: [recommended, reasons]
+            required: [commit, recommended, canBePublic, reasons]
             properties:
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
               recommended: { enum: [public, private] }
+              canBePublic: { type: boolean }
               reasons:
                 type: array
                 items: { type: string, minLength: 1 }
@@ -501,38 +841,280 @@ definition:
             properties:
               visibility: { enum: [public, private] }
               reason: { type: string, minLength: 1 }
+        - name: manifest-visibility
+          schema:
+            type: object
+            required: [commit, visibility, matchesChoice]
+            additionalProperties: false
+            properties:
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              visibility: { enum: [public, private] }
+              matchesChoice: { type: boolean }
       transitions:
         - name: decided
-          to: review
+          to: round
           gates:
+            - type: evidence-recorded
+              config:
+                {
+                  name: manifest-visibility,
+                  requireField: { matchesChoice: true },
+                }
             - type: cel
               config:
-                expr: '"visibility-choice" in evidence'
-                message: the person has not chosen public or private
+                expr: >-
+                  "visibility-recommendation" in artifacts && "change-summary"
+                  in artifacts && "manifest-visibility" in evidence &&
+                  "visibility-choice" in evidence &&
+                  (artifacts["visibility-recommendation"].payload.commit ==
+                  artifacts["change-summary"].payload.commit &&
+                  evidence["manifest-visibility"].payload.commit ==
+                  artifacts["change-summary"].payload.commit &&
+                  evidence["manifest-visibility"].payload.visibility ==
+                  evidence["visibility-choice"].payload.visibility &&
+                  (evidence["visibility-choice"].payload.visibility == "private"
+                  || artifacts["visibility-recommendation"].payload.canBePublic))
+                message: >-
+                  the recommendation and the manifest must be for the
+                  change-summary commit, the manifest must say the chosen
+                  visibility, and public needs every required check to pass
+        - name: change
+          to: implement
+          description: >-
+            The manifest does not say the chosen visibility, or public was
+            chosen while a required check blocks it. Implement makes the
+            change, and it is checked again.
+          gates:
+            - type: evidence-recorded
+              config:
+                {
+                  name: manifest-visibility,
+                  requireField: { matchesChoice: false },
+                }
+            - type: cel
+              config:
+                expr: >-
+                  "visibility-recommendation" in artifacts &&
+                  "manifest-visibility" in evidence && "visibility-choice" in
+                  evidence && (evidence["manifest-visibility"].payload.visibility
+                  != evidence["visibility-choice"].payload.visibility ||
+                  (evidence["visibility-choice"].payload.visibility == "public"
+                  && !artifacts["visibility-recommendation"].payload.canBePublic))
+                message: the manifest already says the chosen visibility
 
-    - id: review
-      maxCycles: 3
+    - id: round
+      tracker: { status: in_progress }
       description: >-
-        One independent review by a fresh agent of the checked commit, against
-        the spec and its acceptance criteria. Open critical or high findings
-        send the work back; three reviews in all before a person must grant
-        another.
+        Start a review round with Factory's round workflow, which counts two
+        rounds per build until a publish; code-review's maxCycles mirrors it.
+        A real review round goes on to code-review. A review carried over
+        (only the version changed) or already committed for this content
+        skips it. A refusal (uncommitted files, a publish dry run warning, a
+        version already published, a third round the person did not grant)
+        goes back to implement.
+      work:
+        mode: interactive
+        systemPrompt: |
+          In {{checkout}}, which must be at commit {{commit}} with nothing
+          uncommitted, run make publish VISIBILITY={{visibility}} DRY_RUN=1.
+          Then run Factory's round workflow and record round from its record's
+          latest round, adding the app name. A third round needs the person's
+          yes: on it, grant a cycle override for code-review and run the round
+          workflow again with grant=true. If the dry run or the round workflow
+          refuses, record round with outcome refused, the commit and its
+          message. Otherwise outcome is review, or skip for a carried or
+          committed review. A
+          recipe or workflow in an existing repo has no Factory draft: record
+          round with kind unrecorded, the round number this would be, and the
+          report file the dry run names.
+        let:
+          commit: artifacts["change-summary"].payload.commit
+          checkout: evidence["target"].payload.checkout
+          visibility: evidence["visibility-choice"].payload.visibility
+      evidence:
+        - name: round
+          description: >-
+            Factory's review-rounds record's latest round for this content.
+          schema:
+            type: object
+            required: [outcome, commit]
+            properties:
+              outcome:
+                description: >-
+                  review for a round to review, skip for one carried over or
+                  committed, refused when the dry run or the round workflow
+                  refused.
+                enum: [review, skip, refused]
+              message: { type: string, minLength: 1 }
+              name: { type: string, minLength: 1 }
+              kind: { enum: [review, carried, committed, unrecorded] }
+              round: { type: integer, minimum: 0 }
+              version:
+                type: string
+                pattern: "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"
+              contentHash: { type: string, minLength: 1 }
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              file: { type: string, minLength: 1 }
+              base: { type: [string, "null"], pattern: "^[0-9a-f]{40}$" }
+              changed: { type: array, items: { type: string } }
+              granted: { type: boolean }
+            if:
+              properties: { outcome: { const: refused } }
+            then:
+              required: [message]
+            else:
+              required:
+                [
+                  name,
+                  kind,
+                  round,
+                  version,
+                  contentHash,
+                  file,
+                  base,
+                  changed,
+                  granted,
+                ]
+      transitions:
+        - name: review
+          to: code-review
+          gates:
+            - type: evidence-recorded
+              config: { name: round, requireField: { outcome: review } }
+            - type: cel
+              config:
+                expr: >-
+                  "round" in evidence && "change-summary" in artifacts &&
+                  "target" in evidence &&
+                  (evidence["round"].payload.commit ==
+                  artifacts["change-summary"].payload.commit &&
+                  "manifestVersion" in artifacts["change-summary"].payload &&
+                  evidence["round"].payload.version ==
+                  artifacts["change-summary"].payload.manifestVersion &&
+                  (evidence["round"].payload.kind == "review" ||
+                  (evidence["round"].payload.kind == "unrecorded" &&
+                  evidence["target"].payload.route == "reuse")) &&
+                  evidence["round"].payload.round >= 1 &&
+                  (evidence["round"].payload.round <= 2 ||
+                  evidence["round"].payload.granted))
+                message: >-
+                  the round must be a review round of the change-summary
+                  commit and version, and a third round needs the person's
+                  grant
+        - name: carried
+          to: pr
+          description: >-
+            Factory carried the last review over (only the version changed)
+            or a review of this content is already committed, so there is
+            nothing to review.
+          gates:
+            - type: evidence-recorded
+              config: { name: round, requireField: { outcome: skip } }
+            - type: cel
+              config:
+                expr: >-
+                  "round" in evidence && "change-summary" in artifacts &&
+                  (evidence["round"].payload.commit ==
+                  artifacts["change-summary"].payload.commit &&
+                  "manifestVersion" in artifacts["change-summary"].payload &&
+                  evidence["round"].payload.version ==
+                  artifacts["change-summary"].payload.manifestVersion &&
+                  evidence["round"].payload.kind in ["carried", "committed"])
+                message: >-
+                  the round is not a carried or committed review of the
+                  change-summary commit and version
+        - name: refused
+          to: implement
+          description: >-
+            The publish dry run or the round workflow refused, so the change
+            goes back to be fixed.
+          gates:
+            - type: evidence-recorded
+              config: { name: round, requireField: { outcome: refused } }
+            - type: cel
+              config:
+                expr: >-
+                  "round" in evidence && "change-summary" in artifacts &&
+                  evidence["round"].payload.commit ==
+                  artifacts["change-summary"].payload.commit
+                message: the refusal must be for the change-summary commit
+
+    - id: code-review
+      maxCycles: 2
+      tracker:
+        status: in_progress
+        entries:
+          - on: { record: code-review }
+            step: code_reviewed
+            emoji: "🔍"
+            summary: >-
+              Code review (change v{{$version.change-summary}}): {{count
+              findings severity=critical}} critical, {{count findings
+              severity=high}} high, {{count findings}} in all
+          - on: { approve: release-approval }
+            step: release_approved
+            emoji: "✅"
+            summary: "Release approved (change v{{$version.change-summary}})"
+      description: >-
+        Adversarial review of the checked change. Releasing needs a fresh review
+        with no open critical or high findings and a person's approval; open
+        critical or high findings send the change back.
       work:
         mode: dispatch
         systemPrompt: |
-          You have not seen this build. Review commit {{commit}} against the
-          spec: run make test, read the code, tests, workflow and manifest, and
-          map each acceptance criterion to the tests that prove it.
-          Rate a finding critical or high only if the app would ship a defect,
-          break the spec or make the declared checks meaningless. Give the
-          smallest adequate fix for each finding.
+          You are an adversarial reviewer. Review commit {{commit}}:
+          {{changeSummary}}
+          Check it against the approved plan.
+          This is review round {{roundNumber}} of 2, of the app checkout
+          {{checkout}}. {{scope}}
+          Check it against the spec too ({{spec}}, and every file in spec/ in
+          the checkout): inputs and settings as the spec names them, nothing on
+          its out-of-scope list, and no permissions or secrets the settings do
+          not name. Map each acceptance criterion in the highest
+          spec/outcome-spec.v*.json, when there is one, to the tests that
+          really check it, in spec/acceptance.json. Write the swamp review
+          report to {{report}} in the checkout, from the skeleton in Factory's
+          round record
+          (swamp data query 'behavior("puddleworks-factory") && name ==
+          "review-rounds-{{appName}}"' --select content --json, its
+          .latest.skeleton), with a verdict and a note for every dimension.
+          Change no code or spec, and commit nothing.
+          The products below may include a quality score and a person's waiver
+          of it. Go only by a record whose commit is {{commit}}. A waiver is a
+          person's decision: neither it nor the score it waives is a finding,
+          and a score it left unrecorded is not missing. A defect in the code
+          itself is still a finding.
+          Rate a finding critical or high only if the change would ship a
+          defect, lose data, break a stated rule, or make the declared checks
+          meaningless. Gaps in process, logistics or manual verification that
+          the automated checks already cover are medium at most. Judge the
+          change against the size of the change: do not ask for verification
+          machinery bigger than the change, and give the smallest adequate fix
+          for each finding. Report findings with severities, and do not soften
+          the severity of a real defect.
         let:
           commit: artifacts["change-summary"].payload.commit
+          changeSummary: artifacts["change-summary"].payload.summary
+          roundNumber: string(int(evidence["round"].payload.round))
+          checkout: evidence["target"].payload.checkout
+          report: evidence["round"].payload.file
+          appName: evidence["round"].payload.name
+          spec: >-
+            "spec" in artifacts ? artifacts["spec"].payload.source :
+            "no app spec: a recipe or workflow for an existing method"
+          scope: >-
+            evidence["round"].payload.round >= 2 ?
+            "Review only what changed since round 1: git -C " +
+            evidence["target"].payload.checkout + " diff " +
+            evidence["round"].payload.base +
+            ", the files the round record lists as changed. For each dimension the change does not touch, keep round 1's verdict from .latest.previous and note carried from round 1." :
+            "Review the whole repo."
         context:
-          inject: [assessment, spec, change-summary, checks, quality]
-          optional: [spec]
+          inject:
+            [plan, change-summary, checks, quality, quality-waiver, spec, round]
+          optional: [quality, quality-waiver, spec]
       artifacts:
-        - name: review
+        - name: code-review
           kind: findings
           reviews: change-summary
       transitions:
@@ -540,53 +1122,82 @@ definition:
           to: pr
           gates:
             - type: artifact-fresh
-              config: { artifact: review, recordedThisCycle: true }
+              config: { artifact: code-review, recordedThisCycle: true }
             - type: findings-clear
-              config: { artifact: review, blocking: [critical, high] }
+              config: { artifact: code-review, blocking: [critical, high] }
+            - type: human-approval
+              config: { id: release-approval }
         - name: rework
           to: implement
           description: >-
-            The fresh review has an open critical or high finding, so the
+            The fresh code review has an open critical or high finding, so the
             change goes back to be fixed.
           gates:
             - type: artifact-fresh
-              config: { artifact: review, recordedThisCycle: true }
-            - type: findings-open
-              config: { artifact: review, blocking: [critical, high] }
+              config: { artifact: code-review, recordedThisCycle: true }
+            - type: cel
+              config:
+                expr: >-
+                  "code-review" in artifacts &&
+                  artifacts["code-review"].payload.findings.exists(f,
+                  (f.severity == "critical" || f.severity == "high") &&
+                  !(has(f.resolved) && f.resolved))
+                message: rework needs an open critical or high finding
+        - name: revise
+          to: implement
+          manual: true
+          description: >-
+            A person declined the release without a blocking finding; change the
+            work. Manual, so it never fires on its own.
 
     - id: pr
+      tracker: { status: in_progress }
       description: >-
-        Run the publish dry run, open the PR to the app repo, run readiness
-        and ask the person to approve the publish request: one commit, version
-        and visibility. Approving publishing is not approving a merge.
+        Commit the review report and the criteria map on top of the reviewed
+        commit, push the branch and open the PR to the app repo, then run
+        readiness on the PR's head. Only if it is ready, ask the person to
+        approve the publish request: the reviewed commit, the head to
+        publish, the version and the visibility. Not ready goes back to
+        implement. Approving publishing is not approving a merge.
       work:
         mode: interactive
         systemPrompt: |
-          Run make publish DRY_RUN=1 on {{commit}}, commit the review report,
-          push draft/NAME and open the PR. Record pull-request. Run readiness
-          with the PR and the commit; only if it is ready, record
-          publish-request and show the person it and readiness's summary
-          exactly, then ask for publish-approval. Never merge the PR.
+          On top of commit {{commit}}, commit the review report and
+          spec/acceptance.json if they are not committed yet, and nothing
+          else. Run make publish VISIBILITY={{visibility}} DRY_RUN=1, push
+          {{branch}} and open the PR, or use the one already open. Record
+          pull-request with its URL, the reviewed commit {{commit}} and the
+          head you pushed. Run Factory's readiness workflow with the PR and the
+          head, and record readiness. Only if it is ready, record
+          publish-request, show the person it and readiness's summary exactly,
+          and ask for publish-approval. Never merge the PR.
         let:
           commit: artifacts["change-summary"].payload.commit
+          visibility: evidence["visibility-choice"].payload.visibility
+          branch: evidence["target"].payload.branch
       artifacts:
         - name: publish-request
           description: >-
-            What the person approves: the commit, version and visibility to
-            publish, the PR, and the spec digest it was built from.
+            What the person approves: the reviewed commit, the head to
+            publish, the version and visibility, the PR, and the spec digest
+            it was built from.
           schema:
             type: object
-            required: [
-              commit,
-              version,
-              visibility,
-              pullRequest,
-              specDigest,
-              ready,
-            ]
+            required:
+              [
+                commit,
+                head,
+                version,
+                visibility,
+                pullRequest,
+                specDigest,
+                ready,
+                summary,
+              ]
             additionalProperties: false
             properties:
               commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              head: { type: string, pattern: "^[0-9a-f]{40}$" }
               version:
                 type: string
                 pattern: "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"
@@ -602,33 +1213,55 @@ definition:
         - name: pull-request
           schema:
             type: object
-            required: [url, commit]
+            required: [url, commit, head]
             additionalProperties: false
             properties:
               url: { type: string, format: uri }
               commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              head: { type: string, pattern: "^[0-9a-f]{40}$" }
+        - name: readiness
+          description: Factory's readiness record for the PR's head.
+          schema:
+            type: object
+            required: [commit, ready]
+            additionalProperties: false
+            properties:
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              ready: { type: boolean }
+              contentHash: { type: string, minLength: 1 }
+              blockers: { type: array, items: { type: string, minLength: 1 } }
       transitions:
         - name: approved
-          to: publish
+          to: pre-publish
           gates:
             - type: evidence-recorded
               config: { name: pull-request }
+            - type: evidence-recorded
+              config: { name: readiness, requireField: { ready: true } }
             - type: cel
               config:
                 expr: >-
-                  "pull-request" in evidence && "change-summary" in artifacts &&
+                  "pull-request" in evidence && "readiness" in evidence &&
+                  "change-summary" in artifacts &&
                   (evidence["pull-request"].payload.commit ==
-                  artifacts["change-summary"].payload.commit)
-                message: the PR must be for the reviewed commit
+                  artifacts["change-summary"].payload.commit &&
+                  evidence["readiness"].payload.commit ==
+                  evidence["pull-request"].payload.head)
+                message: >-
+                  the PR must be for the reviewed commit, and readiness for the
+                  PR's head
             - type: artifact-exists
               config: { artifact: publish-request }
             - type: cel
               config:
                 expr: >-
-                  "publish-request" in artifacts && "pull-request" in evidence &&
-                  "change-summary" in artifacts && "visibility-choice" in
+                  "publish-request" in artifacts && "pull-request" in evidence
+                  && "change-summary" in artifacts && "visibility-choice" in
                   evidence && (artifacts["publish-request"].payload.commit ==
                   artifacts["change-summary"].payload.commit &&
+                  artifacts["publish-request"].payload.head ==
+                  evidence["pull-request"].payload.head &&
+                  "manifestVersion" in artifacts["change-summary"].payload &&
                   artifacts["publish-request"].payload.version ==
                   artifacts["change-summary"].payload.manifestVersion &&
                   artifacts["publish-request"].payload.pullRequest ==
@@ -640,112 +1273,265 @@ definition:
                   null))
                 message: >-
                   the publish request must name the reviewed commit and
-                  version, the PR, the chosen visibility and the approved spec
+                  version, the PR and its head, the chosen visibility and the
+                  approved spec
             - type: human-approval
               config: { id: publish-approval }
+        - name: not-ready
+          to: implement
+          description: >-
+            Readiness found blockers, so the change goes back to be fixed. A
+            new review counts against the build's two.
+          gates:
+            - type: evidence-recorded
+              config: { name: readiness, requireField: { ready: false } }
         - name: rework
           to: implement
           manual: true
           description: The person wants the work changed before publishing.
 
-    - id: publish
+    - id: pre-publish
+      tracker: { status: in_progress }
       description: >-
-        Check again that nothing changed since the approval, then publish the
-        approved commit with the approved visibility and record the build
-        result.
+        Right before anything is pushed: readiness again on the approved head,
+        the PR's head, and the request still at the agreed spec version. A
+        failed check publishes nothing and goes back to pr, where the person
+        must approve again.
       work:
         mode: interactive
         systemPrompt: |
-          Immediately before publishing, run readiness again with the PR and
-          commit {{commit}}, check the PR head is still {{commit}} and the
-          request is still at the agreed spec version, and record
-          publish-check. If any of them fails, stop: publish nothing and tell
-          the person. Otherwise make the repo public first if the request
-          says public, then make publish VISIBILITY=V. Record release with the
-          version it published, then write the build result. Never merge the
-          PR.
+          Run Factory's readiness workflow again with the PR and head {{head}},
+          check the PR's head is still {{head}} and the request is still at
+          the agreed spec version, and record publish-check, with passed true
+          only if all three hold. Publish nothing here.
         let:
-          commit: artifacts["publish-request"].payload.commit
+          head: artifacts["publish-request"].payload.head
       evidence:
         - name: publish-check
           description: >-
             Taken right before anything is pushed: readiness, the PR head and
-            the spec version, on the approved commit.
+            the spec version, on the approved head.
           schema:
             type: object
-            required: [commit, ready, prHead, specCurrent]
+            required: [commit, ready, prHead, specCurrent, passed]
             additionalProperties: false
             properties:
+              passed: { type: boolean }
               commit: { type: string, pattern: "^[0-9a-f]{40}$" }
               ready: { type: boolean }
               prHead: { type: string, pattern: "^[0-9a-f]{40}$" }
               specCurrent: { type: boolean }
-        - name: release
-          schema:
-            type: object
-            required: [commit, version, visibility]
-            additionalProperties: false
-            properties:
-              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
-              version:
-                type: string
-                pattern: "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"
-              visibility: { enum: [public, private] }
       transitions:
-        - name: released
-          to: done
+        - name: checked
+          to: release
           gates:
             - type: evidence-recorded
-              config: {
-                name: publish-check,
-                requireField: { ready: true, specCurrent: true },
-              }
+              config:
+                {
+                  name: publish-check,
+                  requireField: {
+                    passed: true,
+                    ready: true,
+                    specCurrent: true,
+                  },
+                }
             - type: cel
               config:
                 expr: >-
                   "publish-check" in evidence && "publish-request" in artifacts
                   && (evidence["publish-check"].payload.commit ==
-                  artifacts["publish-request"].payload.commit &&
+                  artifacts["publish-request"].payload.head &&
                   evidence["publish-check"].payload.prHead ==
-                  artifacts["publish-request"].payload.commit)
+                  artifacts["publish-request"].payload.head)
                 message: >-
-                  the last check before publishing was not of the approved
-                  commit, or the PR has moved on
+                  the last check was not of the approved head, or the PR has
+                  moved on
+        - name: stopped
+          to: pr
+          description: >-
+            The check failed and nothing was published: readiness changed,
+            the PR moved or the spec was revised. The person approves again.
+          gates:
+            - type: evidence-recorded
+              config: { name: publish-check, requireField: { passed: false } }
+            - type: cel
+              config:
+                expr: >-
+                  "publish-check" in evidence && "publish-request" in artifacts
+                  && !(evidence["publish-check"].payload.ready &&
+                  evidence["publish-check"].payload.specCurrent &&
+                  evidence["publish-check"].payload.commit ==
+                  artifacts["publish-request"].payload.head &&
+                  evidence["publish-check"].payload.prHead ==
+                  artifacts["publish-request"].payload.head)
+                message: the check before publishing passed
+
+    - id: release
+      tracker:
+        status: in_progress
+        entries:
+          - on: { record: release }
+            step: released
+            emoji: "🚀"
+            summary: "Released by {{via}}, attempt {{$cycle}}: {{url}}"
+          - on: { transition: released }
+            step: complete
+            emoji: "🏁"
+            summary: Complete
+      description: >-
+        Release the reviewed commit: swamp extension push, or a pull request
+        that CI publishes when it merges. commit is the reviewed head that
+        shipped; the merge's own commit goes in mergeCommit, which a
+        pull-request release must record, so it cannot be recorded before the
+        merge. A registry push must publish the manifestVersion recorded in
+        change-summary.
+      work:
+        mode: interactive
+        systemPrompt: |
+          Release commit {{commit}}. Either run swamp extension push and record
+          the version it published, or open a pull request (after posting the
+          verification attestation, where the repository requires one) and
+          record the release with its merge commit once it merges.
+        let:
+          commit: artifacts["change-summary"].payload.commit
+      evidence:
+        - name: release
+          schema:
+            type: object
+            required: [via, commit, url]
+            properties:
+              via: { enum: [registry-push, pull-request] }
+              commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              mergeCommit: { type: string, pattern: "^[0-9a-f]{40}$" }
+              url: { type: string, format: uri }
+              version:
+                type: string
+                pattern: "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"
+              pullRequest: { type: string, format: uri }
+              attestationId: { type: string, minLength: 1 }
+            allOf:
+              - if:
+                  properties: { via: { const: registry-push } }
+                then:
+                  required: [version]
+              - if:
+                  properties: { via: { const: pull-request } }
+                then:
+                  required: [pullRequest, attestationId, mergeCommit]
+      transitions:
+        - name: released
+          to: record
+          gates:
             - type: evidence-recorded
               config: { name: release }
             - type: cel
               config:
                 expr: >-
-                  "release" in evidence && "publish-request" in artifacts &&
-                  (evidence["release"].payload.commit ==
-                  artifacts["publish-request"].payload.commit &&
+                  evidence["release"].payload.commit ==
+                  artifacts["change-summary"].payload.commit
+                message: the release must ship the reviewed commit
+            - type: cel
+              config:
+                expr: >-
+                  evidence["release"].payload.via != "registry-push" ||
+                  ("manifestVersion" in artifacts["change-summary"].payload &&
                   evidence["release"].payload.version ==
-                  artifacts["publish-request"].payload.version &&
-                  evidence["release"].payload.visibility ==
-                  artifacts["publish-request"].payload.visibility)
+                  artifacts["change-summary"].payload.manifestVersion)
                 message: >-
-                  the release must publish the approved commit and version
-                  with the approved visibility
-        - name: stopped
-          to: pr
-          manual: true
-          description: >-
-            The check before publishing failed and nothing was published:
-            the PR moved or readiness changed. Go back to ask again.
+                  a registry push must publish the manifestVersion recorded in
+                  change-summary
         - name: rework
           to: implement
           manual: true
-          description: The publish was blocked; go back and change the work.
+          description: The release was blocked; go back and change the work.
+
+    - id: record
+      tracker: { status: in_progress }
+      description: >-
+        Check the release published the approved head, version and
+        visibility, write the build result for it, and record that against
+        the request in the tool the spec came from (Capture).
+      work:
+        mode: interactive
+        systemPrompt: |
+          Write the build result with Factory's result workflow: buildRef
+          {{head}}, the PR, publishedVersion {{version}} and
+          publishedVisibility {{visibility}}. Record it in the tool the spec
+          came from (Capture's record_build_result) and record capture-record.
+          A build from an app spec with no source cannot be recorded in
+          Capture: record captured false and say why in note.
+        let:
+          head: artifacts["publish-request"].payload.head
+          version: artifacts["publish-request"].payload.version
+          visibility: artifacts["publish-request"].payload.visibility
+      evidence:
+        - name: capture-record
+          schema:
+            type: object
+            required: [file, buildRef, version, visibility, captured]
+            additionalProperties: false
+            properties:
+              file: { type: string, pattern: "^/" }
+              buildRef: { type: string, pattern: "^[0-9a-f]{40}$" }
+              version:
+                type: string
+                pattern: "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]+$"
+              visibility: { enum: [public, private] }
+              captured: { type: boolean }
+              note: { type: string, minLength: 1 }
+      transitions:
+        - name: recorded
+          to: done
+          gates:
+            - type: evidence-recorded
+              config: { name: capture-record }
+            - type: cel
+              config:
+                expr: >-
+                  "release" in evidence && "publish-request" in artifacts &&
+                  "capture-record" in evidence &&
+                  ("head" in evidence["release"].payload &&
+                  "visibility" in evidence["release"].payload &&
+                  evidence["release"].payload.head ==
+                  artifacts["publish-request"].payload.head &&
+                  evidence["release"].payload.version ==
+                  artifacts["publish-request"].payload.version &&
+                  evidence["release"].payload.visibility ==
+                  artifacts["publish-request"].payload.visibility &&
+                  evidence["capture-record"].payload.buildRef ==
+                  artifacts["publish-request"].payload.head &&
+                  evidence["capture-record"].payload.version ==
+                  artifacts["publish-request"].payload.version &&
+                  evidence["capture-record"].payload.visibility ==
+                  artifacts["publish-request"].payload.visibility)
+                message: >-
+                  the release and the build result must be of the approved
+                  head, version and visibility
+        - name: rework
+          to: implement
+          manual: true
+          description: >-
+            What was published is not what was approved. A person decides;
+            changing it is a new version.
 
     - id: done
       terminal: true
+      tracker: { status: shipped }
 
     - id: reused
       terminal: true
       description: An existing recipe already did the job; nothing was built.
+      tracker: { status: shipped }
+
+    - id: duplicate
+      terminal: true
+      description: >-
+        The work duplicated a primary ticket that has its own work item.
+      tracker: { status: closed }
 
     - id: abandoned
       terminal: true
+      tracker: { status: closed }
 
   globalTransitions:
     - name: abandon
@@ -755,258 +1541,1464 @@ definition:
           config: { id: abandon-confirmation }
 
 scenarios:
-  - scenario: new-repo-to-publish
-    description: >-
-      The happy path for a new app: the spec is approved, the repo is created
-      after approval, the draft is generated, checks pass, the person picks
-      public, one clean review, a PR, and a publish request that must match
-      the choice before it is approved and published.
+  - scenario: new-build-to-record
+    description: "A new build walks every stage: intake, the example's plan, plan review, implement and check, visibility, round 1 of 2 and code review, the PR, the check before publishing, the release and the build result. Each person's stop blocks until given."
     steps:
-      - record: { artifact: spec }
-        payload:
-          name: tide-times
-          source: /specs/tide-times.json
-          digest: "0000000000000000000000000000000000000000000000000000000000000001"
-      - record: { artifact: assessment }
-        payload: {
-          verdict: build-functionality,
-          reason: nothing fits,
-          chosen: null,
+      - {
+          "record": { "artifact": "spec" },
+          "payload": {
+            "name": "tide-times",
+            "source": "/specs/tide-times.json",
+            "digest": "0000000000000000000000000000000000000000000000000000000000000001",
+          },
         }
-      - move: build
-        expect: { refused: spec-approval }
-      - approve: spec-approval
-      - move: build
-      - record: { evidence: target }
-        payload:
-          repository: https://github.com/puddle-works/tide-times
-          checkout: /home/u/dev/tide-times
-          branch: draft/tide-times
-          route: build
-          exists: false
-      - move: existing
-        expect: { refused: does not exist yet }
-      - move: create-repo
-        expect: { refused: repo-creation }
-      - approve: repo-creation
-      - move: create-repo
-      - record: { evidence: repo-created }
-        payload:
-          repository: https://github.com/puddle-works/tide-times
-          visibility: private
-          route: build
-      - move: created
-      - record: { evidence: draft }
-        payload: { status: succeeded, runId: run-1 }
-      - move: generated
-      - record: { artifact: change-summary }
-        payload:
-          summary: Tide times
-          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
-          manifestVersion: 2026.11.09.1
-      - move: submit
-      - record: { evidence: checks }
-        payload:
-          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
-          status: passed
-          results: [{ name: test, status: passed }]
-      - record: { evidence: quality }
-        payload: {
-          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd,
-          allPassed: true,
+      - {
+          "record": { "artifact": "assessment" },
+          "payload": {
+            "verdict": "build-functionality",
+            "reason": "nothing fits",
+            "chosen": null,
+          },
         }
-      - move: passed
-      - move: decided
-        expect: { refused: has not chosen }
-      - record: { evidence: visibility-choice }
-        payload: { visibility: public }
-      - move: decided
-      - record: { artifact: review }
-        payload: { findings: [{ id: F1, severity: low, description: Naming }] }
-      - move: accept
-      - record: { evidence: pull-request }
-        payload:
-          url: https://github.com/puddle-works/tide-times/pull/1
-          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
-      - move: approved
-        expect: { refused: publish-request }
-      - record: { artifact: publish-request }
-        payload:
-          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
-          version: 2026.11.09.1
-          visibility: private
-          pullRequest: https://github.com/puddle-works/tide-times/pull/1
-          specDigest: "0000000000000000000000000000000000000000000000000000000000000001"
-          ready: true
-      - move: approved
-        expect: { refused: chosen visibility }
-      - record: { artifact: publish-request }
-        payload:
-          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
-          version: 2026.11.09.1
-          visibility: public
-          pullRequest: https://github.com/puddle-works/tide-times/pull/1
-          specDigest: "0000000000000000000000000000000000000000000000000000000000000001"
-          ready: true
-      - move: approved
-        expect: { refused: publish-approval }
-      - approve: publish-approval
-      - move: approved
-      - record: { evidence: publish-check }
-        payload:
-          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
-          ready: true
-          prHead: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
-          specCurrent: true
-      - record: { evidence: release }
-        payload:
-          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
-          version: 2026.11.09.1
-          visibility: private
-      - move: released
-        expect: { refused: approved visibility }
-      - record: { evidence: release }
-        payload:
-          commit: c5aaad329c9ceb4edc0504a98ff5d6e5528ac8fd
-          version: 2026.11.09.1
-          visibility: public
-      - move: released
-      - expect: { stage: done }
-
-  - scenario: review-rework-capped
-    description: >-
-      An existing repo. The review finds a high finding three times; the
-      visibility choice carries over each pass, and the fourth review is
-      refused until a person grants one more.
+      - { "approve": "spec-approval" }
+      - { "move": "build" }
+      - {
+          "record": { "evidence": "target" },
+          "payload": {
+            "repository": "https://github.com/puddle-works/tide-times",
+            "checkout": "/home/u/dev/tide-times",
+            "branch": "draft/tide-times",
+            "route": "build",
+            "exists": true,
+          },
+        }
+      - { "move": "existing" }
+      - {
+          "record": { "evidence": "draft" },
+          "payload": { "status": "succeeded", "runId": "run-1" },
+        }
+      - { "move": "generated" }
+      - {
+          "record": { "artifact": "plan" },
+          "payload": {
+            "summary": "Tide times",
+            "steps": [
+              {
+                "description": "Fetch the tides",
+                "files": ["extensions/models/tide_times.ts"],
+              },
+            ],
+            "testingStrategy": "One test per acceptance criterion",
+            "versionBump": { "needed": false, "reason": "First version" },
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "artifact": "plan-review" },
+          "payload": { "findings": [] },
+        }
+      - { "approve": "plan-approval" }
+      - { "move": "approve" }
+      - {
+          "record": { "artifact": "change-summary" },
+          "payload": {
+            "summary": "v1",
+            "commit": "1111111111111111111111111111111111111111",
+            "files": ["extensions/models/tide_times.ts"],
+            "manifestVersion": "2026.11.12.1",
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "evidence": "checks" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "results": [{ "name": "test", "status": "passed" }],
+          },
+        }
+      - {
+          "record": { "evidence": "quality" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "allPassed": true,
+          },
+        }
+      - { "move": "passed" }
+      - {
+          "record": { "artifact": "visibility-recommendation" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "recommended": "private",
+            "canBePublic": true,
+            "reasons": ["home paths in the README"],
+          },
+        }
+      - {
+          "record": { "evidence": "visibility-choice" },
+          "payload": { "visibility": "private" },
+        }
+      - {
+          "record": { "evidence": "manifest-visibility" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "visibility": "private",
+            "matchesChoice": true,
+          },
+        }
+      - { "move": "decided" }
+      - { "move": "review", "expect": { "refused": "review round" } }
+      - {
+          "record": { "evidence": "round" },
+          "payload": {
+            "outcome": "review",
+            "name": "tide-times",
+            "kind": "review",
+            "round": 1,
+            "version": "2026.11.12.1",
+            "contentHash": "hash1",
+            "commit": "1111111111111111111111111111111111111111",
+            "file": "swamp-extension-review/_puddleworks_tide-times-hash1.json",
+            "base": null,
+            "changed": [],
+            "granted": false,
+          },
+        }
+      - { "move": "review" }
+      - {
+          "record": { "artifact": "code-review" },
+          "payload": {
+            "findings": [
+              { "id": "F1", "severity": "low", "description": "Naming" },
+            ],
+          },
+        }
+      - { "move": "accept", "expect": { "refused": "release-approval" } }
+      - { "approve": "release-approval" }
+      - { "move": "accept" }
+      - {
+          "record": { "evidence": "pull-request" },
+          "payload": {
+            "url": "https://github.com/puddle-works/tide-times/pull/1",
+            "commit": "1111111111111111111111111111111111111111",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          },
+        }
+      - {
+          "record": { "evidence": "readiness" },
+          "payload": {
+            "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "ready": true,
+            "contentHash": "hash1",
+          },
+        }
+      - {
+          "record": { "artifact": "publish-request" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "2026.11.12.1",
+            "visibility": "private",
+            "pullRequest": "https://github.com/puddle-works/tide-times/pull/1",
+            "specDigest": "0000000000000000000000000000000000000000000000000000000000000001",
+            "ready": true,
+            "summary": "tide-times 2026.11.12.1, private",
+          },
+        }
+      - { "move": "approved", "expect": { "refused": "publish-approval" } }
+      - { "approve": "publish-approval" }
+      - { "move": "approved" }
+      - {
+          "record": { "evidence": "publish-check" },
+          "payload": {
+            "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "ready": true,
+            "prHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "specCurrent": true,
+            "passed": true,
+          },
+        }
+      - { "move": "stopped", "expect": { "refused": "passed" } }
+      - { "move": "checked" }
+      - {
+          "record": { "evidence": "release" },
+          "payload": {
+            "via": "registry-push",
+            "commit": "1111111111111111111111111111111111111111",
+            "url": "https://swamp-club.com/extensions/@puddleworks/tide-times",
+            "version": "2026.11.12.1",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "visibility": "public",
+          },
+        }
+      - { "move": "released" }
+      - {
+          "record": { "evidence": "capture-record" },
+          "payload": {
+            "file": "/home/u/.factory-build/r1/tide-times.build-result.json",
+            "buildRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "2026.11.12.1",
+            "visibility": "private",
+            "captured": true,
+          },
+        }
+      - {
+          "move": "recorded",
+          "expect": { "refused": "approved head, version and visibility" },
+        }
+      - { "move": "rework", "manual": true }
+      - { "expect": { "stage": "implement" } }
+  - scenario: released-as-approved
+    description: "The release publishes exactly what the person approved, the build result is recorded and the work item is done."
     steps:
-      - record: { artifact: spec }
-        payload:
-          name: tide-times
-          source: /specs/tide-times.json
-          digest: "0000000000000000000000000000000000000000000000000000000000000001"
-      - record: { artifact: assessment }
-        payload: {
-          verdict: build-functionality,
-          reason: nothing fits,
-          chosen: null,
+      - {
+          "record": { "artifact": "spec" },
+          "payload": {
+            "name": "tide-times",
+            "source": "/specs/tide-times.json",
+            "digest": "0000000000000000000000000000000000000000000000000000000000000001",
+          },
         }
-      - approve: spec-approval
-      - move: build
-      - record: { evidence: target }
-        payload:
-          repository: https://github.com/puddle-works/tide-times
-          checkout: /home/u/dev/tide-times
-          branch: draft/tide-times
-          route: build
-          exists: true
-      - move: existing
-      - record: { evidence: draft }
-        payload: { status: succeeded, runId: run-1 }
-      - move: generated
-      # pass 1
-      - record: { artifact: change-summary }
-        payload: {
-          summary: v1,
-          commit: "1111111111111111111111111111111111111111",
-          manifestVersion: 2026.11.09.1,
+      - {
+          "record": { "artifact": "assessment" },
+          "payload": {
+            "verdict": "build-functionality",
+            "reason": "nothing fits",
+            "chosen": null,
+          },
         }
-      - move: submit
-      - record: { evidence: checks }
-        payload: {
-          commit: "1111111111111111111111111111111111111111",
-          status: passed,
-          results: [{ name: test, status: passed }],
+      - { "approve": "spec-approval" }
+      - { "move": "build" }
+      - {
+          "record": { "evidence": "target" },
+          "payload": {
+            "repository": "https://github.com/puddle-works/tide-times",
+            "checkout": "/home/u/dev/tide-times",
+            "branch": "draft/tide-times",
+            "route": "build",
+            "exists": true,
+          },
         }
-      - record: { evidence: quality }
-        payload: {
-          commit: "1111111111111111111111111111111111111111",
-          allPassed: true,
+      - { "move": "existing" }
+      - {
+          "record": { "evidence": "draft" },
+          "payload": { "status": "succeeded", "runId": "run-1" },
         }
-      - move: passed
-      - record: { evidence: visibility-choice }
-        payload: { visibility: private }
-      - move: decided
-      - record: { artifact: review }
-        payload: { findings: [{ id: F1, severity: high, description: Bug }] }
-      - move: accept
-        expect: { refused: high }
-      - move: rework
-      # pass 2: the same commit cannot be resubmitted
-      - move: submit
-        expect: { refused: already checked }
-      - record: { artifact: change-summary }
-        payload: {
-          summary: v2,
-          commit: "2222222222222222222222222222222222222222",
-          manifestVersion: 2026.11.09.1,
+      - { "move": "generated" }
+      - {
+          "record": { "artifact": "plan" },
+          "payload": {
+            "summary": "Tide times",
+            "steps": [
+              {
+                "description": "Fetch the tides",
+                "files": ["extensions/models/tide_times.ts"],
+              },
+            ],
+            "testingStrategy": "One test per acceptance criterion",
+            "versionBump": { "needed": false, "reason": "First version" },
+          },
         }
-      - move: submit
-      - record: { evidence: checks }
-        payload: {
-          commit: "2222222222222222222222222222222222222222",
-          status: passed,
-          results: [{ name: test, status: passed }],
+      - { "move": "submit" }
+      - {
+          "record": { "artifact": "plan-review" },
+          "payload": { "findings": [] },
         }
-      - record: { evidence: quality }
-        payload: {
-          commit: "2222222222222222222222222222222222222222",
-          allPassed: true,
+      - { "approve": "plan-approval" }
+      - { "move": "approve" }
+      - {
+          "record": { "artifact": "change-summary" },
+          "payload": {
+            "summary": "v1",
+            "commit": "1111111111111111111111111111111111111111",
+            "files": ["extensions/models/tide_times.ts"],
+            "manifestVersion": "2026.11.12.1",
+          },
         }
-      - move: passed
-      - move: decided
-      - record: { artifact: review }
-        payload: { findings: [{ id: F2, severity: high, description: Bug }] }
-      - move: rework
-      # pass 3
-      - record: { artifact: change-summary }
-        payload: {
-          summary: v3,
-          commit: "3333333333333333333333333333333333333333",
-          manifestVersion: 2026.11.09.1,
+      - { "move": "submit" }
+      - {
+          "record": { "evidence": "checks" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "results": [{ "name": "test", "status": "passed" }],
+          },
         }
-      - move: submit
-      - record: { evidence: checks }
-        payload: {
-          commit: "3333333333333333333333333333333333333333",
-          status: passed,
-          results: [{ name: test, status: passed }],
+      - {
+          "record": { "evidence": "quality" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "allPassed": true,
+          },
         }
-      - record: { evidence: quality }
-        payload: {
-          commit: "3333333333333333333333333333333333333333",
-          allPassed: true,
+      - { "move": "passed" }
+      - {
+          "record": { "artifact": "visibility-recommendation" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "recommended": "private",
+            "canBePublic": true,
+            "reasons": ["home paths in the README"],
+          },
         }
-      - move: passed
-      - move: decided
-      - record: { artifact: review }
-        payload: { findings: [{ id: F3, severity: high, description: Bug }] }
-      - move: rework
-      # pass 4: the fourth review is refused
-      - record: { artifact: change-summary }
-        payload: {
-          summary: v4,
-          commit: "4444444444444444444444444444444444444444",
-          manifestVersion: 2026.11.09.1,
+      - {
+          "record": { "evidence": "visibility-choice" },
+          "payload": { "visibility": "private" },
         }
-      - move: submit
-      - record: { evidence: checks }
-        payload: {
-          commit: "4444444444444444444444444444444444444444",
-          status: passed,
-          results: [{ name: test, status: passed }],
+      - {
+          "record": { "evidence": "manifest-visibility" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "visibility": "private",
+            "matchesChoice": true,
+          },
         }
-      - record: { evidence: quality }
-        payload: {
-          commit: "4444444444444444444444444444444444444444",
-          allPassed: true,
+      - { "move": "decided" }
+      - {
+          "record": { "evidence": "round" },
+          "payload": {
+            "outcome": "review",
+            "name": "tide-times",
+            "kind": "review",
+            "round": 1,
+            "version": "2026.11.12.1",
+            "contentHash": "hash1",
+            "commit": "1111111111111111111111111111111111111111",
+            "file": "swamp-extension-review/_puddleworks_tide-times-hash1.json",
+            "base": null,
+            "changed": [],
+            "granted": false,
+          },
         }
-      - move: passed
-      - move: decided
-        expect: { refused: "cycle override for 'review'" }
-      - override: { stage: review, note: one more review }
-      - move: decided
-      - expect: { stage: review }
-
+      - { "move": "review" }
+      - {
+          "record": { "artifact": "code-review" },
+          "payload": { "findings": [] },
+        }
+      - { "approve": "release-approval" }
+      - { "move": "accept" }
+      - {
+          "record": { "evidence": "pull-request" },
+          "payload": {
+            "url": "https://github.com/puddle-works/tide-times/pull/1",
+            "commit": "1111111111111111111111111111111111111111",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          },
+        }
+      - {
+          "record": { "evidence": "readiness" },
+          "payload": {
+            "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "ready": true,
+            "contentHash": "hash1",
+          },
+        }
+      - {
+          "record": { "artifact": "publish-request" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "2026.11.12.1",
+            "visibility": "private",
+            "pullRequest": "https://github.com/puddle-works/tide-times/pull/1",
+            "specDigest": "0000000000000000000000000000000000000000000000000000000000000001",
+            "ready": true,
+            "summary": "tide-times 2026.11.12.1, private",
+          },
+        }
+      - { "approve": "publish-approval" }
+      - { "move": "approved" }
+      - {
+          "record": { "evidence": "publish-check" },
+          "payload": {
+            "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "ready": true,
+            "prHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "specCurrent": true,
+            "passed": true,
+          },
+        }
+      - { "move": "checked" }
+      - {
+          "record": { "evidence": "release" },
+          "payload": {
+            "via": "registry-push",
+            "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "url": "https://swamp-club.com/extensions/@puddleworks/tide-times",
+            "version": "2026.11.12.1",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "visibility": "private",
+          },
+        }
+      - { "move": "released", "expect": { "refused": "reviewed commit" } }
+      - {
+          "record": { "evidence": "release" },
+          "payload": {
+            "via": "registry-push",
+            "commit": "1111111111111111111111111111111111111111",
+            "url": "https://swamp-club.com/extensions/@puddleworks/tide-times",
+            "version": "2026.11.12.1",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "visibility": "private",
+          },
+        }
+      - { "move": "released" }
+      - {
+          "record": { "evidence": "capture-record" },
+          "payload": {
+            "file": "/home/u/.factory-build/r1/tide-times.build-result.json",
+            "buildRef": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "2026.11.12.1",
+            "visibility": "private",
+            "captured": true,
+          },
+        }
+      - { "move": "recorded" }
+      - { "expect": { "stage": "done" } }
+  - scenario: two-review-rounds
+    description: "Code review finds a high finding twice. Round 2 reviews only the change since round 1. A third review needs the person's yes twice over: Factory's grant on the round and a cycle override for code-review."
+    steps:
+      - {
+          "record": { "artifact": "spec" },
+          "payload": {
+            "name": "tide-times",
+            "source": "/specs/tide-times.json",
+            "digest": "0000000000000000000000000000000000000000000000000000000000000001",
+          },
+        }
+      - {
+          "record": { "artifact": "assessment" },
+          "payload": {
+            "verdict": "build-functionality",
+            "reason": "nothing fits",
+            "chosen": null,
+          },
+        }
+      - { "approve": "spec-approval" }
+      - { "move": "build" }
+      - {
+          "record": { "evidence": "target" },
+          "payload": {
+            "repository": "https://github.com/puddle-works/tide-times",
+            "checkout": "/home/u/dev/tide-times",
+            "branch": "draft/tide-times",
+            "route": "build",
+            "exists": true,
+          },
+        }
+      - { "move": "existing" }
+      - {
+          "record": { "evidence": "draft" },
+          "payload": { "status": "succeeded", "runId": "run-1" },
+        }
+      - { "move": "generated" }
+      - {
+          "record": { "artifact": "plan" },
+          "payload": {
+            "summary": "Tide times",
+            "steps": [
+              {
+                "description": "Fetch the tides",
+                "files": ["extensions/models/tide_times.ts"],
+              },
+            ],
+            "testingStrategy": "One test per acceptance criterion",
+            "versionBump": { "needed": false, "reason": "First version" },
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "artifact": "plan-review" },
+          "payload": { "findings": [] },
+        }
+      - { "approve": "plan-approval" }
+      - { "move": "approve" }
+      - {
+          "record": { "artifact": "change-summary" },
+          "payload": {
+            "summary": "v1",
+            "commit": "1111111111111111111111111111111111111111",
+            "files": ["extensions/models/tide_times.ts"],
+            "manifestVersion": "2026.11.12.1",
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "evidence": "checks" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "results": [{ "name": "test", "status": "passed" }],
+          },
+        }
+      - {
+          "record": { "evidence": "quality" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "allPassed": true,
+          },
+        }
+      - { "move": "passed" }
+      - {
+          "record": { "artifact": "visibility-recommendation" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "recommended": "private",
+            "canBePublic": true,
+            "reasons": ["home paths in the README"],
+          },
+        }
+      - {
+          "record": { "evidence": "visibility-choice" },
+          "payload": { "visibility": "private" },
+        }
+      - {
+          "record": { "evidence": "manifest-visibility" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "visibility": "private",
+            "matchesChoice": true,
+          },
+        }
+      - { "move": "decided" }
+      - {
+          "record": { "evidence": "round" },
+          "payload": {
+            "outcome": "review",
+            "name": "tide-times",
+            "kind": "review",
+            "round": 1,
+            "version": "2026.11.12.1",
+            "contentHash": "hash1",
+            "commit": "1111111111111111111111111111111111111111",
+            "file": "swamp-extension-review/_puddleworks_tide-times-hash1.json",
+            "base": null,
+            "changed": [],
+            "granted": false,
+          },
+        }
+      - { "move": "review" }
+      - {
+          "record": { "artifact": "code-review" },
+          "payload": {
+            "findings": [
+              { "id": "F1", "severity": "high", "description": "Bug" },
+            ],
+          },
+        }
+      - { "move": "accept", "expect": { "refused": "high" } }
+      - { "move": "rework" }
+      - {
+          "record": { "artifact": "change-summary" },
+          "payload": {
+            "summary": "v2",
+            "commit": "2222222222222222222222222222222222222222",
+            "files": ["extensions/models/tide_times.ts"],
+            "manifestVersion": "2026.11.12.1",
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "evidence": "checks" },
+          "payload": {
+            "commit": "2222222222222222222222222222222222222222",
+            "status": "passed",
+            "results": [{ "name": "test", "status": "passed" }],
+          },
+        }
+      - {
+          "record": { "evidence": "quality" },
+          "payload": {
+            "commit": "2222222222222222222222222222222222222222",
+            "status": "passed",
+            "allPassed": true,
+          },
+        }
+      - { "move": "passed" }
+      - {
+          "record": { "artifact": "visibility-recommendation" },
+          "payload": {
+            "commit": "2222222222222222222222222222222222222222",
+            "recommended": "private",
+            "canBePublic": true,
+            "reasons": ["home paths in the README"],
+          },
+        }
+      - {
+          "record": { "evidence": "manifest-visibility" },
+          "payload": {
+            "commit": "2222222222222222222222222222222222222222",
+            "visibility": "private",
+            "matchesChoice": true,
+          },
+        }
+      - { "move": "decided" }
+      - {
+          "record": { "evidence": "round" },
+          "payload": {
+            "outcome": "review",
+            "name": "tide-times",
+            "kind": "review",
+            "round": 2,
+            "version": "2026.11.12.1",
+            "contentHash": "hash2",
+            "commit": "2222222222222222222222222222222222222222",
+            "file": "swamp-extension-review/_puddleworks_tide-times-hash2.json",
+            "base": "1111111111111111111111111111111111111111",
+            "changed": ["extensions/models/tide_times.ts"],
+            "granted": false,
+          },
+        }
+      - { "move": "review" }
+      - {
+          "record": { "artifact": "code-review" },
+          "payload": {
+            "findings": [
+              { "id": "F2", "severity": "high", "description": "Bug" },
+            ],
+          },
+        }
+      - { "move": "rework" }
+      - {
+          "record": { "artifact": "change-summary" },
+          "payload": {
+            "summary": "v3",
+            "commit": "3333333333333333333333333333333333333333",
+            "files": ["extensions/models/tide_times.ts"],
+            "manifestVersion": "2026.11.12.1",
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "evidence": "checks" },
+          "payload": {
+            "commit": "3333333333333333333333333333333333333333",
+            "status": "passed",
+            "results": [{ "name": "test", "status": "passed" }],
+          },
+        }
+      - {
+          "record": { "evidence": "quality" },
+          "payload": {
+            "commit": "3333333333333333333333333333333333333333",
+            "status": "passed",
+            "allPassed": true,
+          },
+        }
+      - { "move": "passed" }
+      - {
+          "record": { "artifact": "visibility-recommendation" },
+          "payload": {
+            "commit": "3333333333333333333333333333333333333333",
+            "recommended": "private",
+            "canBePublic": true,
+            "reasons": ["home paths in the README"],
+          },
+        }
+      - {
+          "record": { "evidence": "manifest-visibility" },
+          "payload": {
+            "commit": "3333333333333333333333333333333333333333",
+            "visibility": "private",
+            "matchesChoice": true,
+          },
+        }
+      - { "move": "decided" }
+      - {
+          "record": { "evidence": "round" },
+          "payload": {
+            "outcome": "review",
+            "name": "tide-times",
+            "kind": "review",
+            "round": 3,
+            "version": "2026.11.12.1",
+            "contentHash": "hash3",
+            "commit": "3333333333333333333333333333333333333333",
+            "file": "swamp-extension-review/_puddleworks_tide-times-hash3.json",
+            "base": "2222222222222222222222222222222222222222",
+            "changed": ["extensions/models/tide_times.ts"],
+            "granted": false,
+          },
+        }
+      - { "move": "review", "expect": { "refused": "grant" } }
+      - {
+          "record": { "evidence": "round" },
+          "payload": {
+            "outcome": "review",
+            "name": "tide-times",
+            "kind": "review",
+            "round": 3,
+            "version": "2026.11.12.1",
+            "contentHash": "hash3",
+            "commit": "3333333333333333333333333333333333333333",
+            "file": "swamp-extension-review/_puddleworks_tide-times-hash3.json",
+            "base": "2222222222222222222222222222222222222222",
+            "changed": ["extensions/models/tide_times.ts"],
+            "granted": true,
+          },
+        }
+      - {
+          "move": "review",
+          "expect": { "refused": "cycle override for 'code-review'" },
+        }
+      - { "override": { "stage": "code-review", "note": "one more review" } }
+      - { "move": "review" }
+      - { "expect": { "stage": "code-review" } }
+  - scenario: carried-review-skips-code-review
+    description: "Only the version changed since the last review, so Factory carried the review over and the work goes straight to the PR."
+    steps:
+      - {
+          "record": { "artifact": "spec" },
+          "payload": {
+            "name": "tide-times",
+            "source": "/specs/tide-times.json",
+            "digest": "0000000000000000000000000000000000000000000000000000000000000001",
+          },
+        }
+      - {
+          "record": { "artifact": "assessment" },
+          "payload": {
+            "verdict": "build-functionality",
+            "reason": "nothing fits",
+            "chosen": null,
+          },
+        }
+      - { "approve": "spec-approval" }
+      - { "move": "build" }
+      - {
+          "record": { "evidence": "target" },
+          "payload": {
+            "repository": "https://github.com/puddle-works/tide-times",
+            "checkout": "/home/u/dev/tide-times",
+            "branch": "draft/tide-times",
+            "route": "build",
+            "exists": true,
+          },
+        }
+      - { "move": "existing" }
+      - {
+          "record": { "evidence": "draft" },
+          "payload": { "status": "succeeded", "runId": "run-1" },
+        }
+      - { "move": "generated" }
+      - {
+          "record": { "artifact": "plan" },
+          "payload": {
+            "summary": "Tide times",
+            "steps": [
+              {
+                "description": "Fetch the tides",
+                "files": ["extensions/models/tide_times.ts"],
+              },
+            ],
+            "testingStrategy": "One test per acceptance criterion",
+            "versionBump": { "needed": false, "reason": "First version" },
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "artifact": "plan-review" },
+          "payload": { "findings": [] },
+        }
+      - { "approve": "plan-approval" }
+      - { "move": "approve" }
+      - {
+          "record": { "artifact": "change-summary" },
+          "payload": {
+            "summary": "v1",
+            "commit": "1111111111111111111111111111111111111111",
+            "files": ["extensions/models/tide_times.ts"],
+            "manifestVersion": "2026.11.12.1",
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "evidence": "checks" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "results": [{ "name": "test", "status": "passed" }],
+          },
+        }
+      - {
+          "record": { "evidence": "quality" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "allPassed": true,
+          },
+        }
+      - { "move": "passed" }
+      - {
+          "record": { "artifact": "visibility-recommendation" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "recommended": "private",
+            "canBePublic": true,
+            "reasons": ["home paths in the README"],
+          },
+        }
+      - {
+          "record": { "evidence": "visibility-choice" },
+          "payload": { "visibility": "private" },
+        }
+      - {
+          "record": { "evidence": "manifest-visibility" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "visibility": "private",
+            "matchesChoice": true,
+          },
+        }
+      - { "move": "decided" }
+      - {
+          "record": { "evidence": "round" },
+          "payload": {
+            "outcome": "skip",
+            "name": "tide-times",
+            "kind": "carried",
+            "round": 0,
+            "version": "2026.11.12.1",
+            "contentHash": "hash1",
+            "commit": "1111111111111111111111111111111111111111",
+            "file": "swamp-extension-review/_puddleworks_tide-times-hash1.json",
+            "base": null,
+            "changed": [],
+            "granted": false,
+          },
+        }
+      - { "move": "review", "expect": { "refused": "review round" } }
+      - { "move": "carried" }
+      - { "expect": { "stage": "pr" } }
+  - scenario: round-refused
+    description: "The publish dry run warns, so the round workflow refuses and the change goes back to implement."
+    steps:
+      - {
+          "record": { "artifact": "spec" },
+          "payload": {
+            "name": "tide-times",
+            "source": "/specs/tide-times.json",
+            "digest": "0000000000000000000000000000000000000000000000000000000000000001",
+          },
+        }
+      - {
+          "record": { "artifact": "assessment" },
+          "payload": {
+            "verdict": "build-functionality",
+            "reason": "nothing fits",
+            "chosen": null,
+          },
+        }
+      - { "approve": "spec-approval" }
+      - { "move": "build" }
+      - {
+          "record": { "evidence": "target" },
+          "payload": {
+            "repository": "https://github.com/puddle-works/tide-times",
+            "checkout": "/home/u/dev/tide-times",
+            "branch": "draft/tide-times",
+            "route": "build",
+            "exists": true,
+          },
+        }
+      - { "move": "existing" }
+      - {
+          "record": { "evidence": "draft" },
+          "payload": { "status": "succeeded", "runId": "run-1" },
+        }
+      - { "move": "generated" }
+      - {
+          "record": { "artifact": "plan" },
+          "payload": {
+            "summary": "Tide times",
+            "steps": [
+              {
+                "description": "Fetch the tides",
+                "files": ["extensions/models/tide_times.ts"],
+              },
+            ],
+            "testingStrategy": "One test per acceptance criterion",
+            "versionBump": { "needed": false, "reason": "First version" },
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "artifact": "plan-review" },
+          "payload": { "findings": [] },
+        }
+      - { "approve": "plan-approval" }
+      - { "move": "approve" }
+      - {
+          "record": { "artifact": "change-summary" },
+          "payload": {
+            "summary": "v1",
+            "commit": "1111111111111111111111111111111111111111",
+            "files": ["extensions/models/tide_times.ts"],
+            "manifestVersion": "2026.11.12.1",
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "evidence": "checks" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "results": [{ "name": "test", "status": "passed" }],
+          },
+        }
+      - {
+          "record": { "evidence": "quality" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "allPassed": true,
+          },
+        }
+      - { "move": "passed" }
+      - {
+          "record": { "artifact": "visibility-recommendation" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "recommended": "private",
+            "canBePublic": true,
+            "reasons": ["home paths in the README"],
+          },
+        }
+      - {
+          "record": { "evidence": "visibility-choice" },
+          "payload": { "visibility": "private" },
+        }
+      - {
+          "record": { "evidence": "manifest-visibility" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "visibility": "private",
+            "matchesChoice": true,
+          },
+        }
+      - { "move": "decided" }
+      - {
+          "record": { "evidence": "round" },
+          "payload": {
+            "outcome": "refused",
+            "commit": "1111111111111111111111111111111111111111",
+            "message": "Fix what the publish dry run says",
+          },
+        }
+      - { "move": "refused" }
+      - { "expect": { "stage": "implement" } }
+  - scenario: public-needs-manifest-change
+    description: "The person chooses public while the manifest still says private, so the change goes back to implement. The choice carries over, and the next pass goes on without asking again."
+    steps:
+      - {
+          "record": { "artifact": "spec" },
+          "payload": {
+            "name": "tide-times",
+            "source": "/specs/tide-times.json",
+            "digest": "0000000000000000000000000000000000000000000000000000000000000001",
+          },
+        }
+      - {
+          "record": { "artifact": "assessment" },
+          "payload": {
+            "verdict": "build-functionality",
+            "reason": "nothing fits",
+            "chosen": null,
+          },
+        }
+      - { "approve": "spec-approval" }
+      - { "move": "build" }
+      - {
+          "record": { "evidence": "target" },
+          "payload": {
+            "repository": "https://github.com/puddle-works/tide-times",
+            "checkout": "/home/u/dev/tide-times",
+            "branch": "draft/tide-times",
+            "route": "build",
+            "exists": true,
+          },
+        }
+      - { "move": "existing" }
+      - {
+          "record": { "evidence": "draft" },
+          "payload": { "status": "succeeded", "runId": "run-1" },
+        }
+      - { "move": "generated" }
+      - {
+          "record": { "artifact": "plan" },
+          "payload": {
+            "summary": "Tide times",
+            "steps": [
+              {
+                "description": "Fetch the tides",
+                "files": ["extensions/models/tide_times.ts"],
+              },
+            ],
+            "testingStrategy": "One test per acceptance criterion",
+            "versionBump": { "needed": false, "reason": "First version" },
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "artifact": "plan-review" },
+          "payload": { "findings": [] },
+        }
+      - { "approve": "plan-approval" }
+      - { "move": "approve" }
+      - {
+          "record": { "artifact": "change-summary" },
+          "payload": {
+            "summary": "v1",
+            "commit": "1111111111111111111111111111111111111111",
+            "files": ["extensions/models/tide_times.ts"],
+            "manifestVersion": "2026.11.12.1",
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "evidence": "checks" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "results": [{ "name": "test", "status": "passed" }],
+          },
+        }
+      - {
+          "record": { "evidence": "quality" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "allPassed": true,
+          },
+        }
+      - { "move": "passed" }
+      - {
+          "record": { "artifact": "visibility-recommendation" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "recommended": "private",
+            "canBePublic": true,
+            "reasons": ["home paths in the README"],
+          },
+        }
+      - {
+          "record": { "evidence": "visibility-choice" },
+          "payload": { "visibility": "public" },
+        }
+      - {
+          "record": { "evidence": "manifest-visibility" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "visibility": "private",
+            "matchesChoice": false,
+          },
+        }
+      - { "move": "decided", "expect": { "refused": "chosen visibility" } }
+      - { "move": "change" }
+      - {
+          "record": { "artifact": "change-summary" },
+          "payload": {
+            "summary": "v2",
+            "commit": "2222222222222222222222222222222222222222",
+            "files": ["extensions/models/tide_times.ts"],
+            "manifestVersion": "2026.11.12.1",
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "evidence": "checks" },
+          "payload": {
+            "commit": "2222222222222222222222222222222222222222",
+            "status": "passed",
+            "results": [{ "name": "test", "status": "passed" }],
+          },
+        }
+      - {
+          "record": { "evidence": "quality" },
+          "payload": {
+            "commit": "2222222222222222222222222222222222222222",
+            "status": "passed",
+            "allPassed": true,
+          },
+        }
+      - { "move": "passed" }
+      - {
+          "record": { "artifact": "visibility-recommendation" },
+          "payload": {
+            "commit": "2222222222222222222222222222222222222222",
+            "recommended": "private",
+            "canBePublic": true,
+            "reasons": ["home paths in the README"],
+          },
+        }
+      - {
+          "record": { "evidence": "manifest-visibility" },
+          "payload": {
+            "commit": "2222222222222222222222222222222222222222",
+            "visibility": "public",
+            "matchesChoice": true,
+          },
+        }
+      - { "move": "change", "expect": { "refused": "already says" } }
+      - { "move": "decided" }
+      - { "expect": { "stage": "round" } }
+  - scenario: not-ready-goes-back
+    description: "Readiness finds a blocker on the PR's head, so there is nothing to approve and the change goes back to implement without a person."
+    steps:
+      - {
+          "record": { "artifact": "spec" },
+          "payload": {
+            "name": "tide-times",
+            "source": "/specs/tide-times.json",
+            "digest": "0000000000000000000000000000000000000000000000000000000000000001",
+          },
+        }
+      - {
+          "record": { "artifact": "assessment" },
+          "payload": {
+            "verdict": "build-functionality",
+            "reason": "nothing fits",
+            "chosen": null,
+          },
+        }
+      - { "approve": "spec-approval" }
+      - { "move": "build" }
+      - {
+          "record": { "evidence": "target" },
+          "payload": {
+            "repository": "https://github.com/puddle-works/tide-times",
+            "checkout": "/home/u/dev/tide-times",
+            "branch": "draft/tide-times",
+            "route": "build",
+            "exists": true,
+          },
+        }
+      - { "move": "existing" }
+      - {
+          "record": { "evidence": "draft" },
+          "payload": { "status": "succeeded", "runId": "run-1" },
+        }
+      - { "move": "generated" }
+      - {
+          "record": { "artifact": "plan" },
+          "payload": {
+            "summary": "Tide times",
+            "steps": [
+              {
+                "description": "Fetch the tides",
+                "files": ["extensions/models/tide_times.ts"],
+              },
+            ],
+            "testingStrategy": "One test per acceptance criterion",
+            "versionBump": { "needed": false, "reason": "First version" },
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "artifact": "plan-review" },
+          "payload": { "findings": [] },
+        }
+      - { "approve": "plan-approval" }
+      - { "move": "approve" }
+      - {
+          "record": { "artifact": "change-summary" },
+          "payload": {
+            "summary": "v1",
+            "commit": "1111111111111111111111111111111111111111",
+            "files": ["extensions/models/tide_times.ts"],
+            "manifestVersion": "2026.11.12.1",
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "evidence": "checks" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "results": [{ "name": "test", "status": "passed" }],
+          },
+        }
+      - {
+          "record": { "evidence": "quality" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "allPassed": true,
+          },
+        }
+      - { "move": "passed" }
+      - {
+          "record": { "artifact": "visibility-recommendation" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "recommended": "private",
+            "canBePublic": true,
+            "reasons": ["home paths in the README"],
+          },
+        }
+      - {
+          "record": { "evidence": "visibility-choice" },
+          "payload": { "visibility": "private" },
+        }
+      - {
+          "record": { "evidence": "manifest-visibility" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "visibility": "private",
+            "matchesChoice": true,
+          },
+        }
+      - { "move": "decided" }
+      - {
+          "record": { "evidence": "round" },
+          "payload": {
+            "outcome": "review",
+            "name": "tide-times",
+            "kind": "review",
+            "round": 1,
+            "version": "2026.11.12.1",
+            "contentHash": "hash1",
+            "commit": "1111111111111111111111111111111111111111",
+            "file": "swamp-extension-review/_puddleworks_tide-times-hash1.json",
+            "base": null,
+            "changed": [],
+            "granted": false,
+          },
+        }
+      - { "move": "review" }
+      - {
+          "record": { "artifact": "code-review" },
+          "payload": { "findings": [] },
+        }
+      - { "approve": "release-approval" }
+      - { "move": "accept" }
+      - {
+          "record": { "evidence": "pull-request" },
+          "payload": {
+            "url": "https://github.com/puddle-works/tide-times/pull/1",
+            "commit": "1111111111111111111111111111111111111111",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          },
+        }
+      - {
+          "record": { "evidence": "readiness" },
+          "payload": {
+            "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "ready": false,
+            "blockers": ["AC2 has no test and no manual check"],
+          },
+        }
+      - { "move": "approved", "expect": { "refused": "readiness" } }
+      - { "move": "not-ready" }
+      - { "expect": { "stage": "implement" } }
+  - scenario: pr-moved-before-publish
+    description: "The check right before publishing finds the PR has moved on, so nothing is published, the work goes back to the PR and the person must approve again."
+    steps:
+      - {
+          "record": { "artifact": "spec" },
+          "payload": {
+            "name": "tide-times",
+            "source": "/specs/tide-times.json",
+            "digest": "0000000000000000000000000000000000000000000000000000000000000001",
+          },
+        }
+      - {
+          "record": { "artifact": "assessment" },
+          "payload": {
+            "verdict": "build-functionality",
+            "reason": "nothing fits",
+            "chosen": null,
+          },
+        }
+      - { "approve": "spec-approval" }
+      - { "move": "build" }
+      - {
+          "record": { "evidence": "target" },
+          "payload": {
+            "repository": "https://github.com/puddle-works/tide-times",
+            "checkout": "/home/u/dev/tide-times",
+            "branch": "draft/tide-times",
+            "route": "build",
+            "exists": true,
+          },
+        }
+      - { "move": "existing" }
+      - {
+          "record": { "evidence": "draft" },
+          "payload": { "status": "succeeded", "runId": "run-1" },
+        }
+      - { "move": "generated" }
+      - {
+          "record": { "artifact": "plan" },
+          "payload": {
+            "summary": "Tide times",
+            "steps": [
+              {
+                "description": "Fetch the tides",
+                "files": ["extensions/models/tide_times.ts"],
+              },
+            ],
+            "testingStrategy": "One test per acceptance criterion",
+            "versionBump": { "needed": false, "reason": "First version" },
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "artifact": "plan-review" },
+          "payload": { "findings": [] },
+        }
+      - { "approve": "plan-approval" }
+      - { "move": "approve" }
+      - {
+          "record": { "artifact": "change-summary" },
+          "payload": {
+            "summary": "v1",
+            "commit": "1111111111111111111111111111111111111111",
+            "files": ["extensions/models/tide_times.ts"],
+            "manifestVersion": "2026.11.12.1",
+          },
+        }
+      - { "move": "submit" }
+      - {
+          "record": { "evidence": "checks" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "results": [{ "name": "test", "status": "passed" }],
+          },
+        }
+      - {
+          "record": { "evidence": "quality" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "status": "passed",
+            "allPassed": true,
+          },
+        }
+      - { "move": "passed" }
+      - {
+          "record": { "artifact": "visibility-recommendation" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "recommended": "private",
+            "canBePublic": true,
+            "reasons": ["home paths in the README"],
+          },
+        }
+      - {
+          "record": { "evidence": "visibility-choice" },
+          "payload": { "visibility": "private" },
+        }
+      - {
+          "record": { "evidence": "manifest-visibility" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "visibility": "private",
+            "matchesChoice": true,
+          },
+        }
+      - { "move": "decided" }
+      - {
+          "record": { "evidence": "round" },
+          "payload": {
+            "outcome": "review",
+            "name": "tide-times",
+            "kind": "review",
+            "round": 1,
+            "version": "2026.11.12.1",
+            "contentHash": "hash1",
+            "commit": "1111111111111111111111111111111111111111",
+            "file": "swamp-extension-review/_puddleworks_tide-times-hash1.json",
+            "base": null,
+            "changed": [],
+            "granted": false,
+          },
+        }
+      - { "move": "review" }
+      - {
+          "record": { "artifact": "code-review" },
+          "payload": { "findings": [] },
+        }
+      - { "approve": "release-approval" }
+      - { "move": "accept" }
+      - {
+          "record": { "evidence": "pull-request" },
+          "payload": {
+            "url": "https://github.com/puddle-works/tide-times/pull/1",
+            "commit": "1111111111111111111111111111111111111111",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          },
+        }
+      - {
+          "record": { "evidence": "readiness" },
+          "payload": {
+            "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "ready": true,
+            "contentHash": "hash1",
+          },
+        }
+      - {
+          "record": { "artifact": "publish-request" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "2026.11.12.1",
+            "visibility": "private",
+            "pullRequest": "https://github.com/puddle-works/tide-times/pull/1",
+            "specDigest": "0000000000000000000000000000000000000000000000000000000000000001",
+            "ready": true,
+            "summary": "tide-times 2026.11.12.1, private",
+          },
+        }
+      - {
+          "record": { "artifact": "publish-request" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "2026.11.12.1",
+            "visibility": "public",
+            "pullRequest": "https://github.com/puddle-works/tide-times/pull/1",
+            "specDigest": "0000000000000000000000000000000000000000000000000000000000000001",
+            "ready": true,
+            "summary": "tide-times, public",
+          },
+        }
+      - { "move": "approved", "expect": { "refused": "chosen visibility" } }
+      - {
+          "record": { "artifact": "publish-request" },
+          "payload": {
+            "commit": "1111111111111111111111111111111111111111",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "2026.11.12.1",
+            "visibility": "private",
+            "pullRequest": "https://github.com/puddle-works/tide-times/pull/1",
+            "specDigest": "0000000000000000000000000000000000000000000000000000000000000001",
+            "ready": true,
+            "summary": "tide-times, private",
+          },
+        }
+      - { "approve": "publish-approval" }
+      - { "move": "approved" }
+      - {
+          "record": { "evidence": "publish-check" },
+          "payload": {
+            "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "ready": true,
+            "prHead": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "specCurrent": true,
+            "passed": false,
+          },
+        }
+      - { "move": "checked", "expect": { "refused": "moved on" } }
+      - { "move": "stopped" }
+      - {
+          "move": "approved",
+          "expect": { "refused": "awaiting approval 'publish-approval'" },
+        }
+      - { "expect": { "stage": "pr" } }
   - scenario: already-done
     description: >-
       A recipe already answers every phrasing. The recorded answer is not
@@ -1037,11 +3029,10 @@ scenarios:
           captureRunId: run-9
       - move: recorded
       - expect: { stage: reused }
-
   - scenario: recipe-in-new-pack
     description: >-
       The first external recipe: the pack repo is created after approval and
-      must be public; render is skipped and the recipe goes to implement.
+      must be public; render is skipped and the recipe goes to plan.
     steps:
       - record: { artifact: assessment }
         payload:
@@ -1086,8 +3077,7 @@ scenarios:
       - move: created
         expect: { refused: take created-reuse }
       - move: created-reuse
-      - expect: { stage: implement }
-
+      - expect: { stage: plan }
   - scenario: reuse-declined
     description: >-
       Our own extension fits, but the person wants a new build. Building is
@@ -1118,137 +3108,6 @@ scenarios:
       - approve: spec-approval
       - move: build
       - expect: { stage: target }
-
-  - scenario: change-after-publish-approval
-    description: >-
-      Publishing is approved, then the person sends the work back. The new
-      commit must be checked and reviewed again, the visibility choice carries
-      over, and the old publish approval no longer counts.
-    steps:
-      - record: { artifact: spec }
-        payload:
-          name: tide-times
-          source: /specs/tide-times.json
-          digest: "0000000000000000000000000000000000000000000000000000000000000001"
-      - record: { artifact: assessment }
-        payload: {
-          verdict: build-functionality,
-          reason: nothing fits,
-          chosen: null,
-        }
-      - approve: spec-approval
-      - move: build
-      - record: { evidence: target }
-        payload:
-          repository: https://github.com/puddle-works/tide-times
-          checkout: /home/u/dev/tide-times
-          branch: draft/tide-times
-          route: build
-          exists: true
-      - move: existing
-      - record: { evidence: draft }
-        payload: { status: succeeded, runId: run-1 }
-      - move: generated
-      - record: { artifact: change-summary }
-        payload: {
-          summary: v1,
-          commit: "1111111111111111111111111111111111111111",
-          manifestVersion: 2026.11.09.1,
-        }
-      - move: submit
-      - record: { evidence: checks }
-        payload: {
-          commit: "1111111111111111111111111111111111111111",
-          status: passed,
-          results: [{ name: test, status: passed }],
-        }
-      - record: { evidence: quality }
-        payload: {
-          commit: "1111111111111111111111111111111111111111",
-          allPassed: true,
-        }
-      - move: passed
-      - record: { evidence: visibility-choice }
-        payload: { visibility: private }
-      - move: decided
-      - record: { artifact: review }
-        payload: { findings: [] }
-      - move: accept
-      - record: { evidence: pull-request }
-        payload: {
-          url: https://github.com/puddle-works/tide-times/pull/1,
-          commit: "1111111111111111111111111111111111111111",
-        }
-      - record: { artifact: publish-request }
-        payload: {
-          commit: "1111111111111111111111111111111111111111",
-          version: 2026.11.09.1,
-          visibility: private,
-          pullRequest: https://github.com/puddle-works/tide-times/pull/1,
-          specDigest: "0000000000000000000000000000000000000000000000000000000000000001",
-          ready: true,
-        }
-      - approve: publish-approval
-      - move: rework
-        manual: true
-      - record: { artifact: change-summary }
-        payload: {
-          summary: v2,
-          commit: "2222222222222222222222222222222222222222",
-          manifestVersion: 2026.11.09.1,
-        }
-      - move: submit
-      - move: passed
-        expect: { refused: checks }
-      - record: { evidence: checks }
-        payload: {
-          commit: "2222222222222222222222222222222222222222",
-          status: passed,
-          results: [{ name: test, status: passed }],
-        }
-      - record: { evidence: quality }
-        payload: {
-          commit: "2222222222222222222222222222222222222222",
-          allPassed: true,
-        }
-      - move: passed
-      - move: decided
-      - move: accept
-        expect: { refused: review }
-      - record: { artifact: review }
-        payload: { findings: [] }
-      - move: accept
-      - move: approved
-        expect: { refused: pull-request }
-      - record: { evidence: pull-request }
-        payload: {
-          url: https://github.com/puddle-works/tide-times/pull/1,
-          commit: "1111111111111111111111111111111111111111",
-        }
-      - move: approved
-        expect: { refused: reviewed commit }
-      - record: { evidence: pull-request }
-        payload: {
-          url: https://github.com/puddle-works/tide-times/pull/1,
-          commit: "2222222222222222222222222222222222222222",
-        }
-      - move: approved
-        expect: { refused: publish request must name }
-      - record: { artifact: publish-request }
-        payload: {
-          commit: "2222222222222222222222222222222222222222",
-          version: 2026.11.09.1,
-          visibility: private,
-          pullRequest: https://github.com/puddle-works/tide-times/pull/1,
-          specDigest: "0000000000000000000000000000000000000000000000000000000000000001",
-          ready: true,
-        }
-      - move: approved
-        expect: { refused: publish-approval }
-      - approve: publish-approval
-      - move: approved
-      - expect: { stage: publish }
-
   - scenario: approvals-voided-and-declined
     description: >-
       An approval counts only for what it was given on. A spec changed after
@@ -1318,127 +3177,3 @@ scenarios:
       - move: created
         expect: { refused: not the approved private target }
       - expect: { stage: create-repo }
-
-  - scenario: publish-approval-guarded
-    description: >-
-      A request built from another spec is refused. The publish request is
-      changed after its approval, declined, then
-      approved. The check right before publishing finds the PR has moved, so
-      nothing is published and the person must approve again.
-    steps:
-      - record: { artifact: spec }
-        payload:
-          name: tide-times
-          source: /specs/tide-times.json
-          digest: "0000000000000000000000000000000000000000000000000000000000000001"
-      - record: { artifact: assessment }
-        payload: {
-          verdict: build-functionality,
-          reason: nothing fits,
-          chosen: null,
-        }
-      - approve: spec-approval
-      - move: build
-      - record: { evidence: target }
-        payload:
-          repository: https://github.com/puddle-works/tide-times
-          checkout: /home/u/dev/tide-times
-          branch: draft/tide-times
-          route: build
-          exists: true
-      - move: existing
-      - record: { evidence: draft }
-        payload: { status: succeeded, runId: run-1 }
-      - move: generated
-      - record: { artifact: change-summary }
-        payload: {
-          summary: v1,
-          commit: "1111111111111111111111111111111111111111",
-          manifestVersion: 2026.11.09.1,
-        }
-      - move: submit
-      - record: { evidence: checks }
-        payload: {
-          commit: "1111111111111111111111111111111111111111",
-          status: passed,
-          results: [{ name: test, status: passed }],
-        }
-      - record: { evidence: quality }
-        payload: {
-          commit: "1111111111111111111111111111111111111111",
-          allPassed: true,
-        }
-      - move: passed
-      - record: { evidence: visibility-choice }
-        payload: { visibility: private }
-      - move: decided
-      - record: { artifact: review }
-        payload: { findings: [] }
-      - move: accept
-      - record: { evidence: pull-request }
-        payload: {
-          url: https://github.com/puddle-works/tide-times/pull/1,
-          commit: "1111111111111111111111111111111111111111",
-        }
-      - record: { artifact: publish-request }
-        payload: {
-          commit: "1111111111111111111111111111111111111111",
-          version: 2026.11.09.1,
-          visibility: private,
-          pullRequest: https://github.com/puddle-works/tide-times/pull/1,
-          specDigest: "0000000000000000000000000000000000000000000000000000000000000009",
-          ready: true,
-        }
-      - move: approved
-        expect: { refused: the approved spec }
-      - record: { artifact: publish-request }
-        payload: {
-          commit: "1111111111111111111111111111111111111111",
-          version: 2026.11.09.1,
-          visibility: private,
-          pullRequest: https://github.com/puddle-works/tide-times/pull/1,
-          specDigest: "0000000000000000000000000000000000000000000000000000000000000001",
-          ready: true,
-          summary: first summary,
-        }
-      - approve: publish-approval
-      - record: { artifact: publish-request }
-        payload: {
-          commit: "1111111111111111111111111111111111111111",
-          version: 2026.11.09.1,
-          visibility: private,
-          pullRequest: https://github.com/puddle-works/tide-times/pull/1,
-          specDigest: "0000000000000000000000000000000000000000000000000000000000000001",
-          ready: true,
-          summary: a summary the person has not seen,
-        }
-      - move: approved
-        expect: { refused: "awaiting approval 'publish-approval'" }
-      - decline: publish-approval
-        note: not yet
-      - move: approved
-        expect: { refused: "'publish-approval' was declined" }
-      - approve: publish-approval
-      - move: approved
-      - move: released
-        expect: { refused: publish-check }
-      - record: { evidence: publish-check }
-        payload: {
-          commit: "1111111111111111111111111111111111111111",
-          ready: true,
-          prHead: "3333333333333333333333333333333333333333",
-          specCurrent: true,
-        }
-      - record: { evidence: release }
-        payload: {
-          commit: "1111111111111111111111111111111111111111",
-          version: 2026.11.09.1,
-          visibility: private,
-        }
-      - move: released
-        expect: { refused: the PR has moved on }
-      - move: stopped
-        manual: true
-      - move: approved
-        expect: { refused: "awaiting approval 'publish-approval'" }
-      - expect: { stage: pr }
