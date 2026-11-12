@@ -54,11 +54,13 @@ Building for its outcome owner's router test; step 13 says so.
 Creating a repo, making it public and pushing to the registry are outward
 steps: ask before each one. Never merge the PR; the user does.
 
-The order is kept by following these steps; nothing enforces it yet.
-ADR-002 chose `@swamp/stagecraft` to run the stages, and
-`docs/stagecraft/factory-build.yaml` is its definition, but this skill does not
-drive it (issue #47 in the puddleworks-factory repo). Don't install or run
-Stagecraft for a build.
+With the `engine` setting at `steps`, the default, the order is kept by
+following these steps, and nothing else enforces it. With `engine` at
+`stagecraft`, `@swamp/stagecraft` keeps it: a work item on Factory's definition
+(`docs/stagecraft/factory-build.yaml` in the puddleworks-factory repo, ADR-002)
+holds the stage, refuses a move whose gates fail, and records every product and
+decision. Follow **Driving Stagecraft** below; it does the same steps in its
+stages' order. Revisions stay on `steps`.
 
 Factory reads only the spec. Whoever wrote the spec (a person, another tool)
 has already agreed it; Factory does not check approvals.
@@ -76,12 +78,13 @@ repo you run from (a key it leaves out keeps its default). An argument to
 | `secrets`    | `SWAMP_API_KEY`, `SWAMP_SIGNIN_TOKEN` | Org Actions secrets granted to a new repo; `[]` grants none |
 | `collective` | `@puddleworks`                  | Collective the apps are published under (`typeScope`)         |
 | `worktrees`  | `orca`                          | `orca` or `git`; `git` is used anyway when `orca` is not installed |
+| `engine`     | `steps`                         | `steps` follows the steps below; `stagecraft` drives a Stagecraft work item (see Driving Stagecraft) |
 
 ```bash
 O='{}'   # the arguments given to /factory-build, e.g. O='{"org":"acme"}'
 D='{"org":"puddle-works","template":"puddle-works/puddle-template",
     "secrets":["SWAMP_API_KEY","SWAMP_SIGNIN_TOKEN"],"collective":"@puddleworks",
-    "worktrees":"orca"}'
+    "worktrees":"orca","engine":"steps"}'
 F='{}'; if [ -f factory-build.json ]; then F=$(cat factory-build.json); fi
 S=$(jq -es --argjson a "$O" 'select(length == 2) |
     (.[1] | objects) as $o | .[0] * $o * $a |
@@ -89,20 +92,22 @@ S=$(jq -es --argjson a "$O" 'select(length == 2) |
     select((.org | ok("^[A-Za-z0-9][A-Za-z0-9-]*$")) and
       (.template | ok("^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+$")) and
       (.collective | ok("^@[a-z0-9-]+$")) and (.worktrees | IN("orca", "git")) and
+      (.engine | IN("steps", "stagecraft")) and
       (.secrets | type == "array" and all(ok("^[A-Za-z_][A-Za-z0-9_]*$"))))' \
   <(echo "$D") <(printf %s "$F")) || {
   W="the arguments (O=)"; [ -f factory-build.json ] && W="factory-build.json or the arguments (O=)"
-  echo "$W must be one JSON object, with org a GitHub owner, template owner/repo, collective @name, worktrees orca or git, and secrets a list of secret names: fix whichever is wrong" >&2; exit 1; }
+  echo "$W must be one JSON object, with org a GitHub owner, template owner/repo, collective @name, worktrees orca or git, engine steps or stagecraft, and secrets a list of secret names: fix whichever is wrong" >&2; exit 1; }
 [ -f factory-build.json ] || echo "no factory-build.json here: using the defaults" >&2
 ORG=$(jq -r .org <<<"$S"); TEMPLATE=$(jq -r .template <<<"$S")
 SECRETS=$(jq -r '.secrets | join(" ")' <<<"$S"); COLLECTIVE=$(jq -r .collective <<<"$S")
 WT=$(jq -r .worktrees <<<"$S"); command -v orca >/dev/null || WT=git
+ENGINE=$(jq -r .engine <<<"$S")
 ```
 
 Shell variables don't last between Bash calls, so run this block again, from
 the swamp repo root (not an app worktree, where it falls back to the defaults),
 at the start of every Bash call that uses `$ORG`, `$TEMPLATE`, `$SECRETS`,
-`$COLLECTIVE` or `$WT`, with the user's `/factory-build` arguments in the first
+`$COLLECTIVE`, `$WT` or `$ENGINE`, with the user's `/factory-build` arguments in the first
 line every time. If it stops, show the user its message and wait for the file or
 the arguments to be fixed. Don't carry on with the defaults.
 
@@ -190,6 +195,9 @@ happened straight after swamp updated itself). Confirm with
 `swamp workflow history get WORKFLOW --json | jq -r '[.id, .status, .startedAt // ""] | join(" ")'`,
 `WORKFLOW` being its `@puddleworks/...` name, and run it once more. If it prints
 nothing again, stop and tell the user, with `swamp --version`.
+
+With `ENGINE` at `stagecraft`, also do **Driving Stagecraft**'s set-up now, and
+go on from its stages.
 
 ## Step 2: Check whether an existing extension already does it
 
@@ -1015,6 +1023,136 @@ says whether the app ran: say if a recipe's answers were not tried for real,
 and if `Recipe: none`, say why. For a request in Capture, say the outcome owner
 must test the phrases through puddlerouter and record it before the request is
 Released.
+
+## Driving Stagecraft
+
+Follow this instead of the step order above when `ENGINE` is `stagecraft`, for
+an outcome spec or an app spec. Revising an app that is already built stays on
+the steps. Each stage below does the work of the steps it names, with their
+commands, checks and stops; what changes is who keeps the order. A work item on
+the `factory-build` factory holds the stage, refuses a move whose gates fail,
+and records every product and every person's decision.
+
+Load the `stagecraft` skill (pulling `@swamp/stagecraft` installs it) and drive
+by its `references/driving.md`: read `status`, `dispatch`, do the stage's work,
+record each product, `advance`. Copy the three `expected…` inputs from the last
+write's `expect:` line into every write except `record_outcome`,
+`record_checkpoint` and `record_usage`. Record a payload from a file in `SP`,
+never inline: `payload=@SP/FILE.json` is the one input where the leading `@` is
+meant, since swamp reads the payload from that file. `dispatch` prints the schema of
+each product the stage records; a payload that breaks it is kept as feedback,
+so fix it and record it again.
+
+### Set up, once per swamp repo
+
+Do this in step 1, after the factory model exists, from the swamp repo you run
+`/factory-build` from:
+
+```bash
+swamp extension list --json | jq -r '.extensions[] | select(.name == "@swamp/stagecraft") | .version'
+```
+
+Anything but `2026.11.11.1`, or nothing: run
+`swamp extension pull @swamp/stagecraft@2026.11.11.1`. Then make the tracker and
+the factory, and write the definition this Factory ships into the factory
+(again on every run, so it follows a Factory update; a work item keeps the copy
+it started on):
+
+```bash
+DEF=$(find .swamp/pulled-extensions/@puddleworks/puddleworks-factory/files -name factory-build.yaml | head -1)
+[ -n "$DEF" ] || { echo "this Factory does not ship its Stagecraft definition: use engine steps" >&2; exit 1; }
+swamp behavior get factory-board --json 2>/dev/null | jq -e .id > /dev/null ||
+  swamp behavior create @swamp/stagecraft/tracker factory-board --global-arg prefix=fb --json > /dev/null
+swamp behavior get factory-build --json 2>/dev/null | jq -e .id > /dev/null ||
+  swamp behavior create @swamp/stagecraft/factory factory-build --global-arg tracker=factory-board --json > /dev/null
+F=models/@swamp/stagecraft/factory/factory-build.yaml
+{ sed '/^globalArguments:/,$d' "$F"; echo 'globalArguments:'; echo '  tracker: factory-board'
+  sed 's/^/  /' "$DEF"; echo 'methods: {}'; } > "$F.new" && mv "$F.new" "$F"
+swamp behavior run factory-build validate 2>&1 | grep "factory 'factory-build' is valid"
+```
+
+Expect `factory 'factory-build' is valid: 20 stages (…), 1 warning(s), 12 saved
+scenario(s) passed`. The one warning is the plan loop of Stagecraft's own
+example, kept as written. Anything else, or no line: stop and show the user the
+output.
+
+### Start, or carry on
+
+The work item's key is `ID`, the scratch folder's name, in lower case:
+
+```bash
+KEY=$(echo ID | tr A-Z a-z)
+swamp behavior run @swamp/stagecraft/work-item status "$KEY" 2>&1 | grep -E "at stage '|has not started"
+```
+
+`… active at stage 'S' cycle N` means the run was started before: carry on at
+that stage, whatever `SP` holds. `the work item has not started` means start
+it, with the request's title:
+
+```bash
+swamp behavior run @swamp/stagecraft/work-item start "$KEY" --input factory=factory-build \
+  --input "title=TITLE"
+```
+
+The user can watch it on the studio's Board: `swamp behavior create
+@swamp/stagecraft/studio studio --json` once, then `swamp behavior run studio
+serve`, which prints the page's address.
+
+### Each stage
+
+| Stage                                    | Do                                                                                                                                                   | Record                                                                                                                                                                                                                     | Who decides                                                    |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `intake`                                 | Steps 2 and 3, up to writing `SP/app-spec.json`. For an app spec, no assessment is run                                                                 | `assessment` (the assessment record's `verdict`, `reason`, `chosen`; `build-functionality` for an app spec), the user's `reuse-choice`, `spec` (`name`, the absolute path of `SP/app-spec.json`, its `sha256sum`)    | `reuse-approval`, `spec-approval`                              |
+| `record-existing`                        | The `done` path of **Reusing an existing extension**                                                                                                   | `build-result`                                                                                                                                                                                                             |                                                                |
+| `target`, `create-repo`                  | Step 4. For a repo that exists, make the worktree before recording `target`; otherwise record its path and make it in `create-repo`                   | `target` (`repository` as `REPO`, `checkout` as `W`, `branch`, `exists`, `route`), `repo-created`                                                                                                                          | `repo-creation`                                                |
+| `generate`                               | Step 5: run `@puddleworks/puddleworks-factory-build` with exactly the inputs `dispatch` printed, then the rest of step 5                             | `draft` (`status` and `runId`, the run's `.id` from `swamp workflow run --json`)                                                                                                                                           |                                                                |
+| `plan`, `plan-review`                    | Step 6's plan, as the `plan` artifact. Its plan review is the `plan-review` stage, a dispatch: send its prompt as printed, not step 6's               | `plan`, then the reviewer's `plan-review` file                                                                                                                                                                              | `plan-approval`, or `revise` with the user's `plan-feedback`   |
+| `implement`                              | Step 7, and any fix a later stage sends back                                                                                                          | `change-summary` with the full SHA you committed and `manifestVersion`                                                                                                                                                     |                                                                |
+| `check`                                  | Step 8                                                                                                                                                | `checks`, and `quality`: the output of `swamp extension quality manifest.yaml --json` plus `commit`                                                                                                                       |                                                                |
+| `visibility`                             | Step 9. Ask again only if the recommendation changed since the recorded `visibility-choice`                                                           | `visibility-recommendation` (with `commit` and `canBePublic`), the user's `visibility-choice`, `manifest-visibility`                                                                                                     | `visibility-choice`                                            |
+| `round`                                  | Step 10 up to the round workflow                                                                                                                      | `round`: the round record's `.latest` round plus `name` and `outcome` (`review`, `skip` for `carried` or `committed`, `refused` with the workflow's `message`)                                                              | A third round (below)                                          |
+| `code-review`                            | Step 10's review. Send the dispatched prompt as printed, not step 10's; the reviewer writes the review report, `spec/acceptance.json` and the findings file | The reviewer's `code-review` file, and its usage with `record_usage`                                                                                                                                                       | `release-approval`: show the findings and the round            |
+| `pr`                                     | Step 10's readiness, then step 11, then step 12's first readiness check                                                                               | `pull-request` (`commit` is `change-summary`'s, `head` the commit you pushed), `readiness` (for `head`), and, only if it is ready, `publish-request` with readiness's `summary`                                          | `publish-approval`: show `publish-request` and the summary     |
+| `pre-publish`                            | Step 12's readiness on `head`, the PR's head and the spec version check. Publish nothing                                                              | `publish-check`, with `passed` true only if all three hold                                                                                                                                                                 |                                                                |
+| `release`                                | Below                                                                                                                                                 | `release`                                                                                                                                                                                                                  |                                                                |
+| `record`                                 | Step 12's result workflow, then step 13                                                                                                               | `capture-record`                                                                                                                                                                                                           |                                                                |
+
+A decision is the user's: run `approve` or `decline` for its gate, with
+`--input onBehalfOf=<the user>`, only on their word for that decision, given
+after you showed them what they decide on. `visibility-choice`, `reuse-choice`
+and `plan-feedback` are their words, recorded by you. A `(manual)` exit, such as
+`rework` from `pr`, also needs their word, with `--input confirm=true`.
+
+**A third review round.** When the round workflow says `Round 3 would pass the
+limit`, ask the user as step 10 does. On yes, give it twice: `grant_override`
+with `--input kind=cycle --input stage=code-review` and their words as `note`,
+then the round workflow again with `grant=true`. Factory's count is the one that
+holds; if the two disagree (after a `reset`, say), follow Factory's.
+
+**Release.** `release` is Stagecraft's example stage, so its printed prompt is
+generic: publish exactly the approved request instead. With `publish-request`'s
+`head`, `version` and `visibility` (`V`), from `W` checked out at `head`: for
+public, `gh repo edit ORG/NAME --visibility public
+--accept-visibility-change-consequences` first, then `(cd W && make publish
+VISIBILITY=V)`. Never pass `--visibility` or `--yes`, and never merge the PR.
+Record `release`:
+
+```json
+{"via": "registry-push", "commit": "<change-summary's commit>", "head": "<publish-request's head>",
+ "version": "VERSION", "visibility": "V", "url": "https://swamp-club.com/extensions/COLLECTIVE/NAME"}
+```
+
+`commit` is the reviewed commit, which the example's gate checks; `head` and
+`visibility` are what `record` checks against the approval. If `make publish`
+stops, nothing was published: record nothing, tell the user what it lists, and
+take `rework` back to `implement` on their word. The work item ends at `done`
+(or `reused`, or `abandoned`).
+
+**At the end**, save the work item's timeline and metrics beside the run's log:
+
+```bash
+swamp behavior run @swamp/stagecraft/work-item summary "$KEY" > SP/stagecraft-summary.md
+```
 
 ## Reusing an existing extension
 
