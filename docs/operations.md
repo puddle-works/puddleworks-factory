@@ -27,6 +27,24 @@ part way, and what to check before releasing the Factory itself
 
 It ends with `sandbox dry run: ok`, and leaves the Factory checkout as it was.
 
+- `.github/scripts/stagecraft-drive.sh` drives one real Stagecraft work item on
+  the definition through the swamp CLI, for what saved scenarios can't show:
+  generate's packet passes `branch`, `targetDir` and `specDigest` to `render`,
+  which refuses a checkout on the wrong branch and writes nothing; a dispatch
+  past the cap parks until a dispatch override; a rejected payload is kept as
+  feedback and cleared; a manual exit without confirm, an approval for another
+  gate and a write from a stale view are refused and write nothing; only one of
+  two submits sent at once goes through; interrupted dispatches resume from a
+  checkpoint and then park; code-review's prompt reviews the whole repo in round
+  1 and only the diff in round 2; and a third review needs Factory's grant and a
+  cycle override. CI runs it on every PR. It takes about two minutes:
+
+```bash
+.github/scripts/stagecraft-drive.sh
+```
+
+It ends with `stagecraft drive: ok`.
+
 ## Recovering a build
 
 Every refusal below writes no file and records nothing, so the fix is to correct
