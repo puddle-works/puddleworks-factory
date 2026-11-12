@@ -26,7 +26,7 @@ export type GlobalArgs = z.infer<typeof GlobalArgsSchema>;
 /** The behavior type: serves the read-only Factory page. */
 export const model = {
   type: "@puddleworks/puddleworks-factory/web",
-  version: "2026.11.11.1",
+  version: "2026.11.12.1",
   upgrades: [
     {
       toVersion: "2026.11.06.1",
@@ -48,6 +48,15 @@ export const model = {
       description:
         "The page is unchanged; this release changes only the draft behavior's " +
         "readiness. No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.11.12.1",
+      description:
+        "The page says an app with a failed required check can't be published, " +
+        "public or private, and shows a finding in a commit without a line " +
+        "number. Its routes and security policy are unchanged. No data " +
+        "migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],

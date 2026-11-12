@@ -1895,7 +1895,7 @@ async function carriedReview(
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.11.11.1",
+  version: "2026.11.12.1",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -2072,6 +2072,27 @@ export const model = {
         "--allow-*, --deny-*) from the tests: line in the app's ci.yml, and " +
         "drops every other word on that line; with no such line they run with " +
         "no permissions, as before. No data migration required.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.11.12.1",
+      description:
+        "Every build is held to the public checks: readiness blocks on any " +
+        "failed required visibility check, private apps included. emails is a " +
+        "new required check, of the files and of each commit origin/main lacks, " +
+        "and internal-details is now required. revise keeps the outcome spec " +
+        "with each person's email blank, an app spec's recordedBy is a name, and " +
+        "the readiness summary hides addresses. The new round method and round " +
+        "workflow start and record every review round: a build has two until it " +
+        "is published, a third needs grant=true, a round starts only on a " +
+        "committed checkout whose publish dry run warns of nothing but the " +
+        "review and what ci.yml's accepted-warnings names, and a change that " +
+        "only bumps the version carries the last committed review over. " +
+        "readiness blocks content with no recorded round. An app can't be " +
+        "named review-rounds-*. The factory-build skill uses that count in " +
+        "steps 10 to 12, and with its engine setting at stagecraft drives a " +
+        "Stagecraft work item on the definition this release ships. No data " +
+        "migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
