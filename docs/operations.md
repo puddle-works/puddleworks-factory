@@ -42,8 +42,8 @@ the input and run the same step again.
   and run readiness with the new report.
 - **readiness names a missing quality factor or a failed test.** Fix it in the
   app, then check and review again: the fix changes the content hash.
-- **The check right before publishing fails.** Nothing was published. Take the
-  manual `stopped` exit back to `pr` and ask the person again.
+- **The check right before publishing fails.** Nothing was published. The
+  `stopped` exit goes back to `pr`; ask the person again.
 - **The publish worked but the build result was not written.** Run only the
   result workflow again, before committing anything in the app checkout.
 
@@ -54,7 +54,16 @@ the input and run the same step again.
       (14/14) with no gate failures.
 - [ ] `.github/scripts/sandbox-dry-run.sh` ends with `sandbox dry run: ok`.
 - [ ] `version:` in `manifest.yaml` is new, and a fresh review report is
-      committed for the content hash the publish dry run names.
+      committed for the content hash the publish dry run names. Run the dry run
+      from the Factory checkout with the review folder set to it, so swamp reads
+      and names `swamp-extension-review/` there:
+
+      ```bash
+      SWAMP_EXTENSION_REVIEW_DIR=$PWD swamp extension push manifest.yaml --dry-run --json
+      ```
+
+      Without it, swamp looks in `/tmp/swamp-extension-review/` and asks for a
+      review even when the committed report matches.
 - [ ] A person approves the release. The local grade is B (87%) at best, since
       `repository-verified` is decided by the registry. Don't claim a registry
       grade until it has been checked after an authorized release.

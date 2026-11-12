@@ -8,6 +8,10 @@ replaces the default in
 [factory-quality-and-gates-plan.md](../factory-quality-and-gates-plan.md),
 "Engine decision", which was to build Factory-native gates.
 
+Amended by Mark Ellens on 2026-11-12: the definition is now a copy of
+Stagecraft's own example with Factory's stages added. See
+[Amendment: built on Stagecraft's example](#amendment-built-on-stagecrafts-example).
+
 ## Context
 
 The build workflow only renders a draft. The order of stages, the rework loops
@@ -28,11 +32,11 @@ definition, not in the engine.
 - `@swamp/stagecraft` owns stage order, loop limits, the journal and approvals.
   The Factory lifecycle is a Stagecraft factory definition,
   [docs/stagecraft/factory-build.yaml](../stagecraft/factory-build.yaml).
-- The definition is lean: one independent review stage and no plan review. The
-  review allows three reviews in all before a person must grant another, the two
-  re-review rounds the skill allows today. A person decides at the same points
-  as today: acting on the reuse assessment, the spec, creating a repo,
-  visibility and publishing.
+- The definition was lean: one independent review stage and no plan review,
+  allowing three reviews in all before a person must grant another. A person
+  decided at the same points as the skill: acting on the reuse assessment, the
+  spec, creating a repo, visibility and publishing. The amendment below replaces
+  this with Stagecraft's example and two reviews.
 - Intake takes its exits from the assess verdicts of #41 and #55: `build` for
   `build-functionality` or a declined reuse, `reuse` for a recipe or scheduled
   workflow on an existing method (no draft is generated), and `already-done`
@@ -52,8 +56,8 @@ definition, not in the engine.
 Stagecraft's own `validate` method (schema, graph analysis and saved scenarios)
 passes the definition with 0 warnings and 6 of 6 saved scenarios. It was run
 through Stagecraft's fake swamp from `swamp-club/swamp-extensions` at
-`fac5d641b46ffb1247e909d44da9a0174ef9ff15` (`@swamp/stagecraft` 2026.11.05.3),
-not through the swamp CLI. The scenarios show that:
+`fac5d641b46ffb1247e909d44da9a0174ef9ff15` (`@swamp/stagecraft` 2026.11.05.3);
+later runs, below, used the swamp CLI. The scenarios show that:
 
 - the spec, repo-creation and publish approvals each block until given;
 - the fourth review is refused until a person grants an override;
@@ -106,13 +110,64 @@ is recorded by the driving agent, so it is evidence of the check, not proof; the
 external commands themselves (`gh repo create`, `gh repo edit`, `make publish`)
 are run by the agent and are not gated inside Factory.
 
+## Amendment: built on Stagecraft's example
+
+Decided by Mark Ellens on 2026-11-12. Stagecraft ships
+`build-swamp-extension.yaml` (plan, plan-review, implement, check, code-review,
+release), its own process. A definition cannot extend another, so
+`factory-build.yaml` is now a copy of that example from `@swamp/stagecraft`
+2026.11.11.1, with Factory's stages added and the example's stages kept as
+written. A diff against the example shows only these changes to its stages:
+
+- `plan` is no longer the initial stage; Factory's `intake` is.
+- `check`'s two passed exits go to Factory's `visibility`, not `code-review`.
+- `code-review` allows two reviews (`maxCycles: 2`). Its prompt adds the round
+  number, the app checkout, the spec and the report path; round 1 reviews the
+  whole repo and round 2 only `git diff` from round 1's commit. It also injects
+  `spec` and `round`. `accept` goes to Factory's `pr`.
+- `release`'s `released` goes to Factory's `record`.
+
+Factory adds `intake`, `record-existing`, `target`, `create-repo` and `generate`
+before `plan`, and `visibility`, `round`, `pr`, `pre-publish`, `record` and
+`reused` after `check`. So the example's plan review with `plan-approval`, its
+quality waiver, its `release-approval` and its `duplicate` exit are now part of
+every build; Factory's `publish-approval` still binds the head, version,
+visibility, PR and spec digest.
+
+Factory's round workflow (`@puddleworks/puddleworks-factory-round`, the
+`review-rounds-NAME` record) keeps the review count: two per build until a
+publish, across versions, with a review carried over when only the version
+changed. `code-review`'s `maxCycles` mirrors it, the `round` stage's `carried`
+exit skips `code-review` for a carried or committed review, and a third review
+needs the person's yes as both a cycle override for `code-review` and
+`grant=true` to the round workflow. Factory's record wins when the two disagree,
+as after a `reset`.
+
+Fixes to the earlier definition:
+
+- `generate` passes `branch`, so render checks the checkout is on `draft/NAME`.
+- `visibility` runs the visibility workflow on every pass and asks again only
+  when its recommendation changed; a manifest that does not say the chosen
+  visibility goes back to implement.
+- Readiness that is not ready on the PR's head goes back to implement without a
+  person (`not-ready`), and a failed check right before publishing goes back to
+  `pr` on its own (`stopped`), where the person approves again.
+- `record-existing` records a build-result/v2.
+
+`validate` under the swamp CLI with `@swamp/stagecraft` 2026.11.11.1: 20 stages,
+1 warning (the example's own plan loop is bounded only by the default cycle
+limit) and 12 of 12 saved scenarios. Four of the earlier scenarios carry over;
+the others are replaced by ones that walk the example's stages.
+
 ## Consequences
 
 - Users pull `@swamp/stagecraft` alongside Factory, and the factory-build skill
   becomes a Stagecraft driver. That rewrite waits for the other skill changes in
   flight, to avoid conflicts.
 - The happy path is about 45 agent CLI calls (dispatch, record, advance per
-  stage), none of which need a person.
+  stage), none of which need a person. The amendment's plan, plan-review and
+  round stages add about 10 more, and two person stops (`plan-approval` and
+  `release-approval`).
 - Factory depends on an extension that changes fast. Its definition format is at
   schemaVersion 5; Stagecraft upgrades older definitions on read.
 - Locally the agent and the person run as one principal, so no approval can show
