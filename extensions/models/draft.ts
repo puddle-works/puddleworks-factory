@@ -1895,7 +1895,7 @@ async function carriedReview(
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.11.12.1",
+  version: "2026.11.13.1",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -2107,6 +2107,20 @@ export const model = {
         "release keeps people's addresses in spec/outcome-spec.v*.json, which " +
         "the emails check now fails, private apps included: blank each email " +
         "there, as the skill's step 3 does for a new build, and commit.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.11.13.1",
+      description:
+        "round holds a report committed by hand to the limit of two review " +
+        "rounds. Once a build has a round, a complete report committed for the " +
+        "content counts only when a recorded round is of that content: round no " +
+        "longer records it as committed, and a change that only bumps the " +
+        "version no longer carries it over. Until now, committing such a report " +
+        "after round 2 let changed content through with no third round and no " +
+        "grant. A report committed before the build's first round still needs " +
+        "no round. No data migration required: recorded rounds are read as " +
+        "before.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
