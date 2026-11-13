@@ -39,6 +39,8 @@ export interface TestRun {
   /** Null when the run gave no readable report; `error` says why. */
   tests: TestOutcome[] | null;
   error?: string;
+  /** What readiness could not take from ci.yml for the run, when it ran. */
+  note?: string;
 }
 
 /** Run the app's tests in dir and report each one. */
@@ -139,58 +141,190 @@ const decoder = new TextDecoder();
  * `--allow-…`/`--deny-…`/`--ignore-…`, each with any value.
  */
 const PERMISSION =
-  /^(-A|-[RWNESIP]+(=\S+)?|--(allow|deny|ignore)-[a-z-]+(=\S+)?|--permission-set(=\S+)?)$/;
+  /^(-A|-[RWNESIP]+(=[\s\S]*)?|--(allow|deny|ignore)-[a-z-]+(=[\s\S]*)?|--permission-set(=[\s\S]*)?)$/;
+
+/** Short flags that group a permission with others, such as `-qR`. */
+const GROUPED = /^-[A-Za-z]*[ARWNESIP][A-Za-z]*(=|$)/;
+
+/**
+ * The long options of `deno test` (deno 2.9.7) that take the next word as
+ * their value, so `--filter -A` filters and grants nothing. `-c` and `-L` do
+ * too, also last in a group such as `-qc`.
+ */
+const VALUE_OPTIONS = new Set([
+  "--filter",
+  "--coverage-threshold",
+  "--reporter",
+  "--junit-path",
+  "--retry",
+  "--repeats",
+  "--shard",
+  "--related",
+  "--ext",
+  "--import-map",
+  "--node-modules-linker",
+  "--config",
+  "--cert",
+  "--min-dep-age",
+  "--inspect-publish-uid",
+  "--location",
+  "--seed",
+  "--preload",
+  "--require",
+  "--conditions",
+  "--log-level",
+]);
+
+/** A word of a shell command, and whether the shell could expand it. */
+interface Word {
+  text: string;
+  expands: boolean;
+}
+
+const SUBSTITUTES = "substitutes or expands words";
+
+/**
+ * The simple commands of a shell command line and their words, read as the
+ * shell reads literal text but without running one. `'…'` and `"…"` keep
+ * what is in them in one word, a backslash keeps the next character or joins
+ * two lines, and `#` at the start of a word comments out the rest of the
+ * line. Commands end at `&&`, `||`, `;`, `|`, `&` and line breaks outside
+ * quotes, and a redirection is dropped with its target. A string says what
+ * can't be read without a shell: substitution or expansion (`$` outside
+ * single quotes, a backtick), an unmatched quote, a subshell or a
+ * here-document.
+ */
+function shellCommands(line: string): Word[][] | string {
+  const commands: Word[][] = [[]];
+  let text = "", inWord = false, expands = false, redirect = false;
+  const end = () => {
+    if (inWord && redirect) redirect = false;
+    else if (inWord) commands[commands.length - 1].push({ text, expands });
+    text = "";
+    inWord = false;
+    expands = false;
+  };
+  const next = () => {
+    end();
+    redirect = false;
+    commands.push([]);
+  };
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === " " || c === "\t" || c === "\r") end();
+    else if (c === "\n") next();
+    else if (c === "#" && !inWord) {
+      const eol = line.indexOf("\n", i);
+      i = eol < 0 ? line.length : eol - 1;
+    } else if (c === "\\" && i + 1 < line.length) {
+      if (line[++i] !== "\n") {
+        text += line[i];
+        inWord = true;
+      }
+    } else if (c === "'") {
+      const close = line.indexOf("'", i + 1);
+      if (close < 0) return "has an unmatched quote";
+      text += line.slice(i + 1, close);
+      inWord = true;
+      i = close;
+    } else if (c === '"') {
+      inWord = true;
+      for (i++; line[i] !== '"'; i++) {
+        if (i >= line.length) return "has an unmatched quote";
+        let d = line[i];
+        if (d === "\\" && '$`"\\\n'.includes(line[i + 1] || "x")) {
+          d = line[++i];
+          if (d === "\n") continue;
+        } else if (d === "$" || d === "`") return SUBSTITUTES;
+        text += d;
+      }
+    } else if (c === "$" || c === "`") return SUBSTITUTES;
+    else if (c === "(" || c === ")") return "runs a subshell";
+    else if (c === "<" || c === ">" || (c === "&" && line[i + 1] === ">")) {
+      if (line.startsWith("<<", i)) return "has a here-document";
+      // A file descriptor's number belongs to the redirection, as in 2>&1.
+      if (inWord && /^\d+$/.test(text)) text = "", inWord = false;
+      else end();
+      if (c === "&") i++;
+      if (/[>&|]/.test(line[i + 1] ?? "")) i++;
+      redirect = true;
+    } else if (c === "&" || c === "|" || c === ";") {
+      if (line[i + 1] === c || (c === "|" && line[i + 1] === "&")) i++;
+      next();
+    } else {
+      if ("*?[{~".includes(c)) expands = true;
+      text += c;
+      inWord = true;
+    }
+  }
+  end();
+  return commands;
+}
 
 /**
  * The permission flags of the `deno test` command in the app's `ci.yml` (the
  * publish job's `tests` input, which render writes and the app's README says
- * to extend when its tests need permissions). Only that command's own words
- * count, up to a `--`: the input may run other commands around it, joined by
- * `&&`, `||`, `;`, `|`, `&` or a line break, whose flags are not deno's. None
- * when no job gives the input or it runs no `deno test`.
+ * to extend when its tests need permissions), read as the shell would split
+ * it into words (see `shellCommands`). Only that command's own words count,
+ * up to a `--`, and not the value of an option such as `--filter`: the input
+ * may run other commands around it, whose flags are not deno's.
  *
- * Readiness runs deno without a shell, so a command whose words it can't read
- * as the shell would is an error rather than a guess at its permissions: one
- * that quotes, escapes or substitutes, runs `deno test` more than once, groups
- * a permission with other short flags (`-qR`), or takes a permission set from
- * a config file named with `-c`/`--config`, which readiness doesn't pass on.
+ * With no `deno test` command in a non-empty input (`deno task test`, say),
+ * there are no flags and `note` says so: readiness runs the tests with no
+ * permissions rather than guess what the command gives them.
+ *
+ * Readiness runs deno without a shell, so a command it can't read as the
+ * shell would is an error rather than a guess at its permissions: one that
+ * substitutes or expands, leaves a quote open, uses a subshell or a
+ * here-document, runs `deno test` more than once, has a flag-like word the
+ * shell could expand, groups a permission with other short flags (`-qR`), or
+ * takes a permission set from a config file named with `-c`/`--config`,
+ * which readiness doesn't pass on.
  */
 export function testPermissions(
   ciYml: string | null,
-): string[] | { error: string } {
+): { flags: string[]; note?: string } | { error: string } {
   const command = ciInput(ciYml, "tests").trim();
   const unsupported = (why: string) => ({
     error:
       `ci.yml's tests command ${why}, so readiness can't tell which deno permissions CI gives the tests: ${command}`,
   });
-  // A line continuation joins its lines, and a comment runs to the line end.
-  const shell = command.replaceAll("\\\n", "").replace(/(^|\s)#.*/g, "");
-  if (/['"`$\\]/.test(shell)) {
-    return unsupported("quotes, escapes or substitutes words");
-  }
-  const runs = shell.split(/&&|\|\||[;|&\n]/).map((part) => {
-    const words = part.trim().split(/\s+/);
+  const commands = shellCommands(command);
+  if (typeof commands === "string") return unsupported(commands);
+  const runs = commands.map((words) =>
     // Variables set for the command alone come before it.
-    while (/^[A-Za-z_]\w*=/.test(words[0] ?? "")) words.shift();
-    return words;
-  }).filter(([cmd, sub]) => cmd === "deno" && sub === "test");
+    words.slice(words.findIndex((w) => !/^[A-Za-z_]\w*=/.test(w.text)))
+  ).filter(([cmd, sub]) => cmd?.text === "deno" && sub?.text === "test");
   if (runs.length > 1) return unsupported("runs deno test more than once");
-  const args = runs[0]?.slice(2) ?? [];
-  const words = args.includes("--") ? args.slice(0, args.indexOf("--")) : args;
-  const mixed = words.find((w) =>
-    /^-[A-Za-z]*[ARWNESIP][A-Za-z]*(=|$)/.test(w) && !PERMISSION.test(w)
-  );
-  if (mixed) {
-    return unsupported(`groups permission flags with others (${mixed})`);
+  if (runs.length === 0) {
+    return command
+      ? {
+        flags: [],
+        note:
+          `ci.yml's tests command runs no deno test readiness can read, so readiness ran the tests with no permissions, not that command: ${command}`,
+      }
+      : { flags: [] };
   }
-  const flags = words.filter((w) => PERMISSION.test(w));
-  if (
-    flags.some((w) => /^(-[A-Z]*P|--permission-set)/.test(w)) &&
-    words.some((w) => /^(-c|--config)(=|$)/.test(w))
-  ) {
+  const flags: string[] = [];
+  let config = false;
+  const args = runs[0].slice(2);
+  for (let i = 0; i < args.length && args[i].text !== "--"; i++) {
+    const { text: w, expands } = args[i];
+    if (expands && /^[-*?[{]/.test(w)) {
+      return unsupported(`has a word the shell could expand into flags (${w})`);
+    }
+    if (PERMISSION.test(w)) flags.push(w);
+    else if (GROUPED.test(w)) {
+      return unsupported(`groups permission flags with others (${w})`);
+    } else {
+      if (/^(--config(=|$)|-[a-zA-Z]*c)/.test(w)) config = true;
+      if (VALUE_OPTIONS.has(w) || /^-[a-zA-Z]*[cL]$/.test(w)) i++;
+    }
+  }
+  if (config && flags.some((w) => /^(-[A-Z]*P|--permission-set)/.test(w))) {
     return unsupported("takes a permission set from a config file it names");
   }
-  return flags;
+  return { flags };
 }
 
 /**
@@ -215,14 +349,15 @@ export function realTests(runSwamp: SwampRun): TestRunner {
       ci = null;
     }
     const permissions = testPermissions(ci);
-    if (!Array.isArray(permissions)) return { tests: null, ...permissions };
+    if ("error" in permissions) return { tests: null, ...permissions };
+    const note = permissions.note ? { note: permissions.note } : {};
     // The app's own tests, the same command and permissions its CI runs. No
     // shell is involved; the README says readiness runs them.
     // swamp-quality-ignore deno-command
     const run = await new Deno.Command(deno, {
       args: [
         "test",
-        ...permissions,
+        ...permissions.flags,
         "--reporter=junit",
         "extensions/models/",
       ],
@@ -237,8 +372,9 @@ export function realTests(runSwamp: SwampRun): TestRunner {
       return {
         tests: null,
         error: `deno test reported no tests (exit ${run.code})`,
+        ...note,
       };
     }
-    return { tests };
+    return { tests, ...note };
   };
 }
