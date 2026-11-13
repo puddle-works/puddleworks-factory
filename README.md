@@ -280,20 +280,23 @@ round, with `round` its number; round 2 names the round before in `base` and the
 files changed since in `changed`. A third round fails until the user agrees and
 you run it with `--input grant=true`, and each one after needs a yes of its own.
 The same content again is the same round. After a version is published, the next
-version is a new build. A change that only bumps the version (the manifest's
-`version:`, a behavior's `version:` and a no-op upgrade to it) is `carried`:
-`round` writes the last committed review to the new report path, once the
-content hash with the bump undone is the one that review was for. To check that
-it starts `git` and `swamp` as subprocesses, without a shell, and copies the
-checkout to a temporary directory. `committed` means a complete report for this
-exact content is already committed.
+version is a new build: `result` with `publishedVersion` records the version on
+the rounds, and the count starts again after it. A change that only bumps the
+version (the manifest's `version:`, a behavior's `version:` and a no-op upgrade
+to it) is `carried`: `round` writes the last committed review to the new report
+path, once the content hash with the bump undone is the one that review was for.
+To check that it starts `git` and `swamp` as subprocesses, without a shell, and
+copies the checkout to a temporary directory. `committed` means a complete
+report for this exact content is already committed.
 
 For a round, write the review report from the publish dry run's skeleton, and
 map each acceptance criterion in `spec/outcome-spec.v*.json` to the tests that
 check it in `spec/acceptance.json`
-(`{"criteria": [{"id": "AC1", "tests": ["a Deno.test name"], "manual": ""}]}`,
-with `manual` saying how it was checked by hand when no test can). Then check
-nothing is left. `review` is the report's path, from the dry run:
+(`{"criteria": [{"id": "AC1", "tests": ["a Deno.test name"]}]}`; when no test
+can check one, give it
+`"manual": {"check": "what was run and seen", "by": "who", "passed": true}`
+instead). Then check nothing is left. `review` is the report's path, from the
+dry run:
 
 ```bash
 swamp workflow run @puddleworks/puddleworks-factory-readiness \
@@ -305,10 +308,11 @@ swamp data query 'behavior("puddleworks-factory") && name == "readiness-obsidian
 
 It is ready when the report matches the manifest's name and version with no
 `issue` or `pending` verdict, a round is recorded for the content as it is now,
-every criterion has a test that exists or a manual check, and the visibility
-check allows the manifest's visibility. Once round 2 is recorded, anything that
-ships is frozen: a later change blocks until it is undone or the user grants
-another round. The summary fits on one screen: confirm publishing against it.
+every criterion has a test that exists or a manual check, and every required
+visibility check passes, whatever the manifest's visibility. Once round 2 is
+recorded, anything that ships is frozen: a later change blocks until it is
+undone or the user grants another round. The summary fits on one screen: confirm
+publishing against it.
 
 Write the build result once the draft is pushed. Add `pullRequest` once the pull
 request is open, and `publishedVersion` with `publishedVisibility` once it is

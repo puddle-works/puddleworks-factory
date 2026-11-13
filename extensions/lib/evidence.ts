@@ -11,6 +11,7 @@
  *
  * @module
  */
+import { ciInput } from "./ci.ts";
 import type { SwampRun } from "./recipe_check.ts";
 
 /** What one quality run said about the current content. */
@@ -131,20 +132,20 @@ export function parseJunit(xml: string): TestOutcome[] {
 
 const decoder = new TextDecoder();
 
-/** A deno permission flag: `-A`, or `--allow-…`/`--deny-…` with any value. */
-const PERMISSION = /^(-A|--(allow|deny)-[a-z-]+(=\S+)?)$/;
+/**
+ * A deno permission flag: `-A`, a short flag (`-R`, `-W`, `-N`, `-E`, `-S`,
+ * `-I`) or `--allow-…`/`--deny-…`, each with any value.
+ */
+const PERMISSION = /^(-A|(-[RWNESI]|--(allow|deny)-[a-z-]+)(=\S+)?)$/;
 
 /**
  * The permission flags of the tests command in the app's `ci.yml` (the
- * publish job's `tests:` input, which render writes and the app's README
+ * publish job's `tests` input, which render writes and the app's README
  * says to extend when its tests need permissions). Every other word is
- * dropped, so only permissions carry over; none when there is no such line.
+ * dropped, so only permissions carry over; none when no job gives it.
  */
 export function testPermissions(ciYml: string | null): string[] {
-  const line = ciYml?.match(/^\s*tests:\s*(.+)$/m)?.[1] ?? "";
-  return line.replace(/\s#.*$/, "").trim().split(/\s+/).filter((w) =>
-    PERMISSION.test(w)
-  );
+  return ciInput(ciYml, "tests").split(/\s+/).filter((w) => PERMISSION.test(w));
 }
 
 /**

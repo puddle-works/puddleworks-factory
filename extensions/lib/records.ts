@@ -116,6 +116,12 @@ export const ReviewRoundsSchema = z.object({
   name: z.string(),
   targetDir: z.string(),
   rounds: z.array(ReviewRoundSchema),
+  /**
+   * The version last published, which `result` records here: the build in
+   * progress is the rounds after it. Kept here, not read from the build
+   * result, because the next build's first result has nothing published.
+   */
+  published: z.string().optional(),
   /** The round just asked for, with what its reviewer needs. */
   latest: ReviewRoundSchema.extend({
     /** The skeleton to write the report from, from the publish dry run. */
@@ -231,3 +237,5 @@ export type PlanReviewRecord = z.infer<typeof PlanReviewSchema>;
 export type VisibilityRecord = z.infer<typeof VisibilitySchema>;
 /** A readiness record: the review, the criteria and the blockers. */
 export type ReadinessRecord = z.infer<typeof ReadinessSchema>;
+/** An app's review rounds, and the version its last finished build published. */
+export type ReviewRoundsRecord = z.infer<typeof ReviewRoundsSchema>;

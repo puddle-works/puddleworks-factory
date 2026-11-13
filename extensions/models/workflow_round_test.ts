@@ -48,7 +48,7 @@ Deno.test("round workflow: needs only the name; a round past the limit needs gra
   assertEquals(workflow.inputs.properties.targetDir.default, "");
 });
 
-Deno.test("round workflow: one step passes every input to readiness", () => {
+Deno.test("round workflow: one step passes every input to round", () => {
   assertEquals(steps.length, 1);
   const [step] = steps;
   assertEquals(step.task.type, "model_method");

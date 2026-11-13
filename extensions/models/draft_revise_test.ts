@@ -296,6 +296,32 @@ Deno.test("revise: a draft rendered without a source can finish a stopped run to
   });
 });
 
+Deno.test("revise: finishing a stopped run brings app-spec.json up to the version again", async () => {
+  await withApp(async (dir, ctx) => {
+    const appSpec = `${dir}/spec/app-spec.json`;
+    const before = await Deno.readTextFile(appSpec);
+    const write = ctx.writeResource;
+    ctx.writeResource = () => Promise.reject(new Error("store went away"));
+    await assertRejects(
+      () => run(ctx, { outcomeSpec: v2() }),
+      Error,
+      "store went away",
+    );
+    const revised = await Deno.readTextFile(appSpec);
+    // As git restore or git stash would leave it: the tracked app spec back
+    // at v1, the untracked v2 files still there.
+    await Deno.writeTextFile(appSpec, before);
+    ctx.writeResource = write;
+    await run(ctx, { outcomeSpec: v2() });
+    assertEquals(
+      (ctx.store.get(NAME) as { source: { version: number } }).source.version,
+      2,
+    );
+    assertEquals(await Deno.readTextFile(appSpec), revised);
+    assertEquals(JSON.parse(revised).source.version, 2);
+  });
+});
+
 Deno.test("revise: an outcome spec at its version with no change plan is still refused", async () => {
   await withApp(async (_dir, ctx) => {
     // spec/ holds v1 from the build, not from a revise, and nothing records it.
