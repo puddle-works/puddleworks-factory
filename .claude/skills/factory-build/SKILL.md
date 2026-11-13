@@ -774,7 +774,10 @@ jq -r '.kind + " " + (.round | tostring) + " " + .file' SP/review.json
 `succeeded` prints the kind:
 
 - `committed 0`: a complete report for this exact content is already
-  committed. No round; go to step 11.
+  committed, and this build has had no round yet. No round; go to step 11.
+  Once the build has a round, a report committed without one counts for
+  nothing, and a version bump doesn't carry it over: never write or copy a
+  report to get past the limit.
 - `carried 0`: only the version changed since the last committed review, so
   the workflow wrote that review to the new report path (`.file`). No round;
   commit it with `spec/`, and go to step 11.

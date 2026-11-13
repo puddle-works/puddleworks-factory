@@ -1828,7 +1828,8 @@ async function copyCheckout(root: string): Promise<string> {
  * complete report of another version, committed in HEAD, qualifies when
  * undoing each file's bump to that version (lib/rounds.ts `onlyBumped`) in a
  * copy of the checkout gives the content hash the report was written for:
- * swamp itself then says nothing else that ships has changed.
+ * swamp itself then says nothing else that ships has changed. `counts` says
+ * which reports the review rounds stand behind.
  */
 async function carriedReview(
   root: string,
@@ -1836,6 +1837,7 @@ async function carriedReview(
   version: string,
   run: GitRun,
   swamp: SwampRun,
+  counts: (version: string, contentHash: string) => boolean,
 ): Promise<{ text: string; version: string; contentHash: string } | null> {
   const listed = await run(
     ["ls-tree", "--name-only", "HEAD", "swamp-extension-review/"],
@@ -1848,6 +1850,7 @@ async function carriedReview(
     const oldVersion = text &&
       completeReportVersion(text, pkg, REVIEW_DIMENSIONS);
     if (!oldHash || !text || !oldVersion || oldVersion === version) continue;
+    if (!counts(oldVersion, oldHash)) continue;
     const since =
       (await git(run, ["log", "-n1", "--format=%H", "HEAD", "--", file], root))
         .trim();
@@ -2909,7 +2912,10 @@ export const model = {
         "publish dry run clean but for the review: every other warning, and a version " +
         "already published, is fixed first. A build has at most two rounds; a third " +
         "needs grant=true, the user's yes to that round. The same content as a round " +
-        "already recorded is that round again. A change that only bumps the version " +
+        "already recorded is that round again. A complete report already committed " +
+        "for this content needs no round, but only before the build's first round: " +
+        "after it, a committed report counts only when a recorded round is of its " +
+        "content. A change that only bumps the version " +
         "carries the last committed review over, with no round: the method writes it " +
         "to the new report path once the content hash, with the bump undone in a " +
         "copy, is the one that review was for. Round 2 and later name the round " +
@@ -3025,7 +3031,18 @@ export const model = {
         let round: ReviewRound;
         let fresh = true;
         let previous: unknown = null;
-        const committed = await textAt(run, root, "HEAD", file);
+        // A committed report counts when a recorded round is of its content,
+        // or the build has no round yet: it was then reviewed before this
+        // record began. Once the build has a round, a report no round asked
+        // for counts for nothing, here and for a bump to carry over, or
+        // committing one by hand would get a change past the limit.
+        const building = buildRounds(rounds, published).length > 0;
+        const counts = (v: string, hash: string) =>
+          !building ||
+          rounds.some((r) => r.version === v && r.contentHash === hash);
+        const committed = counts(version, contentHash)
+          ? await textAt(run, root, "HEAD", file)
+          : null;
         if (decision.kind === "same") {
           round = decision.round;
           fresh = false;
@@ -3035,7 +3052,14 @@ export const model = {
         ) {
           round = { ...base, kind: "committed", round: 0 };
         } else {
-          const carried = await carriedReview(root, pkg, version, run, swamp);
+          const carried = await carriedReview(
+            root,
+            pkg,
+            version,
+            run,
+            swamp,
+            counts,
+          );
           if (carried) {
             await writeFileIn(`${root}/${file}`, carried.text);
             round = {
