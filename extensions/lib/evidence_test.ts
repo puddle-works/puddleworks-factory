@@ -80,10 +80,10 @@ Deno.test("testPermissions: the permission flags of ci.yml's tests command, noth
   assertEquals(
     testPermissions(
       withTests(
-        "deno test -A --reporter=dot --config x.json --deny-net=a.example extensions/models/",
+        "deno test -A --reporter=dot --config x.json --deny-net=a.example --ignore-env=X extensions/models/",
       ),
     ),
-    ["-A", "--deny-net=a.example"],
+    ["-A", "--deny-net=a.example", "--ignore-env=X"],
   );
   assertEquals(testPermissions(withTests("deno test extensions/models/")), []);
   assertEquals(testPermissions("jobs: {}\n"), []);
@@ -131,6 +131,80 @@ Deno.test("testPermissions: reads the publish job's tests input however ci.yml w
   assertEquals(testPermissions(ci("")), []);
 });
 
+Deno.test("testPermissions: only the deno test command's own flags, in every form deno takes (#147)", () => {
+  const ci = (value: string) =>
+    `jobs:\n  publish:\n    with:\n      tests: ${value}\n`;
+  // Combined short flags and permission sets, passed on as written.
+  assertEquals(testPermissions(ci("deno test -RW extensions/")), ["-RW"]);
+  assertEquals(testPermissions(ci("deno test -RWN=a.example -E=HOME x/")), [
+    "-RWN=a.example",
+    "-E=HOME",
+  ]);
+  assertEquals(testPermissions(ci("deno test -P extensions/")), ["-P"]);
+  assertEquals(
+    testPermissions(ci("deno test -P=ci --permission-set=ci --permission-set")),
+    ["-P=ci", "--permission-set=ci", "--permission-set"],
+  );
+  // Other commands' flags are not deno's, whatever joins them.
+  assertEquals(
+    testPermissions(
+      ci("grep -R -E foo . && ls -S && deno test -R extensions/"),
+    ),
+    ["-R"],
+  );
+  assertEquals(
+    testPermissions(
+      ci(
+        "deno fmt --check; deno lint -q | tee lint.log || cp -R a b & deno test --allow-read=. extensions/models/ && sed -E s/a/b/ x",
+      ),
+    ),
+    ["--allow-read=."],
+  );
+  // Variables set for it, and arguments after -- that go to the tests.
+  assertEquals(
+    testPermissions(
+      ci("NO_COLOR=1 deno test -N extensions/ -- -A --allow-all"),
+    ),
+    ["-N"],
+  );
+  // A literal block: commands on separate lines, a continuation, a comment.
+  assertEquals(
+    testPermissions(
+      ci(
+        "|\n        deno check -I extensions/\n        deno test -R \\\n          --allow-run=git extensions/models/ # not -A\n",
+      ),
+    ),
+    ["-R", "--allow-run=git"],
+  );
+  // No deno test command, no permissions.
+  assertEquals(testPermissions(ci("deno task test -A")), []);
+  assertEquals(testPermissions(ci("echo deno test -A")), []);
+});
+
+Deno.test("testPermissions: a tests command it can't read as the shell would is an error, not a guess (#147)", () => {
+  const ci = (value: string) =>
+    `jobs:\n  publish:\n    with:\n      tests: '${value}'\n`;
+  for (
+    const [command, why] of [
+      ['deno test --filter "a -A b" extensions/', "quotes"],
+      ['echo "x && deno test -A && y"', "quotes"],
+      ["deno test $(cat perms) extensions/", "substitutes"],
+      ["deno test -R extensions/a/ && deno test -A extensions/b/", "once"],
+      ["deno test -qR extensions/", "(-qR)"],
+      ["deno test --config ci.json -P extensions/", "config file"],
+      ["deno test -c=ci.json -RP extensions/", "config file"],
+    ]
+  ) {
+    const got = testPermissions(ci(command));
+    assertEquals(
+      !Array.isArray(got) && got.error.includes(why) &&
+        got.error.endsWith(command),
+      true,
+      `${command}: ${JSON.stringify(got)}`,
+    );
+  }
+});
+
 Deno.test("realTests runs the app's tests with the permissions its ci.yml gives them", async () => {
   const dir = await Deno.makeTempDir();
   try {
@@ -164,6 +238,27 @@ Deno.test("realTests runs the app's tests with the permissions its ci.yml gives 
       name: "reads and writes a file",
       passed: true,
     }]);
+    // Combined short flags reach deno, and another command's do not.
+    const publishTests = (tests: string) =>
+      Deno.writeTextFile(
+        `${dir}/.github/workflows/ci.yml`,
+        `jobs:\n  publish:\n    with:\n      tests: ${tests}\n`,
+      );
+    await publishTests("deno test -RW extensions/models/");
+    assertEquals((await realTests(swamp)(dir)).tests, [{
+      name: "reads and writes a file",
+      passed: true,
+    }]);
+    await publishTests("cp -R -W a b && deno test extensions/models/");
+    assertEquals((await realTests(swamp)(dir)).tests, [{
+      name: "reads and writes a file",
+      passed: false,
+    }]);
+    // A command it can't read is reported, and nothing runs.
+    await publishTests("deno test -R a/ && deno test -A extensions/models/");
+    const refused = await realTests(swamp)(dir);
+    assertEquals(refused.tests, null);
+    assertEquals(refused.error?.includes("more than once"), true);
   } finally {
     await Deno.remove(dir, { recursive: true });
   }

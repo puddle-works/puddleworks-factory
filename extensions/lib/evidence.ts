@@ -133,19 +133,64 @@ export function parseJunit(xml: string): TestOutcome[] {
 const decoder = new TextDecoder();
 
 /**
- * A deno permission flag: `-A`, a short flag (`-R`, `-W`, `-N`, `-E`, `-S`,
- * `-I`) or `--allow-…`/`--deny-…`, each with any value.
+ * A deno permission flag, passed to deno as written: `-A`, short flags alone
+ * or combined (`-R`, `-RW`, `-RW=.`, where deno gives the value to the last),
+ * `-P`/`--permission-set` (a permission set from the app's deno config), or
+ * `--allow-…`/`--deny-…`/`--ignore-…`, each with any value.
  */
-const PERMISSION = /^(-A|(-[RWNESI]|--(allow|deny)-[a-z-]+)(=\S+)?)$/;
+const PERMISSION =
+  /^(-A|-[RWNESIP]+(=\S+)?|--(allow|deny|ignore)-[a-z-]+(=\S+)?|--permission-set(=\S+)?)$/;
 
 /**
- * The permission flags of the tests command in the app's `ci.yml` (the
- * publish job's `tests` input, which render writes and the app's README
- * says to extend when its tests need permissions). Every other word is
- * dropped, so only permissions carry over; none when no job gives it.
+ * The permission flags of the `deno test` command in the app's `ci.yml` (the
+ * publish job's `tests` input, which render writes and the app's README says
+ * to extend when its tests need permissions). Only that command's own words
+ * count, up to a `--`: the input may run other commands around it, joined by
+ * `&&`, `||`, `;`, `|`, `&` or a line break, whose flags are not deno's. None
+ * when no job gives the input or it runs no `deno test`.
+ *
+ * Readiness runs deno without a shell, so a command whose words it can't read
+ * as the shell would is an error rather than a guess at its permissions: one
+ * that quotes, escapes or substitutes, runs `deno test` more than once, groups
+ * a permission with other short flags (`-qR`), or takes a permission set from
+ * a config file named with `-c`/`--config`, which readiness doesn't pass on.
  */
-export function testPermissions(ciYml: string | null): string[] {
-  return ciInput(ciYml, "tests").split(/\s+/).filter((w) => PERMISSION.test(w));
+export function testPermissions(
+  ciYml: string | null,
+): string[] | { error: string } {
+  const command = ciInput(ciYml, "tests").trim();
+  const unsupported = (why: string) => ({
+    error:
+      `ci.yml's tests command ${why}, so readiness can't tell which deno permissions CI gives the tests: ${command}`,
+  });
+  // A line continuation joins its lines, and a comment runs to the line end.
+  const shell = command.replaceAll("\\\n", "").replace(/(^|\s)#.*/g, "");
+  if (/['"`$\\]/.test(shell)) {
+    return unsupported("quotes, escapes or substitutes words");
+  }
+  const runs = shell.split(/&&|\|\||[;|&\n]/).map((part) => {
+    const words = part.trim().split(/\s+/);
+    // Variables set for the command alone come before it.
+    while (/^[A-Za-z_]\w*=/.test(words[0] ?? "")) words.shift();
+    return words;
+  }).filter(([cmd, sub]) => cmd === "deno" && sub === "test");
+  if (runs.length > 1) return unsupported("runs deno test more than once");
+  const args = runs[0]?.slice(2) ?? [];
+  const words = args.includes("--") ? args.slice(0, args.indexOf("--")) : args;
+  const mixed = words.find((w) =>
+    /^-[A-Za-z]*[ARWNESIP][A-Za-z]*(=|$)/.test(w) && !PERMISSION.test(w)
+  );
+  if (mixed) {
+    return unsupported(`groups permission flags with others (${mixed})`);
+  }
+  const flags = words.filter((w) => PERMISSION.test(w));
+  if (
+    flags.some((w) => /^(-[A-Z]*P|--permission-set)/.test(w)) &&
+    words.some((w) => /^(-c|--config)(=|$)/.test(w))
+  ) {
+    return unsupported("takes a permission set from a config file it names");
+  }
+  return flags;
 }
 
 /**
@@ -169,13 +214,15 @@ export function realTests(runSwamp: SwampRun): TestRunner {
     } catch {
       ci = null;
     }
+    const permissions = testPermissions(ci);
+    if (!Array.isArray(permissions)) return { tests: null, ...permissions };
     // The app's own tests, the same command and permissions its CI runs. No
     // shell is involved; the README says readiness runs them.
     // swamp-quality-ignore deno-command
     const run = await new Deno.Command(deno, {
       args: [
         "test",
-        ...testPermissions(ci),
+        ...permissions,
         "--reporter=junit",
         "extensions/models/",
       ],
