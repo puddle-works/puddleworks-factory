@@ -457,6 +457,7 @@ function summarise(
       r.tests ? `${r.tests.passed} passed, ${r.tests.failed} failed` : "not run"
     }`,
   );
+  if (facts.tests.note) lines.push(clip(`Tests: ${facts.tests.note}`, 200));
   const round = roundCheck(facts.rounds, r.version, r.contentHash).line;
   if (r.review) {
     const c = r.review.counts;

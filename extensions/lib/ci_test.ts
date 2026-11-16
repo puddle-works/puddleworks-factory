@@ -47,6 +47,26 @@ Deno.test("ciInput: the value the publish job gives, not a line that looks like 
   );
 });
 
+Deno.test("ciInput: the publish job's value, not another called workflow's (#147)", () => {
+  const other = `jobs:
+  lint:
+    uses: example/tools/.github/workflows/lint.yml@v1
+    with:
+      tests: deno test -A
+      accepted-warnings: env-read
+${
+    ci("      tests: deno test -R\n      accepted-warnings: deno-command")
+      .slice(6)
+  }`;
+  assertEquals(ciInput(other, "tests"), "deno test -R");
+  assertEquals(ciInput(other, "accepted-warnings"), "deno-command");
+  // A publish job that doesn't give it leaves it empty, not another job's.
+  assertEquals(
+    ciInput(other.replace("      tests: deno test -R\n", ""), "tests"),
+    "",
+  );
+});
+
 Deno.test("ciInput: no value is empty, never the next line", () => {
   assertEquals(
     ciInput(ci("      accepted-warnings:"), "accepted-warnings"),

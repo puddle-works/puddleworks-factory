@@ -589,6 +589,14 @@ Deno.test("evidence: tests that could not run block, even with no outcome spec",
   assertEquals(assessReadiness(facts({ files })).ready, true);
 });
 
+Deno.test("evidence: the summary says what readiness could not take from ci.yml for the tests", () => {
+  const note =
+    "ci.yml's tests command runs no deno test readiness can read, so readiness ran the tests with no permissions, not that command: deno task test";
+  const r = assessReadiness(facts({ tests: { ...PASSED, note } }));
+  assertStringIncludes(r.summary, `Tests: ${note}`);
+  assertEquals(assessReadiness(facts()).summary.includes("Tests:"), false);
+});
+
 Deno.test("evidence: a dimension given twice, or a criterion mapped twice, blocks", () => {
   const dims = REVIEW_DIMENSIONS.map((id) => ({ id, verdict: "pass" }));
   blocks(
