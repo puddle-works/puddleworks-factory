@@ -22,7 +22,7 @@ import { REVIEW_DIMENSIONS } from "../lib/readiness.ts";
 import { gitCheckout } from "../lib/target_testing.ts";
 import { passingTests } from "../lib/evidence_testing.ts";
 import type { SwampRun } from "../lib/recipe_check.ts";
-import type { ReviewRound } from "../lib/rounds.ts";
+import { reportFile, type ReviewRound } from "../lib/rounds.ts";
 
 const EXAMPLE_TEXT = await Deno.readTextFile(
   new URL("../../docs/contracts/app-spec.v1.example.json", import.meta.url),
@@ -469,6 +469,72 @@ Deno.test("round: a report already committed for this content needs no round", a
       "committed",
       0,
     ]);
+  });
+});
+
+Deno.test("round: a bump during a build carries the review that a round of the build wrote", async () => {
+  await withDraft(async (w, ctx) => {
+    await round(ctx);
+    await review(w.dir, ctx);
+    await w.commit("Review for publishing");
+    // The version turned out to be taken: only the version moves.
+    await bump(w.dir, "2099.1.1.1");
+    await w.commit("Release 2099.1.1.1");
+    await round(ctx);
+    assertEquals(record(ctx).rounds.map((r) => [r.kind, r.round]), [
+      ["review", 1],
+      ["carried", 0],
+    ]);
+  });
+});
+
+/** Copy the latest round's report to where the content as it is now wants one. */
+async function copyReport(dir: string, ctx: Ctx) {
+  const from = `${dir}/${record(ctx).latest.file}`;
+  const to = `${dir}/${reportFile(PKG, await shipped(dir))}`;
+  await Deno.copyFile(from, to);
+}
+
+Deno.test("round: a report committed by hand during a build is not a round, and doesn't pass the limit", async () => {
+  await withDraft(async (w, ctx) => {
+    await round(ctx);
+    await review(w.dir, ctx);
+
+    // After round 1 a copied report doesn't stand in for round 2.
+    await fix(w.dir, 1);
+    await copyReport(w.dir, ctx);
+    await w.commit("fix 1, with a report nobody reviewed");
+    await round(ctx);
+    assertEquals([record(ctx).latest.kind, record(ctx).latest.round], [
+      "review",
+      2,
+    ]);
+    await review(w.dir, ctx);
+
+    // After round 2 it doesn't get a change past the limit either.
+    await fix(w.dir, 2);
+    await w.commit("fix 2");
+    await assertRejects(() => round(ctx), Error, "Round 3 would pass");
+    await copyReport(w.dir, ctx);
+    await w.commit("a report nobody reviewed");
+    await assertRejects(() => round(ctx), Error, "Round 3 would pass");
+    // Nor is it a review that a bump of the version carries over.
+    await bump(w.dir, "2099.1.1.1");
+    await w.commit("Release 2099.1.1.1");
+    await assertRejects(() => round(ctx), Error, "Round 3 would pass");
+    assertEquals(record(ctx).rounds.map((r) => [r.kind, r.round]), [
+      ["review", 1],
+      ["review", 2],
+    ]);
+    await round(ctx, { grant: true });
+    assertEquals(
+      [
+        record(ctx).latest.kind,
+        record(ctx).latest.round,
+        record(ctx).latest.granted,
+      ],
+      ["review", 3, true],
+    );
   });
 });
 

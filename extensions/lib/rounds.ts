@@ -39,7 +39,7 @@ export interface ReviewRound {
   /**
    * `review`: a fresh agent reviews it. `carried`: only the version changed
    * since a committed review. `committed`: a complete report for this exact
-   * content was already committed.
+   * content was already committed, before the build had any round.
    */
   kind: "review" | "carried" | "committed";
   /** Its number in the build; 0 for one that is not a review round. */

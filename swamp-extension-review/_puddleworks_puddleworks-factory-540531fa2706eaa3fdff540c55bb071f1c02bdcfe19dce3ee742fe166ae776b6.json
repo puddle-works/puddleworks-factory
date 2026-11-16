@@ -1,0 +1,82 @@
+{
+  "extension": "@puddleworks/puddleworks-factory",
+  "version": "2026.11.13.1",
+  "reviewedAt": "2026-11-13T15:06:15Z",
+  "dimensions": [
+    {
+      "id": "credentials-secrets",
+      "verdict": "pass",
+      "note": "Read the diff (git diff 3577ef1 HEAD): it adds no credential, env read or secret field. round starts git and swamp with the caller's own sign-in and stores none of it; every log line and resource still goes through guarded()/safeText (draft.ts:1636-1658). rg for Deno.env/apiKey/token in draft.ts and web.ts found only prose."
+    },
+    {
+      "id": "logging-quality",
+      "verdict": "pass",
+      "note": "round logs on entry (draft.ts:2940) and on completion with kind and round (draft.ts:3125-3134), with structured placeholders; rg for template-literal interpolation in logger calls under extensions/ found none. Gap, small: when a committed report is skipped because no recorded round is of it (draft.ts:3057-3059, 1853), nothing is logged; the caller only sees the round-limit error."
+    },
+    {
+      "id": "error-handling",
+      "verdict": "pass",
+      "note": "round throws before writeResource on every refusal (dirty checkout, dry-run blockers, the limit: draft.ts:2972-3090); the limit message says what to do. The carried report file is written before the record (draft.ts:3078), which a rerun repairs because the same content is the same round. Ran the #155 steps in a copy at HEAD (two rounds, change, hand-copied complete report committed, round): 'Round 3 would pass the limit'; at 3577ef1 the same steps record committed 0."
+    },
+    {
+      "id": "testing-completeness",
+      "verdict": "pass",
+      "note": "Ran deno fmt --check (108 files, clean) and deno test -A --permit-no-files (654 passed, 0 failed). The new test (draft_round_test.ts:498) fails on 3577ef1's draft.ts, and on these mutations in a copy: committed ignoring counts, carriedReview ignoring counts, the rule applied only when the decision is blocked, the rule applied only from round 2 on. The test at :475 pins that a round of the build lets a bump carry. Gaps, not blocking: three mutations of draft.ts:3053-3056 pass the whole suite: (1) counts reading only the build's rounds instead of every recorded round, so nothing tests a bump carrying the published review after the new build has a round (works at HEAD, checked by a scratch test); (2) building = rounds.length > 0, so nothing tests a report committed before the first round of a second build, after a publish; (3) building counting only kind review. No test covers result with a publishedVersion that was not published (see preflight-checks). The fake swamp follows symlinks where the real one refuses them, so the tests could not show a symlink case either way."
+    },
+    {
+      "id": "idempotency-resilience",
+      "verdict": "pass",
+      "note": "The same content asked for again is the same round and adds nothing (rounds.ts:216-219, draft.ts:3060-3062; test at draft_round_test.ts:313). Legitimate flows checked by scratch tests in a copy at HEAD: report committed before the first round -> committed 0; bump after a build round -> carried; carried then bumped again -> carried; published with rounds, new build round, change backed out leaving the bump -> carried from the published review. Gap, small and as the upgrade note says: an app whose published review has no recorded round (reviewed before rounds were recorded, or on another swamp repo) that starts a build, has a round, then backs the change out to a version-only bump now gets review round 2 where 3577ef1 gave carried 0 (scratch test T3a, both commits)."
+    },
+    {
+      "id": "api-contracts",
+      "verdict": "pass",
+      "note": "The change makes no new external call: it reads the same push dry-run JSON (rounds.ts:92-139) and git output as before. Ran the real swamp extension push manifest.yaml --dry-run --json on a git archive of HEAD: contentHash 540531fa2706..., the hash in this report's file name, version-exists passed, the only warning adversarial-review-report; swamp extension quality gives the same hash. #147 (testPermissions) is in evidence.ts, which this release does not touch: no worse."
+    },
+    {
+      "id": "resource-management",
+      "verdict": "pass",
+      "note": "carriedReview removes its temp copy in finally (draft.ts:1860-1882); it now makes fewer copies, since reports no round is of are skipped before the copy (draft.ts:1853). recipe_check removes its temp repo (recipe_check.ts:467). #157's item on the carried report being written without checkOutputPath (draft.ts:3078) is unchanged: no worse."
+    },
+    {
+      "id": "published-surface-hygiene",
+      "verdict": "pass",
+      "note": "rg over README.md, .claude/skills/factory-build and docs/stagecraft/factory-build.yaml for IPv4 literals, .internal/.corp/.local hosts and addresses: only 127.0.0.1, the documentation IP 192.0.2.1 and users.noreply.github.com patterns. The lines this release adds (README.md:290-292, SKILL.md:776-780) name nothing real. Gap, wording only: docs/stagecraft/factory-build.yaml:910-911 and the module comment at rounds.ts:16-20 still say a committed or last committed review is skipped or carried, without the new condition; neither is false."
+    },
+    {
+      "id": "schema-strictness",
+      "verdict": "pass",
+      "note": "No .passthrough() in draft.ts, web.ts or lib/records.ts (rg). ReviewRoundSchema and ReviewRoundsSchema are unchanged (records.ts:99-132); latest.skeleton and latest.previous are z.unknown by design. RoundArgsSchema unchanged (draft.ts:1345-1355)."
+    },
+    {
+      "id": "lifetime-gc",
+      "verdict": "pass",
+      "note": "All eight resource specs set lifetime infinite and garbageCollection 20 (draft.ts:2129-2184), reviewRounds included. Each version of the record holds every round, so collecting old versions loses no round the limit counts."
+    },
+    {
+      "id": "crud-completeness",
+      "verdict": "na",
+      "note": "Neither behavior manages a create/update/delete lifecycle of an external resource: draft writes records about a build, web serves a read-only page."
+    },
+    {
+      "id": "preflight-checks",
+      "verdict": "pass",
+      "note": "The draft-rendered check (label policy) still applies to round, result and readiness (draft.ts:2186-2197). Gap, not caused by this release and not in #147 or #157: result records whatever publishedVersion it is given on the rounds (draft.ts:2623-2633) with no check that the version is published, and that ends the build. Reproduced in a copy at HEAD: two rounds at V; change what ships, bump to V2, write a complete report for the new hash by hand, commit (round refuses: Round 3); run result with publishedVersion=V, which was never published; round then records committed 0 with granted false and readiness is ready 'committed for this content before this build'. Without the hand report the same false result gives review 1 with no grant. 3577ef1 behaves the same. It needs a false result call, so I did not make it an issue; the fix would be for result (or round) to ask the registry whether that version exists."
+    },
+    {
+      "id": "instance-names",
+      "verdict": "pass",
+      "note": "MECHANICAL checks: round and result both write reviewRounds at review-rounds-<name> with the same shape (draft.ts:2628-2632, 3134-3144): name, targetDir, rounds, optional published, latest with skeleton and previous, every field of ReviewRoundsSchema and no other. Prefixes are per spec (names.ts:15-23) and an app name may not start with one (names.ts:26-28). For the other specs I did not list fields by hand: every write goes through checkedResource, which refuses data that does not parse against its spec (draft.ts:1612-1624, 1646-1656). No method paginates or caps results (rg truncat: none), so truncation honesty does not apply."
+    },
+    {
+      "id": "data-access",
+      "verdict": "pass",
+      "note": "round, result and readiness read stored state with context.readResource (draft.ts:1789, 2947, 3168); dataRepository is used only in the pre-flight check, which gets no readResource (draft.ts:2203). The new counts closure reads only the rounds already loaded (draft.ts:3053-3056)."
+    },
+    {
+      "id": "version-upgrades",
+      "verdict": "pass",
+      "note": "manifest.yaml, draft.ts:1898 and web.ts:29 are at 2026.11.13.1, each behavior with a last upgrade entry to it and an identity upgradeAttributes (draft.ts:2112-2125, web.ts:62-68); package_test.ts:14-20 checks this and passes. The draft note, the method description (draft.ts:2929-2932), README.md:288-292 and SKILL.md:776-780 say what the code does: counts is true with no round in the build, or when a recorded round has that version and content hash (draft.ts:3053-3056), for both committed and carried. web's note (no change to the page) matches a diff that only moves its version. Gaps in the note, small: 'recorded rounds are read as before' also means a committed 0 that 2026.11.12.1 recorded through #155 stays a recorded round, so readiness still passes that content and a bump still carries it; and 'before the build's first round' is judged by the record when round is asked, not by commit order."
+    }
+  ]
+}
