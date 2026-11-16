@@ -287,7 +287,9 @@ to it) is `carried`: `round` writes the last committed review to the new report
 path, once the content hash with the bump undone is the one that review was for.
 To check that it starts `git` and `swamp` as subprocesses, without a shell, and
 copies the checkout to a temporary directory. `committed` means a complete
-report for this exact content is already committed.
+report for this exact content is already committed, and the build has no round
+yet. Once it has one, a committed report that no recorded round is of counts for
+nothing: it is not a round, a bump doesn't carry it over, and the count goes on.
 
 For a round, write the review report from the publish dry run's skeleton, and
 map each acceptance criterion in `spec/outcome-spec.v*.json` to the tests that
