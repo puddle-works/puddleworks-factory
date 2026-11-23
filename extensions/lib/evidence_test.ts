@@ -227,7 +227,7 @@ Deno.test("testPermissions: reads quotes, escapes and redirections as the shell 
       ],
       // Redirections and their targets are not arguments.
       ["deno test -R x/ 2>&1 > out.log < /dev/null | tee x", ["-R"]],
-      ["deno test -R x/ >-A &>>log 2>-W", ["-R"]],
+      ["deno test -R x/ >-A >>log 2>-W", ["-R"]],
     ] as const
   ) assertEquals(flagsOf(testsIs(command)), [...flags], command);
 });
@@ -253,6 +253,9 @@ Deno.test("testPermissions: a tests command it can't read as the shell would is 
       ["deno test -qR extensions/", "(-qR)"],
       ["deno test --config ci.json -P extensions/", "config file"],
       ["deno test -c=ci.json -RP extensions/", "config file"],
+      ["deno test --no-config -P extensions/", "config option"],
+      ["deno test -P --no-config extensions/", "config option"],
+      ["deno test -R extensions/ &>/dev/null -W; true", "&>"],
     ]
   ) {
     const got = testPermissions(testsIs(command));
@@ -388,10 +391,13 @@ Deno.test("testPermissions: deno given its flags gets the permissions the shell 
           ["-N=localhost", "--allow-read=a b"],
         ],
         ["deno test --seed 7 \\-S probe_test.ts", ["-S"]],
+        // A carriage return is part of a word to sh, not a space.
+        ["deno test --junit-path=j\r-A probe_test.ts", []],
       ] as Array<[string, string[]]>
     ) {
       assertEquals(flagsOf(testsIs(command)), flags, command);
-      const shell = await permissions("bash", ["-c", command]);
+      // CI runs the tests command with sh (puddle-tooling's publish.sh).
+      const shell = await permissions("sh", ["-c", command]);
       assertEquals(shell.startsWith("["), true, shell);
       assertEquals(
         await permissions(Deno.execPath(), ["test", ...flags, "probe_test.ts"]),

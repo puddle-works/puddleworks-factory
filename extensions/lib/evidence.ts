@@ -211,7 +211,8 @@ function shellCommands(line: string): Word[][] | string {
   };
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
-    if (c === " " || c === "\t" || c === "\r") end();
+    // A carriage return is part of a word to sh, as any other character.
+    if (c === " " || c === "\t") end();
     else if (c === "\n") next();
     else if (c === "#" && !inWord) {
       const eol = line.indexOf("\n", i);
@@ -240,12 +241,15 @@ function shellCommands(line: string): Word[][] | string {
       }
     } else if (c === "$" || c === "`") return SUBSTITUTES;
     else if (c === "(" || c === ")") return "runs a subshell";
-    else if (c === "<" || c === ">" || (c === "&" && line[i + 1] === ">")) {
+    else if (c === "&" && line[i + 1] === ">") {
+      // bash redirects both outputs; sh, which CI uses, runs the command
+      // before it in the background and redirects the next one.
+      return "uses &>, which sh and bash read differently";
+    } else if (c === "<" || c === ">") {
       if (line.startsWith("<<", i)) return "has a here-document";
       // A file descriptor's number belongs to the redirection, as in 2>&1.
       if (inWord && /^\d+$/.test(text)) text = "", inWord = false;
       else end();
-      if (c === "&") i++;
       if (/[>&|]/.test(line[i + 1] ?? "")) i++;
       redirect = true;
     } else if (c === "&" || c === "|" || c === ";") {
@@ -276,10 +280,11 @@ function shellCommands(line: string): Word[][] | string {
  * Readiness runs deno without a shell, so a command it can't read as the
  * shell would is an error rather than a guess at its permissions: one that
  * substitutes or expands, leaves a quote open, uses a subshell or a
- * here-document, runs `deno test` more than once, has a flag-like word the
+ * here-document or `&>` (which sh, as CI runs it, and bash read
+ * differently), runs `deno test` more than once, has a flag-like word the
  * shell could expand, groups a permission with other short flags (`-qR`), or
- * takes a permission set from a config file named with `-c`/`--config`,
- * which readiness doesn't pass on.
+ * takes a permission set with `-c`/`--config` or `--no-config`, which
+ * readiness doesn't pass on.
  */
 export function testPermissions(
   ciYml: string | null,
@@ -306,7 +311,7 @@ export function testPermissions(
       : { flags: [] };
   }
   const flags: string[] = [];
-  let config = false;
+  let config = false, noConfig = false;
   const args = runs[0].slice(2);
   for (let i = 0; i < args.length && args[i].text !== "--"; i++) {
     const { text: w, expands } = args[i];
@@ -318,11 +323,18 @@ export function testPermissions(
       return unsupported(`groups permission flags with others (${w})`);
     } else {
       if (/^(--config(=|$)|-[a-zA-Z]*c)/.test(w)) config = true;
+      if (w === "--no-config") noConfig = true;
       if (VALUE_OPTIONS.has(w) || /^-[a-zA-Z]*[cL]$/.test(w)) i++;
     }
   }
-  if (config && flags.some((w) => /^(-[A-Z]*P|--permission-set)/.test(w))) {
+  const set = flags.some((w) => /^(-[A-Z]*P|--permission-set)/.test(w));
+  if (set && config) {
     return unsupported("takes a permission set from a config file it names");
+  }
+  if (set && noConfig) {
+    return unsupported(
+      "takes a permission set with --no-config, a config option readiness doesn't pass on",
+    );
   }
   return { flags };
 }
