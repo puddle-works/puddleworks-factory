@@ -1895,7 +1895,7 @@ async function carriedReview(
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.11.13.1",
+  version: "2026.11.23.1",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -2121,6 +2121,26 @@ export const model = {
         "grant. A report committed before the build's first round still needs " +
         "no round. No data migration required: recorded rounds are read as " +
         "before.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.11.23.1",
+      description:
+        "readiness runs an app's tests with the permissions CI's deno test " +
+        "gets, read from the tests input of the ci.yml job that calls " +
+        "puddle-tooling's publish.yml (else the first job that gives it), as " +
+        "is accepted-warnings. Only the deno test command's own flags count, " +
+        "not other commands' in the same line; combined short flags (-RW), " +
+        "-P/--permission-set and --ignore-* are passed as written, and the " +
+        "value of an option such as --filter is never a permission. The line " +
+        "is split as the shell would split literal text, without running one: " +
+        "when it can't be (a $ or backtick outside single quotes, an " +
+        "unmatched quote, a subshell, a here-document, more than one deno " +
+        "test, grouped flags like -qR, or -P with --config), the tests don't " +
+        "run and readiness says why. With no deno test in the input the tests " +
+        "run with no permissions, as before, and the summary's new Tests: line " +
+        "says so. An app whose tests command readiness now refuses must write " +
+        "it as plain deno test flags in ci.yml. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],
