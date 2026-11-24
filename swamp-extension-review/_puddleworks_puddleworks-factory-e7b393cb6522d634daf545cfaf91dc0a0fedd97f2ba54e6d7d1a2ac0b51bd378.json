@@ -1,0 +1,82 @@
+{
+  "extension": "@puddleworks/puddleworks-factory",
+  "version": "2026.11.23.1",
+  "reviewedAt": "2026-11-24T03:10:00Z",
+  "dimensions": [
+    {
+      "id": "credentials-secrets",
+      "verdict": "pass",
+      "note": "git diff 27c2b0b HEAD adds no credential, env read, token or secret field; rg for Deno.env/token/apiKey in extensions/lib/evidence.ts and ci.ts finds none. realTests still starts deno with no env option (evidence.ts:357-370), so the app's tests inherit the reviewer's environment and whatever -E/-A ci.yml names reaches it. That is unchanged by design; the over-grant cases under api-contracts make it matter more. (carried from round 1) (carried from round 2)"
+    },
+    {
+      "id": "logging-quality",
+      "verdict": "pass",
+      "note": "The release adds no logger calls. readiness still logs on entry and around scoring (draft.ts:3181, 3214, 3236) with structured placeholders; rg for template-literal logger calls under extensions/models finds only a test of guarded() (draft_test.ts:859). The new reason for a refused or unread tests command reaches the user through the summary (readiness.ts:460, clipped at 200 chars) and the blocker 'The app's tests could not be run: ...' (readiness.ts:568-571), not a log line. (carried from round 1) (carried from round 2)"
+    },
+    {
+      "id": "error-handling",
+      "verdict": "pass",
+      "note": "Round 3 (git diff c4a11b0 HEAD): the new refusal 'changes directory before deno test' (evidence.ts:311-314) and the widened --no-config match (evidence.ts:337) return {error} before deno starts. realTests then gives tests:null and the blocker 'The app's tests could not be run: ...' (readiness.ts:570), with the command quoted. compare.ts in /tmp/review-r23c printed both messages. Gap, small: 'cd sub & deno test -P extensions/' is refused, yet under dash the backgrounded cd leaves deno at the repo root, where readiness and sh both grant all. That refusal is wrong but rare. Round 2's gaps remain: the no-tests note path (evidence.ts:384-388) is untested, and --no-config/--config with test.permissions in deno.json becomes a false 'no tests' blocker."
+    },
+    {
+      "id": "testing-completeness",
+      "verdict": "pass",
+      "note": "Ran deno fmt --check (Checked 111 files, exit 0) and deno test -A --permit-no-files (660 passed, 0 failed, 26s). Round 2's gaps for these lines are closed: evidence_test.ts:260-262 pin --no-config=true and both cd forms as refusals, and evidence_test.ts:224 pins a cd after deno test as accepted. Still gaps: no test has a cd behind a compound word or builtin ('if ...; then cd sub; fi', '{ cd sub; }', '! cd', 'command cd', 'eval cd'), which is how the api-contracts over-grant gets through. Round 1's survivors (flag after a pipe, VALUE_OPTIONS beyond --filter/--reporter/-c, backslash-newline in double quotes, dropped note) are unchanged by this diff."
+    },
+    {
+      "id": "idempotency-resilience",
+      "verdict": "pass",
+      "note": "testPermissions and ciInput are pure functions of ci.yml (evidence.ts:290-328, ci.ts:24-40), and a rerun on the same checkout gives the same flags or the same refusal. The deno run keeps its 300 s AbortSignal timeout (evidence.ts:369). The release adds no new state or partial writes: readiness still writes its record once, after evidence is gathered. (carried from round 1) (carried from round 2)"
+    },
+    {
+      "id": "api-contracts",
+      "verdict": "issue",
+      "note": "Round 2's two lines are fixed. I checked with real sh -c (dash) against deno given readiness's flags, using HEAD's extensions/lib in /tmp/review-r23c (compare.ts, cases.json, a permission probe, root deno.json {test:{permissions:{all:true}}}, sub/deno.json {}). 'deno test --no-config=true -P extensions/' and '--no-config= -P' are refused (evidence.ts:337,345-348). 'cd sub && deno test -P extensions/' and 'test -d sub && cd sub; deno test -P extensions/' are refused (evidence.ts:311-314). Still over-granted: evidence.ts:312 checks only the first word of each earlier simple command, so a cd behind a reserved word or builtin gets through. These all give readiness ['-P'] with every permission granted, while sh gives all prompt: 'if true; then cd sub; fi; deno test -P extensions/', '{ cd sub; } && deno test -P extensions/', '! cd sub; deno test -P extensions/', 'command cd sub && deno test -P extensions/' and 'eval cd sub; deno test -P extensions/'. Fix (S): refuse when any word of a command before the deno test is cd or pushd (before.some(ws => ws.some(w => w.text === 'cd' || w.text === 'pushd'))), and add these cases to evidence_test.ts:260-262. Common lines are still read as sh reads them, with the same permissions: 'deno test -A extensions/', '--allow-read --allow-env extensions/ 2>&1 | tee log', 'deno test -R extensions/ && cd docs && ls', plain '-P'. '--no-config-x -P' gets more from readiness, but deno rejects it in CI, so CI fails rather than passing with less. Refusing any cd before deno test is a fair rule, because readiness always runs extensions/models/ from the root. Small gap: a backgrounded cd ('cd sub & ...') is refused although it changes nothing; see error-handling."
+    },
+    {
+      "id": "resource-management",
+      "verdict": "pass",
+      "note": "The only process is the existing Deno.Command with stdin null, piped output and a 300 s AbortSignal (evidence.ts:357-370). A refusal now returns before it starts (evidence.ts:352), so no process or temp file is left. The new tests remove their temp dirs in finally (evidence_test.ts realTests and comparison tests). (carried from round 1) (carried from round 2)"
+    },
+    {
+      "id": "published-surface-hygiene",
+      "verdict": "pass",
+      "note": "The diff adds only test strings and notes using extensions/, sub, docs and x/ (evidence_test.ts:224,260-262; draft.ts:2138-2147). It adds no host, IP or ID. Ran swamp extension push manifest.yaml --dry-run --json on a git archive of HEAD in /tmp/review-r23c/pkg, with SWAMP_EXTENSION_REVIEW_DIR in scratch: exit 0, status dry_run, contentHash e7b393cb6522d634daf545cfaf91dc0a0fedd97f2ba54e6d7d1a2ac0b51bd378, the hash this report is named for. Its only review warning was the missing report."
+    },
+    {
+      "id": "schema-strictness",
+      "verdict": "pass",
+      "note": "The release changes no Zod schema (the diff touches draft.ts only at the version and the upgrade entry). rg finds no .passthrough() under extensions/. TestRun.note is a TypeScript-only field (evidence.ts:42-43) and is not persisted: readiness stores only tests {passed, failed} (readiness.ts:645-649). (carried from round 1) (carried from round 2)"
+    },
+    {
+      "id": "lifetime-gc",
+      "verdict": "pass",
+      "note": "No resource spec changed. Every spec in draft.ts still sets lifetime infinite and garbageCollection 20 (draft.ts:2153-2203; the spec at draft.ts:448 too). (carried from round 1) (carried from round 2)"
+    },
+    {
+      "id": "crud-completeness",
+      "verdict": "na",
+      "note": "Neither behavior manages a create/update/delete lifecycle of an external resource: draft writes records about a build, and web serves a read-only page. This release changes only how readiness gathers test evidence. (carried from round 1) (carried from round 2)"
+    },
+    {
+      "id": "preflight-checks",
+      "verdict": "pass",
+      "note": "The draft-rendered pre-flight check (label policy) still applies to readiness (draft.ts:2191). The tests-command refusal is evidence-time and becomes a readiness blocker (readiness.ts:568-571), which is the right place for it. The known gaps in #157/#161 are not made worse: this release touches neither round nor result. (carried from round 1) (carried from round 2)"
+    },
+    {
+      "id": "instance-names",
+      "verdict": "pass",
+      "note": "MECHANICAL: the release adds no writeResource call, spec or instance name. readiness writes the same record shape (readiness.ts:640-650), and the new note is not written to any spec, so schema-write conformance and field coverage are unchanged from 2026.11.13.1. (carried from round 1) (carried from round 2)"
+    },
+    {
+      "id": "data-access",
+      "verdict": "pass",
+      "note": "readiness still reads stored state with context.readResource (draft.ts:3188-3190, 3210). The new code reads only the checkout's .github/workflows/ci.yml from disk (evidence.ts:345-349), which is evidence about the checkout, not stored data. (carried from round 1) (carried from round 2)"
+    },
+    {
+      "id": "version-upgrades",
+      "verdict": "pass",
+      "note": "manifest.yaml, draft.ts and web.ts are still at 2026.11.23.1, with identity upgradeAttributes, and package_test passes in the full run. Round 2's wording gaps are fixed. The Tests: line is now promised only 'when the tests input names a command but no deno test' (draft.ts:2143-2145), which matches evidence.ts:315-322: an empty input gives {flags: []} with no note. 'until now a permission flag of any command in the input was passed on' (draft.ts:2145-2146) matches 2026.11.13.1 (git show 27c2b0b:extensions/lib/evidence.ts:139-148). The note's 'a cd before it' (draft.ts:2141) and '--no-config' now match the code for plain cd and --no-config=VALUE. Small gap: 'a cd before it' and the headline 'the permissions CI's deno test gets' are still overstated by the compound and builtin cd cases under api-contracts. 'No data migration required' is right: no schema changed."
+    }
+  ]
+}

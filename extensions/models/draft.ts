@@ -1895,7 +1895,7 @@ async function carriedReview(
  */
 export const model = {
   type: "@puddleworks/puddleworks-factory/draft",
-  version: "2026.11.13.1",
+  version: "2026.11.23.1",
   upgrades: [
     {
       toVersion: "2026.10.16.2",
@@ -2121,6 +2121,35 @@ export const model = {
         "grant. A report committed before the build's first round still needs " +
         "no round. No data migration required: recorded rounds are read as " +
         "before.",
+      upgradeAttributes: (old: Record<string, unknown>) => old,
+    },
+    {
+      toVersion: "2026.11.23.1",
+      description:
+        "readiness runs an app's tests with the permissions CI's deno test " +
+        "gets, read from the tests input of the ci.yml job that calls " +
+        "puddle-tooling's publish.yml, or of the first job that gives it when " +
+        "no job calls publish.yml; accepted-warnings is read the same way. " +
+        "Only the deno test command's own flags count, not other commands' in " +
+        "the same line; combined short flags (-RW), -P/--permission-set and " +
+        "--ignore-* are passed as written, and the value of an option such as " +
+        "--filter is never a permission. The line is split as sh (which CI " +
+        "uses) splits literal text, without running a shell; a carriage " +
+        "return is part of a word. When it can't be read that way (a $ or " +
+        "backtick outside single quotes, an unmatched quote, a subshell, a " +
+        "here-document, &>, a flag-like word the shell could expand, more " +
+        "than one deno test, a cd before it, grouped flags like -qR, or -P " +
+        "with --config or --no-config), the tests don't run and readiness " +
+        "says why. readiness trusts a permission set (-P, --permission-set, " +
+        "and so the deno.json test permissions) only from a single plain deno " +
+        "test command: one command, with no other command, separator, " +
+        "redirection or variable set for it; any other line with -P is " +
+        "refused, even a harmless one. When the tests input names a command but no deno test " +
+        "(deno task test, say), the tests run with no permissions and the " +
+        "summary's new Tests: line says so; until now a permission flag of " +
+        "any command in the input was passed on. An app whose " +
+        "tests command readiness now refuses must write it as plain deno test " +
+        "flags in ci.yml. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
     },
   ],

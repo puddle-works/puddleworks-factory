@@ -196,6 +196,63 @@ Deno.test("testPermissions: only the deno test command's own flags, in every for
   assertEquals(testPermissions(ci("")), { flags: [] });
 });
 
+Deno.test("testPermissions: a permission set only from a single plain deno test command", () => {
+  const ci = (value: string) =>
+    `jobs:\n  publish:\n    with:\n      tests: ${JSON.stringify(value)}\n`;
+  // One plain command: its flags, as before.
+  for (
+    const [command, flags] of [
+      ["deno test -P extensions/", ["-P"]],
+      ["deno test -RP=ci --filter x extensions/", ["-RP=ci"]],
+      ["deno test --permission-set=ci -N x/ -- -A", [
+        "--permission-set=ci",
+        "-N",
+      ]],
+      ["deno test \\\n  -P \\\n  extensions/ # -A\n", ["-P"]],
+      ["deno test -P --junit-path=j\r-A extensions/", ["-P"]],
+    ] as const
+  ) assertEquals(flagsOf(ci(command)), [...flags], command);
+  // Anything else, however harmless, is refused (rounds 1 to 3 of the
+  // 2026.11.23.1 review found each of these, or its like).
+  for (
+    const command of [
+      "{ cd sub; } && deno test -P extensions/",
+      "if true; then cd sub; fi; deno test -P extensions/",
+      "command cd sub && deno test -P extensions/",
+      "eval cd sub; deno test -P extensions/",
+      "! cd sub; deno test -P extensions/",
+      "cd sub & deno test -P extensions/",
+      "true && deno test -P extensions/",
+      "deno test -P extensions/ || true",
+      "deno test -P extensions/ | tee log",
+      "deno test -P extensions/ 2>&1",
+      "deno test -P extensions/ > log",
+      "deno check x\ndeno test -P extensions/",
+      "DENO_DIR=x deno test -P extensions/",
+      "deno test -P extensions/ &",
+    ]
+  ) {
+    const got = testPermissions(ci(command));
+    assertEquals(
+      // A cd is also refused on its own, with or without a permission set.
+      "error" in got &&
+        /single plain deno test|changes directory/.test(got.error) &&
+        got.error.endsWith(command),
+      true,
+      `${command}: ${JSON.stringify(got)}`,
+    );
+  }
+  // The checks on the command itself still apply.
+  for (
+    const command of [
+      "deno test --no-config=true -P extensions/",
+      "deno test -P --no-config extensions/",
+      "deno test --config ci.json -P extensions/",
+      "deno test -R extensions/ &>/dev/null -P",
+    ]
+  ) assertEquals("error" in testPermissions(ci(command)), true, command);
+});
+
 Deno.test("testPermissions: reads quotes, escapes and redirections as the shell does", () => {
   for (
     const [command, flags] of [
@@ -220,6 +277,8 @@ Deno.test("testPermissions: reads quotes, escapes and redirections as the shell 
         ["-E"],
       ],
       [`printf '%s' "deno test -A" > notes; deno test -S x/`, ["-S"]],
+      // A cd after deno test doesn't change where it ran.
+      ["deno test -R x/ && cd docs && ls", ["-R"]],
       // A comment line, continuations and quotes over several lines.
       [
         `# "deno test -A"\ndeno test -R \\\n  --filter 'x y' \\\n  extensions/ # -A\n`,
@@ -227,7 +286,7 @@ Deno.test("testPermissions: reads quotes, escapes and redirections as the shell 
       ],
       // Redirections and their targets are not arguments.
       ["deno test -R x/ 2>&1 > out.log < /dev/null | tee x", ["-R"]],
-      ["deno test -R x/ >-A &>>log 2>-W", ["-R"]],
+      ["deno test -R x/ >-A >>log 2>-W", ["-R"]],
     ] as const
   ) assertEquals(flagsOf(testsIs(command)), [...flags], command);
 });
@@ -253,6 +312,12 @@ Deno.test("testPermissions: a tests command it can't read as the shell would is 
       ["deno test -qR extensions/", "(-qR)"],
       ["deno test --config ci.json -P extensions/", "config file"],
       ["deno test -c=ci.json -RP extensions/", "config file"],
+      ["deno test --no-config -P extensions/", "config option"],
+      ["deno test -P --no-config extensions/", "config option"],
+      ["deno test --no-config=true -P extensions/", "config option"],
+      ["cd sub && deno test -P extensions/", "changes directory"],
+      ["cd sub; deno test --allow-read=. extensions/", "changes directory"],
+      ["deno test -R extensions/ &>/dev/null -W; true", "&>"],
     ]
   ) {
     const got = testPermissions(testsIs(command));
@@ -388,10 +453,13 @@ Deno.test("testPermissions: deno given its flags gets the permissions the shell 
           ["-N=localhost", "--allow-read=a b"],
         ],
         ["deno test --seed 7 \\-S probe_test.ts", ["-S"]],
+        // A carriage return is part of a word to sh, not a space.
+        ["deno test --junit-path=j\r-A probe_test.ts", []],
       ] as Array<[string, string[]]>
     ) {
       assertEquals(flagsOf(testsIs(command)), flags, command);
-      const shell = await permissions("bash", ["-c", command]);
+      // CI runs the tests command with sh (puddle-tooling's publish.sh).
+      const shell = await permissions("sh", ["-c", command]);
       assertEquals(shell.startsWith("["), true, shell);
       assertEquals(
         await permissions(Deno.execPath(), ["test", ...flags, "probe_test.ts"]),
