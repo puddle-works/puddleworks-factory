@@ -194,9 +194,12 @@ const SUBSTITUTES = "substitutes or expands words";
  * single quotes, a backtick), an unmatched quote, a subshell or a
  * here-document.
  */
-function shellCommands(line: string): Word[][] | string {
+function shellCommands(
+  line: string,
+): { commands: Word[][]; plain: boolean } | string {
   const commands: Word[][] = [[]];
   let text = "", inWord = false, expands = false, redirect = false;
+  let plain = true;
   const end = () => {
     if (inWord && redirect) redirect = false;
     else if (inWord) commands[commands.length - 1].push({ text, expands });
@@ -252,9 +255,11 @@ function shellCommands(line: string): Word[][] | string {
       else end();
       if (/[>&|]/.test(line[i + 1] ?? "")) i++;
       redirect = true;
+      plain = false;
     } else if (c === "&" || c === "|" || c === ";") {
       if (line[i + 1] === c || (c === "|" && line[i + 1] === "&")) i++;
       next();
+      plain = false;
     } else {
       if ("*?[{~".includes(c)) expands = true;
       text += c;
@@ -262,7 +267,7 @@ function shellCommands(line: string): Word[][] | string {
     }
   }
   end();
-  return commands;
+  return { commands, plain };
 }
 
 /**
@@ -285,7 +290,9 @@ function shellCommands(line: string): Word[][] | string {
  * flag-like word the
  * shell could expand, groups a permission with other short flags (`-qR`), or
  * takes a permission set with `-c`/`--config` or `--no-config`, which
- * readiness doesn't pass on.
+ * readiness doesn't pass on. A permission set (`-P`, `--permission-set`) is
+ * taken only from a single plain `deno test` command: one command, with no
+ * separator, redirection or variable set for it.
  */
 export function testPermissions(
   ciYml: string | null,
@@ -295,8 +302,9 @@ export function testPermissions(
     error:
       `ci.yml's tests command ${why}, so readiness can't tell which deno permissions CI gives the tests: ${command}`,
   });
-  const commands = shellCommands(command);
-  if (typeof commands === "string") return unsupported(commands);
+  const read = shellCommands(command);
+  if (typeof read === "string") return unsupported(read);
+  const commands = read.commands;
   // Variables set for the command alone come before it.
   const simple = commands.map((words) =>
     words.slice(words.findIndex((w) => !/^[A-Za-z_]\w*=/.test(w.text)))
@@ -345,6 +353,18 @@ export function testPermissions(
   if (set && noConfig) {
     return unsupported(
       "takes a permission set with --no-config, a config option readiness doesn't pass on",
+    );
+  }
+  // A permission set is trusted only from one plain `deno test` command:
+  // no other command, separator, redirection or variable set for it, so no
+  // shell construct can change where or how CI runs it.
+  const used = commands.filter((words) => words.length);
+  if (
+    set && !(read.plain && used.length === 1 && used[0][0].text === "deno" &&
+      used[0][1]?.text === "test")
+  ) {
+    return unsupported(
+      "takes a permission set but is not a single plain deno test command",
     );
   }
   return { flags };

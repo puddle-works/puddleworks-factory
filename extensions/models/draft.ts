@@ -2140,7 +2140,11 @@ export const model = {
         "here-document, &>, a flag-like word the shell could expand, more " +
         "than one deno test, a cd before it, grouped flags like -qR, or -P " +
         "with --config or --no-config), the tests don't run and readiness " +
-        "says why. When the tests input names a command but no deno test " +
+        "says why. readiness trusts a permission set (-P, --permission-set, " +
+        "and so the deno.json test permissions) only from a single plain deno " +
+        "test command: one command, with no other command, separator, " +
+        "redirection or variable set for it; any other line with -P is " +
+        "refused, even a harmless one. When the tests input names a command but no deno test " +
         "(deno task test, say), the tests run with no permissions and the " +
         "summary's new Tests: line says so; until now a permission flag of " +
         "any command in the input was passed on. An app whose " +
