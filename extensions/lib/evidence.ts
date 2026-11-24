@@ -281,7 +281,8 @@ function shellCommands(line: string): Word[][] | string {
  * shell would is an error rather than a guess at its permissions: one that
  * substitutes or expands, leaves a quote open, uses a subshell or a
  * here-document or `&>` (which sh, as CI runs it, and bash read
- * differently), runs `deno test` more than once, has a flag-like word the
+ * differently), runs `deno test` more than once or after a `cd`, has a
+ * flag-like word the
  * shell could expand, groups a permission with other short flags (`-qR`), or
  * takes a permission set with `-c`/`--config` or `--no-config`, which
  * readiness doesn't pass on.
@@ -296,11 +297,21 @@ export function testPermissions(
   });
   const commands = shellCommands(command);
   if (typeof commands === "string") return unsupported(commands);
-  const runs = commands.map((words) =>
-    // Variables set for the command alone come before it.
+  // Variables set for the command alone come before it.
+  const simple = commands.map((words) =>
     words.slice(words.findIndex((w) => !/^[A-Za-z_]\w*=/.test(w.text)))
-  ).filter(([cmd, sub]) => cmd?.text === "deno" && sub?.text === "test");
+  );
+  const isRun = ([cmd, sub]: Word[]) =>
+    cmd?.text === "deno" && sub?.text === "test";
+  const runs = simple.filter(isRun);
   if (runs.length > 1) return unsupported("runs deno test more than once");
+  // CI runs the line from the repo root, as readiness runs deno. After a cd
+  // the config deno loads and relative permission paths are another
+  // directory's.
+  const before = simple.slice(0, Math.max(simple.findIndex(isRun), 0));
+  if (before.some(([cmd]) => cmd?.text === "cd" || cmd?.text === "pushd")) {
+    return unsupported("changes directory before deno test");
+  }
   if (runs.length === 0) {
     return command
       ? {
@@ -323,7 +334,7 @@ export function testPermissions(
       return unsupported(`groups permission flags with others (${w})`);
     } else {
       if (/^(--config(=|$)|-[a-zA-Z]*c)/.test(w)) config = true;
-      if (w === "--no-config") noConfig = true;
+      if (/^--no-config(=|$)/.test(w)) noConfig = true;
       if (VALUE_OPTIONS.has(w) || /^-[a-zA-Z]*[cL]$/.test(w)) i++;
     }
   }

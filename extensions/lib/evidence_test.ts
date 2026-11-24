@@ -220,6 +220,8 @@ Deno.test("testPermissions: reads quotes, escapes and redirections as the shell 
         ["-E"],
       ],
       [`printf '%s' "deno test -A" > notes; deno test -S x/`, ["-S"]],
+      // A cd after deno test doesn't change where it ran.
+      ["deno test -R x/ && cd docs && ls", ["-R"]],
       // A comment line, continuations and quotes over several lines.
       [
         `# "deno test -A"\ndeno test -R \\\n  --filter 'x y' \\\n  extensions/ # -A\n`,
@@ -255,6 +257,9 @@ Deno.test("testPermissions: a tests command it can't read as the shell would is 
       ["deno test -c=ci.json -RP extensions/", "config file"],
       ["deno test --no-config -P extensions/", "config option"],
       ["deno test -P --no-config extensions/", "config option"],
+      ["deno test --no-config=true -P extensions/", "config option"],
+      ["cd sub && deno test -P extensions/", "changes directory"],
+      ["cd sub; deno test --allow-read=. extensions/", "changes directory"],
       ["deno test -R extensions/ &>/dev/null -W; true", "&>"],
     ]
   ) {

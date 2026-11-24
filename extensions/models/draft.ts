@@ -2138,11 +2138,12 @@ export const model = {
         "return is part of a word. When it can't be read that way (a $ or " +
         "backtick outside single quotes, an unmatched quote, a subshell, a " +
         "here-document, &>, a flag-like word the shell could expand, more " +
-        "than one deno test, grouped flags like -qR, or -P with --config or " +
-        "--no-config), the tests don't run and readiness says why. With no " +
-        "deno test in the input (deno task test, say) the tests run with no " +
-        "permissions, and the summary's new Tests: line says so; until now a " +
-        "flag-like word anywhere in the input was passed on. An app whose " +
+        "than one deno test, a cd before it, grouped flags like -qR, or -P " +
+        "with --config or --no-config), the tests don't run and readiness " +
+        "says why. When the tests input names a command but no deno test " +
+        "(deno task test, say), the tests run with no permissions and the " +
+        "summary's new Tests: line says so; until now a permission flag of " +
+        "any command in the input was passed on. An app whose " +
         "tests command readiness now refuses must write it as plain deno test " +
         "flags in ci.yml. No data migration required.",
       upgradeAttributes: (old: Record<string, unknown>) => old,
